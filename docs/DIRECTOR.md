@@ -47,7 +47,9 @@ interface Kit {
 `rigInfo(doc, …)` in `@animestudio/kit`. Cast rigs are expected to follow the kit's bone names and
 to have the clips `idle walk run talk sing dance wave point cheer laugh cry scared jump clap
 present shrug turn hold walkDepth`, the controls `emotion`, `view` and a viseme control, and a
-`hand` anchor. Missing automatic clips are skipped; staged ones are reported.
+`hand` anchor (and `face`, the centre of the face as drawn from the front, for close-ups and front
+gestures). Missing automatic clips are skipped; staged ones are reported. The kit's clips include
+the fighting set `stance`, `power`, `punch` (the fist lands at 0.28 s) and `knocked`.
 
 **Wardrobe.** A character can carry every outfit and accessory in one rig, each shown or hidden by
 a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit` {`tee`, `polo`,
@@ -97,7 +99,9 @@ never coordinates.
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
 | `emotion` | `who`, `value` | Emotion pose |
 | `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
-| `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once) |
+| `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once). From the front, `facepalm`, `despair`, `think`, `cover`, `excited` and `shout` are hand positions on the posed face (IK), and the hands come back where they were (on a table…) afterwards |
+| `hands` | `who`, `on` (a fixture or furniture with a `top` anchor) | Forearms on the table: both hands on its top |
+| `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
 | `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
@@ -108,7 +112,7 @@ never coordinates.
 | `dribble` | `who`, `prop`, `until` | Bounces the prop in sync with the hand of the `dribble` clip |
 | `vehicle` | `kind`, `lane` (`near`/`far`), `color`, `dir?` | Drives through and leaves (invisible before and after); ids are `<kind><n>` |
 | `fixture` | `id`, `value` | Changes a fixture (traffic light `red`/`green`) |
-| `camera` | `type` (`wide`, `group`, `two-shot`, `close`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `follow` of an object (ball, car) frames it with the cast; `reveal` pans towards a mark without losing the cast |
+| `camera` | `type` (`wide`, `group`, `two-shot`, `close`, `crash`, `whip`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `close` and `two-shot` frame the faces (the posed `face` anchor, else `head`: they follow someone sitting or leaning); `crash` snaps in on a face with a jolt and focus lines; `whip` swings fast to a face with speed lines. `follow` of an object (ball, car) frames it with the cast; `reveal` pans towards a mark without losing the cast |
 | `light` | `mood` (`morning`, `day`, `afternoon`, `evening`, `night`) or `channel` + `value`, `until?` | Lighting change; fixtures that show the time of day follow it |
 | `mount` / `dismount` | `who`, `vehicle` (a block vehicle) | Gets on (walks to it, sits on the seat, feet on the pedals, hands on the handlebar) / gets off and stands beside it |
 | `ride` | `who`, `to`, `until?`, `vehicle?`, `wobble?` (0..1) | Rides to a place (mounts first if needed; `vehicle` defaults to the last one ridden). Pedals turn in step with the ground (`drive` clip `stride`). `wobble` rocks it like a beginner |

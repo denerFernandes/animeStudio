@@ -335,7 +335,7 @@ gesture clips, emotions and the director work for every character.
 | `eyeArt(spec)`, `eyeWhite`, `eyeArc`, `eyeLid`, `eyeSwitch(bone)` | Storybook eyes: open, wide, closed, happy, half-lidded, pupils |
 | `browShapes(eyes, rad, lift?)` | Brow morph (up, sad, cross, smug) |
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
-| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold, ride: torso leaning into the ride, head up) |
+| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold, ride: torso leaning into the ride, head up, and the fighting set stance, power, punch, knocked) |
 | `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, sleep, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
 | `withViews(doc, spec)`, `ViewSpec`, `STILL_MIX` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); bones in `still` (default the head) keep only `STILL_MIX` of their rotation in those views; records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
@@ -356,6 +356,7 @@ See [DIRECTOR.md](DIRECTOR.md).
 | `closest(word, options)` | "did you mean" helper used in messages |
 | `wardrobeOf(doc)` | Wardrobe controls of a rig and their poses: the pose controls in `meta.wardrobe`, or every pose control except `view` / `emotion` |
 | `ACTIONS`, `CAMERAS`, `MOODS` | Vocabulary |
+| `FRONT_GESTURES` | Gestures played as hand positions on the face in the front view (`facepalm`, `despair`, `think`, `cover`, `excited`, `shout`) |
 | Types | `Staging`, `Block`, `Beat`, `CastEntry`, `PropEntry`, `VehicleEntry`, `FurnitureEntry`, `Cut`, `Text`, `When`, `Place`, `Line`, `Kit`, `SetDef`, `CastMember`, `Overlay`, `Issue`, `Directed` |
 
 ## `@animestudio/cli` (`toon`)

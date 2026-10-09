@@ -408,6 +408,53 @@ export function characterClips(o: ClipOptions) {
         "bones.head.rotation": [[0, -4], [0.28, -4]],
       },
     },
+    // Fighting stance: knees bent, fists up.
+    stance: {
+      duration: 1.6,
+      loop: true,
+      tracks: {
+        "bones.hips.y": [[0, 6], [0.8, 9], [1.6, 6]],
+        "bones.body.rotation": [[0, 6], [0.8, 8], [1.6, 6]],
+        "bones.armF1.rotation": [[0, -70], [0.8, -66], [1.6, -70]],
+        "bones.armF2.rotation": [[0, -110], [1.6, -110]],
+        ...farArm({ "bones.armB1.rotation": [[0, -40], [1.6, -40]], "bones.armB2.rotation": [[0, -120], [1.6, -120]] }),
+      },
+    },
+    // Powering up, eyes closed: arms down and back, fists clenched, chin down.
+    power: {
+      duration: 1.2,
+      loop: true,
+      tracks: {
+        "bones.hips.y": [[0, 5], [0.6, 7], [1.2, 5]],
+        "bones.head.rotation": [[0, 8], [1.2, 8]],
+        "bones.armF1.rotation": [[0, 22], [0.6, 24], [1.2, 22]],
+        "bones.armF2.rotation": [[0, -30], [1.2, -30]],
+        ...farArm({ "bones.armB1.rotation": [[0, 26], [1.2, 26]], "bones.armB2.rotation": [[0, -30], [1.2, -30]] }),
+      },
+    },
+    // A straight punch: wind-up, thrust (fast), hold, recover — the fist lands at 0.28 s.
+    punch: {
+      duration: 0.9,
+      tracks: {
+        "bones.body.rotation": [[0, 0], [0.18, -10, "easeOut"], [0.28, 16, "easeIn"], [0.6, 14], [0.9, 0]],
+        "bones.hips.y": [[0, 0], [0.18, 6], [0.28, 3], [0.9, 0]],
+        "bones.armF1.rotation": [[0, 0], [0.18, 50, "easeOut"], [0.28, -84, "easeIn"], [0.6, -82], [0.9, 0]],
+        "bones.armF2.rotation": [[0, 0], [0.18, -120, "easeOut"], [0.28, -4, "easeIn"], [0.6, -4], [0.9, 0]],
+        ...farArm({ "bones.armB1.rotation": [[0, 0], [0.28, 40], [0.9, 0]], "bones.armB2.rotation": [[0, 0], [0.28, -100], [0.9, 0]] }),
+      },
+    },
+    // Thrown back by a hit: arms and legs flung forward.
+    knocked: {
+      duration: 0.6,
+      tracks: {
+        "bones.body.rotation": [[0, 0], [0.12, -24, "easeOut"], [0.6, -18]],
+        "bones.head.rotation": [[0, 0], [0.12, -20, "easeOut"], [0.6, -14]],
+        "bones.armF1.rotation": [[0, 0], [0.12, -120, "easeOut"], [0.6, -100]],
+        "bones.legF1.rotation": [[0, 0], [0.12, -50, "easeOut"], [0.6, -40]],
+        "bones.legB1.rotation": [[0, 0], [0.12, -20, "easeOut"], [0.6, -30]],
+        ...farArm({ "bones.armB1.rotation": [[0, 0], [0.12, -140, "easeOut"], [0.6, -120]] }),
+      },
+    },
     // Riding (a bicycle…): hands and feet are held on the vehicle by the scene (`reach`); the
     // torso leans into the ride, the head stays up, a small bob with each pedal stroke.
     ride: {

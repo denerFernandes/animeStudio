@@ -217,6 +217,37 @@ describe("director", () => {
     expect(op[op.length - 1]).toEqual([lines[2].s, 1]);
   });
 
+  it("hits: dash, punch, the target thrown inside the set and knocked out", () => {
+    const fighter = { ...stick, controls: { ...stick.controls, emotion: { type: "pose", poses: { scared: {}, dead: {} } } }, clips: { ...stick.clips, punch: { duration: 0.9, tracks: {} }, knocked: { duration: 0.6, tracks: {} } } } as unknown as typeof stick;
+    const k: Kit = { ...kit, characters: { a: fighter, b: fighter }, sets: { ...kit.sets, room: { ...kit.sets.room, bounds: [0, 0, 1920, 1080] } } };
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door", offset: -6 }, { id: "b", at: "door" }], beats: [{ line: 1, do: "hit", who: "a", target: "b", ko: true }] }] }, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; type?: string; clip?: string; value?: unknown; channel?: string }[];
+    expect(script.some((x) => x.action === "play" && x.actor === "a" && x.clip === "punch")).toBe(true);
+    expect(script.filter((x) => x.action === "fx").map((x) => x.type)).toEqual(expect.arrayContaining(["impactFrame", "burst", "caption", "ghost"]));
+    expect(script.some((x) => x.action === "pose" && x.actor === "b" && x.value === "dead")).toBe(true);
+    const xs = script.filter((x) => x.actor === "b" && x.channel === "x").map((x) => x.value as number);
+    expect(Math.max(...xs)).toBeLessThan(1920);
+  });
+
+  it("plays front gestures as hand positions and comes back to the table", () => {
+    const front = { ...stick, anchors: { ...stick.anchors, face: { bone: "head", at: [0, -150] } }, ik: [{ id: "handF", bones: ["arm1", "arm2"], mix: 0 }], controls: { ...stick.controls, view: { type: "pose", poses: { profile: {}, front: {} } } } } as unknown as typeof stick;
+    const tableRig = { format: "toon", version: 1, name: "t", skeleton: [{ id: "root" }], parts: [{ id: "t", type: "rigid", bone: "root", art: "<rect width='300' height='20'/>" }], anchors: { top: { bone: "root", at: [0, -90] } } };
+    const k: Kit = { ...kit, characters: { a: front, b: stick, t: tableRig as never }, sets: { ...kit.sets, room: { ...kit.sets.room, fixtures: [{ id: "tbl", character: "t", mark: "door" }] } } };
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], beats: [
+      { line: 0, do: "view", who: "a", value: "front" },
+      { line: 0, offset: 0.2, do: "hands", who: "a", on: "tbl" },
+      { line: 1, do: "gesture", who: "a", clip: "facepalm" },
+      { line: 2, do: "camera", type: "close", who: "a" },
+    ] }] }, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const reaches = (out.scenes.x.script as { action: string; actor?: string; target?: unknown }[]).filter((x) => x.action === "reach" && x.actor === "a").map((x) => x.target);
+    // On the table, up to the face, back on the table.
+    expect(reaches.length).toBe(3);
+    expect(reaches[2]).toEqual(reaches[0]);
+    expect((out.scenes.x.script as { action: string; on?: string }[]).some((x) => x.action === "camera" && x.on === "face")).toBe(true);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

@@ -513,6 +513,7 @@ export const ActionSchema = z.discriminatedUnion("action", [
       .optional()
       .describe("Keep these actors/props framed (auto position + zoom) from `at`; null stops"),
     padding: z.number().min(0).optional().describe("frame: margin around the targets in scene px (default 80)"),
+    on: z.enum(["body", "face"]).optional().describe('frame: what to keep in shot — whole bodies (default) or faces (the posed "face" anchor, else "head": close-ups that follow a sitting or moving character)'),
     minZoom: z.number().positive().optional(),
     maxZoom: z.number().positive().optional(),
     band: z

@@ -118,9 +118,22 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit"];
+/** Camera shot types. */
 /** Camera types. */
-export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
+export const CAMERAS = ["wide", "group", "two-shot", "close", "crash", "whip", "follow", "reveal"];
+/**
+ * Gestures that read from the front as hand positions, not arm swings: where the near hand goes,
+ * relative to the face centre (in face heights: +x towards the near side, +y down).
+ */
+export const FRONT_GESTURES: Record<string, { hand: [number, number]; both?: boolean; hold: number }> = {
+  facepalm: { hand: [0.1, -0.45], hold: 1.4 },
+  despair: { hand: [0.55, 0.35], hold: 1.4 },
+  think: { hand: [0.25, 0.8], hold: 1.8 },
+  cover: { hand: [0, 0.55], hold: 1.2 },
+  excited: { hand: [0.55, 1.3], both: true, hold: 1.4 },
+  shout: { hand: [0.5, 0.5], both: true, hold: 1.2 },
+};
 
 // ------------------------------------------------------------------ one block = one continuous scene
 
@@ -143,6 +156,10 @@ class BlockScene {
   private faces: { actor: string; t: number }[] = [];
   /** When each actor started crossing to the far ground (smaller from then on). */
   private crossed = new Map<string, number>();
+  /** Front-view gestures waiting for the posed face positions (resolved at the end of the build). */
+  private pendingGestures: { actor: string; clip: string; at: number; until: number }[] = [];
+  /** IK reach targets set by the staging, per actor and chain (to come back to after a gesture). */
+  private reachLog: { actor: string; chain: string; t: number; target: unknown }[] = [];
   /** Riding: who is on which vehicle, and when. */
   private rides: { rider: string; vehicle: string; t0: number; t1: number }[] = [];
   /** Block vehicles (id → kind, scale) and the ones lying on their side. */
@@ -377,6 +394,11 @@ class BlockScene {
   private characterOf(actor: string) {
     return (this.actors.find((a) => a.id === actor)?.character as string) ?? actor;
   }
+  /** Holds an IK chain somewhere (a scene point, another actor's anchor, or null to let go). */
+  reach(actor: string, chain: string, target: unknown, abs: number, dur = 0.3) {
+    this.reachLog.push({ actor, chain, t: abs, target });
+    this.push({ at: this.t(abs), actor, action: "reach", chain, target, duration: r3(dur) });
+  }
   set(actor: string, channel: string, value: unknown, abs: number, dur = 0, ease?: string) {
     this.push({ at: this.t(abs), actor, action: "set", channel, value, duration: r3(dur), ...(ease ? { ease } : {}) });
   }
@@ -544,7 +566,18 @@ class BlockScene {
         break;
       }
       case "gesture":
-        for (const w of who) this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
+        for (const w of who) {
+          const fg = FRONT_GESTURES[b.clip as string];
+          // From the front, these are hand positions (resolved on the posed face after staging).
+          if (fg && this.viewAt(w, at) === "front") this.pendingGestures.push({ actor: w, clip: b.clip as string, at, until: until ?? at + fg.hold });
+          else this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
+        }
+        break;
+      case "hands":
+        for (const w of who) this.handsOn(w, b.on as string, at);
+        break;
+      case "hit":
+        if (one) this.hit(one, b.target as string, at, { ko: !!b.ko, until });
         break;
       case "fx":
         if (one) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, actor: one, ...(b.type === "dust" ? { anchor: "origin" } : {}) });
@@ -976,7 +1009,7 @@ class BlockScene {
     const far = new Set(["legB1", "legB2", "footB"]);
     const parts = ((this.kit.characters[this.characterOf(rider)]?.parts ?? []) as { id: string; bone?: string; bones?: string[] }[]).filter((p) => (p.bone && far.has(p.bone)) || p.bones?.some((b) => far.has(b))).map((p) => p.id);
     this.push({ at: this.t(at), actor: rider, action: "mount", on: vehicle, anchor: "seat", point: hip, duration: 0.4, ...(parts.length ? { behind: parts } : {}) });
-    for (const g of this.grips(rider, vehicle)) this.push({ at: this.t(at), actor: rider, action: "reach", chain: g.chain, target: { actor: vehicle, anchor: g.anchor }, duration: 0.4 });
+    for (const g of this.grips(rider, vehicle)) this.reach(rider, g.chain, { actor: vehicle, anchor: g.anchor }, at, 0.4);
     if (!this.grips(rider, vehicle).some((g) => g.chain.startsWith("foot"))) this.issue("warning", `${rider} rides "${vehicle}" without feet on pedals (anchors pedalF / pedalB or IK chains footF / footB missing)`);
     this.rides.push({ rider, vehicle, t0: at, t1: Infinity });
     // Can the legs reach the pedals? (setup positions: seat → farthest pedal, scaled)
@@ -996,7 +1029,7 @@ class BlockScene {
   }
   private letGo(rider: string, vehicle: string, at: number, dur: number) {
     this.push({ at: this.t(at), actor: rider, action: "mount", on: null, duration: dur });
-    for (const g of this.grips(rider, vehicle)) this.push({ at: this.t(at), actor: rider, action: "reach", chain: g.chain, target: null, duration: Math.min(dur, 0.3) });
+    for (const g of this.grips(rider, vehicle)) this.reach(rider, g.chain, null, at, Math.min(dur, 0.3));
   }
   /** Rides to a place (mounting first if needed); `wobble` 0..1 rocks the vehicle like a beginner. */
   ride(rider: string, b: Beat, at: number, until?: number) {
@@ -1080,6 +1113,111 @@ class BlockScene {
     if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
     this.push({ at: this.t(at + dur + 0.05), action: "fx", type: "stars", actor });
   }
+  // -------------------------------------------------- hands, front gestures, fights
+  /** Scene point of an anchor of a placed rig (furniture, fixtures: they stand still). */
+  private placedAnchor(id: string, anchor: string): [number, number] | undefined {
+    const a = this.actors.find((x) => x.id === id) as { x: number; y: number; scale?: number; flip?: boolean; character: string } | undefined;
+    const at = a && ((this.kit.characters[a.character]?.anchors ?? {}) as Record<string, { at: [number, number] }>)[anchor]?.at;
+    if (!a || !at) return undefined;
+    const s = a.scale ?? 1;
+    return [a.x + at[0] * s * (a.flip ? -1 : 1), a.y + at[1] * s];
+  }
+  /** Forearms on a table (a fixture or furniture with a `top` anchor): both hands on its top. */
+  handsOn(actor: string, on: string, at: number) {
+    const top = this.placedAnchor(on, "top");
+    if (!top) return this.issue("error", `${actor} cannot put the hands on "${on}": no fixture or furniture with a "top" anchor`);
+    const x = this.xAt(actor, at), s = this.scaleOf(actor);
+    const near = this.facing(actor, at) ? 1 : -1;
+    for (const [chain, side] of [["handF", 1], ["handB", -1]] as const) if (this.hasChain(actor, chain)) this.reach(actor, chain, [Math.round(x + near * side * 34 * s), Math.round(top[1] + 6)], at, 0.35);
+  }
+  /** The chain's staged reach target just before a moment (to come back to after a gesture). */
+  private reachBefore(actor: string, chain: string, abs: number) {
+    const log = this.reachLog.filter((r) => r.actor === actor && r.chain === chain && r.t <= abs + 1e-6);
+    return log.length ? log[log.length - 1].target : null;
+  }
+  /**
+   * Front-view gestures as hand positions on the posed face: compiled once the block is staged
+   * (sitting, leaning and moving are all known), the near hand (both for some) goes there and back.
+   */
+  private resolveGestures(doc: SceneDoc) {
+    if (!this.pendingGestures.length) return;
+    const compiled = compileScene(doc, { characters: this.kit.characters } as never);
+    for (const g of this.pendingGestures) {
+      const fg = FRONT_GESTURES[g.clip];
+      const rig = this.member(g.actor)?.rig;
+      const anchors = (this.kit.characters[this.characterOf(g.actor)]?.anchors ?? {}) as Record<string, unknown>;
+      const anchor = anchors.face ? "face" : anchors.head ? "head" : undefined;
+      if (!anchor) {
+        this.issue("warning", `${g.actor}: "${g.clip}" from the front needs a "face" (or "head") anchor`);
+        continue;
+      }
+      const [fx, fy] = anchorPosition(compiled, g.actor, anchor, this.t(g.at)) as [number, number];
+      const h = (rig?.height ?? 300) * this.scaleOf(g.actor) * 0.22;
+      const near = this.facing(g.actor, g.at) ? 1 : -1;
+      const chains: [string, number][] = fg.both ? [["handF", 1], ["handB", -1]] : [["handF", 1]];
+      for (const [chain, side] of chains) {
+        if (!this.hasChain(g.actor, chain)) continue;
+        const back = this.reachBefore(g.actor, chain, g.at);
+        this.reach(g.actor, chain, [Math.round(fx + near * side * fg.hand[0] * h), Math.round(fy + fg.hand[1] * h)], g.at - 0.15, 0.2);
+        this.reach(g.actor, chain, back, g.until, 0.4);
+      }
+    }
+  }
+  /**
+   * A punch: the attacker dashes in (speed lines), punches; impact frames, a burst, a jolt; the
+   * target is thrown back spinning and lands on the back (inside the set), dizzy — or, with `ko`,
+   * knocked out (a ghost floats up, "K.O.").
+   */
+  hit(attacker: string, target: string, at: number, o: { ko?: boolean; until?: number } = {}) {
+    if (!this.present.includes(target)) return this.issue("error", `${attacker} cannot hit "${target}": not in block "${this.block.id}"${closest(target, this.present)}`);
+    const xa = this.xAt(attacker, at), xv = this.xAt(target, at);
+    const dir = xv >= xa ? 1 : -1;
+    const A = this.member(attacker)!.rig, V = this.member(target)!.rig;
+    const sa = this.scaleOf(attacker), sv = this.scaleOf(target);
+    const close = xv - dir * 0.5 * (A.extent.front * sa + V.extent.back * sv);
+    let t = at;
+    this.face(attacker, dir > 0 ? "right" : "left", at);
+    if (Math.abs(close - xa) > 40) {
+      const dash = 0.35;
+      this.walk(attacker, close, at, dash, { clip: this.hasClip(attacker, "run") ? "run" : "walk", ease: "easeIn" });
+      this.push({ at: this.t(at), action: "fx", type: "speedLines", duration: dash + 0.1, angle: dir > 0 ? 0 : 180 });
+      t = at + dash;
+    }
+    if (this.hasClip(attacker, "punch")) this.play(attacker, "punch", t, 0.9, { fadeIn: 0.05 });
+    const hitT = t + 0.28;
+    // The hit.
+    this.push({ at: this.t(hitT), action: "fx", type: "impactFrame", duration: 0.12 });
+    this.push({ at: this.t(hitT), action: "fx", type: "burst", actor: target, duration: 0.35, scale: 1.2 });
+    this.push({ at: this.t(hitT), action: "shake", duration: 0.8, amount: 20, frequency: 22 });
+    if (this.hasClip(target, "knocked")) this.play(target, "knocked", hitT, 0.6, { fadeIn: 0.02 });
+    if (this.hasControl(target, "emotion")) this.push({ at: this.t(hitT), actor: target, action: "pose", control: "emotion", value: "scared", duration: 0.05 });
+    // Thrown back, spinning, onto the back — kept inside the set.
+    const facing = this.facing(target, hitT) ? 1 : -1;
+    const g = this.lying(target, facing, "back");
+    const [bx0, , bx1] = this.setDef.bounds ?? [0, 0, this.kit.width ?? 1920, 0];
+    const height = V.height * sv;
+    const land = Math.max(bx0 + height * 0.8, Math.min(bx1 - height * 0.8, xv + dir * height * 0.9));
+    const y = this.groundY(target, hitT);
+    const fly = 0.85;
+    this.slide(target, land, hitT, fly);
+    this.set(target, "y", Math.round(y - height * 0.6), hitT, fly * 0.4, "easeOut");
+    this.set(target, "y", Math.round(y - g.offset[1]), hitT + fly * 0.4, fly * 0.6, "easeIn");
+    this.set(target, "rotation", r3(g.rotation + (g.rotation > 0 ? 360 : -360)), hitT, fly, "easeOut");
+    this.set(target, "rotation", g.rotation, hitT + fly + 0.001, 0);
+    this.bendNeck(target, g.neck, hitT + fly, 0.2);
+    this.shadow(target, hitT, { hide: true }, 0.2);
+    this.rests.push({ actor: target, kind: "fallen", on: null, t0: hitT, t1: Infinity, y });
+    this.push({ at: this.t(hitT + fly), action: "fx", type: "dust", actor: target, anchor: "origin", scale: 2 });
+    this.push({ at: this.t(hitT + fly), action: "fx", type: "stars", actor: target, scale: 1.3 });
+    this.push({ at: this.t(hitT + fly), action: "shake", duration: 0.4, amount: 10, frequency: 22 });
+    if (o.ko) {
+      const poses = ((this.kit.characters[this.characterOf(target)]?.controls as Record<string, { poses?: Record<string, unknown> }> | undefined)?.emotion?.poses) ?? {};
+      if (poses.dead || poses.sleep) this.push({ at: this.t(hitT + fly + 0.3), actor: target, action: "pose", control: "emotion", value: poses.dead ? "dead" : "sleep", duration: 0.05 });
+      this.push({ at: this.t(hitT + 0.05), action: "fx", type: "caption", text: "K.O.", style: "ko", duration: 1.3 });
+      this.push({ at: this.t(hitT + fly + 0.6), action: "fx", type: "ghost", actor: target, anchor: "origin", duration: 3.5 });
+    }
+  }
+
   // -------------------------------------------------- flying
   /** Characters that fly: `meta.canFly` on the rig, or a `fly` clip. Wings beat with `fly`, else `flap`. */
   canFly(actor: string) {
@@ -1573,11 +1711,23 @@ class BlockScene {
           this.push({ at: abs, action: "camera", frame: [...subject.filter((s) => this.propStates.has(s) || this.actors.some((a) => a.id === s)), ...this.present], padding: 200, minZoom: 1, maxZoom: 1.1, blend: 1 });
         } else this.push({ at: abs, action: "camera", follow: who[0], offset: [120, -40], lag: 0.6, axes: "x", blend: 0.8 });
         break;
+      // Close-ups frame the faces (they follow a character who sits, leans or moves).
       case "close":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), padding: 300, minZoom: 1.2, maxZoom: 1.5, blend: 0.8 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.8 });
         break;
       case "two-shot":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), padding: 260, minZoom: 1.05, maxZoom: 1.3, blend: 1 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), on: "face", padding: 150, minZoom: 1.3, maxZoom: 2.4, blend: 1 });
+        break;
+      // A crash zoom: snapped in on a face, with a jolt and focus lines.
+      case "crash":
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.05 });
+        this.push({ at: abs, action: "shake", duration: 0.45, amount: 7, frequency: 22 });
+        this.push({ at: abs, action: "fx", type: "focusLines", duration: 1.1 });
+        break;
+      // A whip pan to someone: a fast swing with speed lines.
+      case "whip":
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.05 });
+        this.push({ at: abs, action: "fx", type: "speedLines", duration: 0.3 });
         break;
       case "reveal": {
         // Pan towards a mark, but never so far that the cast leaves the frame.
@@ -1778,7 +1928,7 @@ class BlockScene {
     }
     const layers = typeof this.setDef.layers === "function" ? this.setDef.layers() : this.setDef.layers;
     const usedChars = new Set(this.actors.map((a) => a.character as string));
-    return {
+    const doc = {
       format: "toon-scene",
       version: 1,
       width: this.kit.width ?? 1920,
@@ -1795,6 +1945,11 @@ class BlockScene {
       ...(this.setDef.lighting ? { lighting: this.sceneLighting() } : {}),
       script: [...this.script].sort((a, b) => a.at - b.at),
     } as unknown as SceneDoc;
+    if (this.pendingGestures.length) {
+      this.resolveGestures(doc);
+      (doc as { script: unknown[] }).script = [...this.script].sort((a, b) => a.at - b.at);
+    }
+    return doc;
   }
 }
 

@@ -753,6 +753,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
               maxZoom: a.maxZoom ?? 4,
               lag: a.lag ?? 0.4,
               ...(a.band ? { band: a.band as [number, number] } : {}),
+              ...(a.on ? { on: a.on } : {}),
             };
             cameraSegments.push({ kind: "frame", start: a.at, frame });
             if (a.duration !== undefined) cameraSegments.push({ kind: "hold", start: a.at + a.duration });
@@ -1015,13 +1016,24 @@ function cameraTrack(scene: CompiledScene, k: CameraChannel, t: number, d: numbe
 }
 
 /** Scene-space bounding box of actors/props (for automatic framing). */
-function targetsBox(scene: CompiledScene, ids: string[], t: number): [number, number, number, number] {
+function targetsBox(scene: CompiledScene, ids: string[], t: number, faces = false): [number, number, number, number] {
   let box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const add = (x: number, y: number) => {
     box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
   };
   for (const id of ids) {
     const actor = scene.actors.find((a) => a.id === id);
+    if (actor && faces) {
+      // A face: the posed face (or head) anchor, with room for the whole head around it.
+      const name = actor.rig.anchors.face ? "face" : actor.rig.anchors.head ? "head" : undefined;
+      const m = actorPlacement(actor, t);
+      const [, by0, , by1] = rigBounds(actor.rig);
+      const s = Math.abs(by1 - by0) * Math.hypot(m[0], m[1]) * 0.14;
+      const p = name ? anchorPosition(scene, id, name, t) : apply(m, [0, by0 * 0.8]);
+      add(p[0] - s, p[1] - s * 1.3);
+      add(p[0] + s, p[1] + s * 1.2);
+      continue;
+    }
     if (actor) {
       const m = actorPlacement(actor, t);
       const [x0, y0, x1, y1] = rigBounds(actor.rig);
@@ -1154,7 +1166,7 @@ function segmentPose(scene: CompiledScene, k: number, t: number, base: CameraPos
       const fr = seg.frame;
       const w = rigWeight(fr.start, Infinity, fr.blend, t);
       fr.samples ??= bakeFrame(fr, scene.duration, (tt) => {
-        const raw = targetsBox(scene, fr.targets, tt);
+        const raw = targetsBox(scene, fr.targets, tt, fr.on === "face");
         const box: typeof raw = fr.band ? [raw[0], fr.band[0], raw[2], fr.band[1]] : raw;
         return Number.isFinite(box[0]) ? fitBox(box, scene.width, scene.height, fr.padding, fr.minZoom, fr.maxZoom) : null;
       });

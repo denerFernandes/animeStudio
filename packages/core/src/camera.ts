@@ -52,6 +52,8 @@ export interface CameraFrame {
   maxZoom: number;
   /** Smoothing lag (s): framing eases towards its target instead of popping (e.g. on a flip). */
   lag: number;
+  /** Frame whole bodies (default) or just the faces. */
+  on?: "body" | "face";
   /** Fixed vertical extent [top, bottom] of the framed box (horizontal framing only). */
   band?: [number, number];
   /** Lazily baked smoothed framing [x, y, zoom] at 60 Hz. */
