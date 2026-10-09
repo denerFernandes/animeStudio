@@ -119,6 +119,19 @@ describe("advanced camera", () => {
     expect(frameToSVG(evaluateScene(s, 0.5))).not.toContain("iris-0");
   });
 
+  it("lets an actor look at a prop it is holding", () => {
+    const s = compile(
+      scene({
+        props: [{ id: "ball", art: "<circle r='10'/>", x: 0, y: 0 }],
+        script: [
+          { at: 0, actor: "a", action: "grab", prop: "ball", anchor: "hand" },
+          { at: 0, actor: "a", action: "lookAt", target: "ball" },
+        ],
+      }),
+    );
+    expect(() => evaluateScene(s, 1)).not.toThrow();
+  });
+
   it("validates camera targets", () => {
     const r = validateScene(scene({ script: [{ at: 0, action: "camera", frame: ["ghost"] }] }), { characters: { stick } });
     expect(r.ok).toBe(false);

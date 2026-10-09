@@ -1662,7 +1662,7 @@
                 "maxItems": 2
               },
               "lag": {
-                "description": "follow: smoothing lag in seconds (default 0.3)",
+                "description": "follow / frame: smoothing lag in seconds (follow 0.3, frame 0.4)",
                 "type": "number",
                 "minimum": 0
               },
@@ -1893,7 +1893,10 @@
                   "zzz",
                   "anger",
                   "impact",
-                  "gloom"
+                  "gloom",
+                  "notes",
+                  "stars",
+                  "lightbulb"
                 ],
                 "description": "Cartoon effect"
               },

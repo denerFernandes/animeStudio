@@ -149,6 +149,17 @@ describe("pose", () => {
     const c = evaluatePose(rig, { time: 0, tracks: [ctrl("emotion", "sad")] });
     close(c.state.brot[rig.boneIndex.get("head")!], 20);
   });
+
+  it("drives several mouths (one per view) from one viseme control", () => {
+    const doc = structuredClone(stick);
+    doc.parts!.push({ id: "mouthFront", type: "switch", bone: "head", variants: { A: "mouthA", D: "mouthD", X: "mouthX" }, default: "X" } as never);
+    doc.controls!.mouth = { type: "viseme", part: ["mouth", "mouthFront"] };
+    const rig = compileRig(doc);
+    const track = { channel: "controls.mouth", ref: { kind: "control" as const, name: "mouth" }, track: normalizeTrack([[0, "D"]]) };
+    const pose = evaluatePose(rig, { time: 0, tracks: [track] });
+    expect(pose.state.variant[rig.partIndex.get("mouth")!]).toBe("D");
+    expect(pose.state.variant[rig.partIndex.get("mouthFront")!]).toBe("D");
+  });
 });
 
 const scene: SceneDoc = {

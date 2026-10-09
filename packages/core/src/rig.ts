@@ -141,7 +141,7 @@ export type RigPhysics =
   | { type: "jiggle"; bone: number; stiffness: number; damping: number; translate: number; squash: number; mix: number };
 
 export type RigControl =
-  | { type: "viseme"; name: string; part: number; map: Record<string, string> }
+  | { type: "viseme"; name: string; parts: number[]; map: Record<string, string> }
   | {
       type: "aim";
       name: string;
@@ -601,9 +601,13 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
   for (const [name, def] of controlDefs) {
     const path = `controls.${name}`;
     if (def.type === "viseme") {
-      const part = parts[partRef(def.part, path)];
-      if (part.type !== "switch" && part.type !== "morph") throw new RigError(`part "${def.part}" must be a switch or morph part`, path);
-      partial.controls[name] = { type: "viseme", name, part: part.index, map: def.map ?? {} };
+      const ids = Array.isArray(def.part) ? def.part : [def.part];
+      const indices = ids.map((id) => {
+        const part = parts[partRef(id, path)];
+        if (part.type !== "switch" && part.type !== "morph") throw new RigError(`part "${id}" must be a switch or morph part`, path);
+        return part.index;
+      });
+      partial.controls[name] = { type: "viseme", name, parts: indices, map: def.map ?? {} };
     } else if (def.type === "aim") {
       partial.controls[name] = {
         type: "aim",

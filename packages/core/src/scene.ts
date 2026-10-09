@@ -1134,16 +1134,30 @@ function groundFeet(actor: CompiledActor, placement: Mat): Record<string, Vec2> 
   return out;
 }
 
+/** Actors whose aim targets are being resolved (guards against cycles). */
+const resolvingAim = new Set<CompiledActor>();
+
 /** Pose of an actor before physics. */
 function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): EvaluatedPose {
   const placement = actorPlacement(actor, t);
   const toChar = invert(placement);
+  // Looking at a prop held in one's own hand (or a chain of actors holding things and looking at
+  // each other) depends on this very pose: inside such a cycle the pose is evaluated without aim.
+  let aim: ReturnType<typeof aimTargets> | undefined;
+  if (!resolvingAim.has(actor)) {
+    resolvingAim.add(actor);
+    try {
+      aim = aimTargets(scene, actor, t, toChar);
+    } finally {
+      resolvingAim.delete(actor);
+    }
+  }
   return evaluatePose(actor.rig, {
     time: t,
     clips: actor.clips,
     tracks: actor.tracks,
     seed: actor.seed,
-    aim: aimTargets(scene, actor, t, toChar),
+    aim,
     ikOffset: groundFeet(actor, placement),
   });
 }

@@ -20,6 +20,9 @@ export const FX_TYPES = [
   "anger",
   "impact",
   "gloom",
+  "notes",
+  "stars",
+  "lightbulb",
 ] as const;
 
 export type FxType = (typeof FX_TYPES)[number];
@@ -37,6 +40,9 @@ export const FX_DURATIONS: Record<FxType, number> = {
   anger: 1.0,
   impact: 0.35,
   gloom: 1.8,
+  notes: 2.0,
+  stars: 1.6,
+  lightbulb: 1.2,
 };
 
 export interface FxStyle {
@@ -187,6 +193,58 @@ export function fxMarkup(type: FxType, u: number, t: number, style: FxStyle): st
         return line(Math.cos(a) * r0, Math.sin(a) * r0, Math.cos(a) * r1, Math.sin(a) * r1, c, 5);
       }).join("");
       return g(rays, `opacity="${f(clamp((1 - u) / 0.6, 0, 1))}"`);
+    }
+    case "notes": {
+      // Music notes drifting up and swaying (singing, humming).
+      const fills = [style.fill ?? "#F06292", "#4FC3F7", "#FFB300", "#7C4DFF"];
+      return Array.from({ length: 4 }, (_, i) => {
+        const v = (u * 1.3 + i / 4) % 1;
+        const x = (i - 1.5) * 26 + Math.sin(t * 3 + i * 1.7) * 10;
+        const y = -50 - v * 90;
+        const s = 0.8 + (i % 2) * 0.25;
+        const head = `<ellipse cx="0" cy="0" rx="8" ry="6" transform="rotate(-20)" fill="${fills[i]}" stroke="${c}" stroke-width="2.5"/>`;
+        const stem = `<path d="M7 -2 V-30 ${i % 2 ? "Q16 -24 18 -14" : "L22 -34 V-8"}" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+        const second = i % 2 ? "" : `<ellipse cx="15" cy="-6" rx="8" ry="6" transform="rotate(-20 15 -6)" fill="${fills[i]}" stroke="${c}" stroke-width="2.5"/>`;
+        return g(head + second + stem, `transform="translate(${f(x)} ${f(y)}) scale(${f(s * pop)})" opacity="${f(Math.sin(v * Math.PI) * alpha)}"`);
+      }).join("");
+    }
+    case "stars": {
+      // Little stars circling above the head (dizzy, starstruck).
+      const fill = style.fill ?? "#FFE27A";
+      return g(
+        [0, 1, 2]
+          .map((i) => {
+            const a = t * 4 + (i * Math.PI * 2) / 3;
+            const x = Math.cos(a) * 34;
+            const y = -70 + Math.sin(a) * 9;
+            const five = Array.from({ length: 10 }, (_, k) => {
+              const r = k % 2 ? 4.5 : 11;
+              const b = (k * Math.PI) / 5 - Math.PI / 2;
+              return `${f(x + Math.cos(b) * r)} ${f(y + Math.sin(b) * r)}`;
+            }).join(" L");
+            return `<path d="M${five} Z" fill="${fill}" stroke="${c}" stroke-width="2.5" stroke-linejoin="round" opacity="${f(0.6 + 0.4 * Math.sin(a))}"/>`;
+          })
+          .join(""),
+        `transform="scale(${f(pop)})" opacity="${f(alpha)}"`,
+      );
+    }
+    case "lightbulb": {
+      // A bulb pops up above the head and glows (an idea).
+      const glow = 0.5 + 0.5 * Math.sin(t * 10);
+      const fill = style.fill ?? "#FFE14D";
+      const rays = [-60, -30, 0, 30, 60]
+        .map((deg) => {
+          const a = ((deg - 90) * Math.PI) / 180;
+          return line(Math.cos(a) * 30, Math.sin(a) * 30 - 26, Math.cos(a) * (40 + glow * 6), Math.sin(a) * (40 + glow * 6) - 26, c, 4);
+        })
+        .join("");
+      return g(
+        `<circle cx="0" cy="-26" r="${f(30 + glow * 4)}" fill="${fill}" opacity="0.35"/>` +
+          `<path d="M-18 -30 C-18 -54 18 -54 18 -30 C18 -18 8 -14 8 -4 H-8 C-8 -14 -18 -18 -18 -30 Z" fill="${fill}" stroke="${c}" stroke-width="3.5" stroke-linejoin="round"/>` +
+          `<rect x="-9" y="-4" width="18" height="12" rx="3" fill="#B8B8C0" stroke="${c}" stroke-width="3"/>` +
+          rays,
+        `transform="translate(0 -40) scale(${f(pop)})" opacity="${f(alpha)}"`,
+      );
     }
     case "gloom": {
       // Wavy vertical lines hanging above the head.

@@ -208,7 +208,7 @@ is the main interface for AI-driven animation.
 
 | `type` | Fields | Channel value |
 |---|---|---|
-| `viseme` | `part` (switch **or morph** part id), `map?` (viseme → variant/shape) | Viseme letter `A B C D E F G H X`, or a weight blend `{ "C": 0.3, "D": 0.7 }` |
+| `viseme` | `part` (switch **or morph** part id, or a list of them — e.g. one mouth per view, all driven together), `map?` (viseme → variant/shape) | Viseme letter `A B C D E F G H X`, or a weight blend `{ "C": 0.3, "D": 0.7 }` |
 | `aim` | `targets: [{ bone, weight=1, mode="rotate", forward=0, maxAngle=60, radius=0 }]` | `[x, y]` setup-space point, an actor/prop id (in scenes), or `null` (off) |
 | `pose` | `poses: { name → { channel → value } }` | Pose name, or `{ name → weight }` blend |
 
@@ -442,6 +442,9 @@ scene point. Each pops in, animates and fades out on its own; all are determinis
 | `anger` | Pulsing cross vein | Annoyance | 1.0 s |
 | `impact` | Burst of rays | Hits, bumps | 0.35 s |
 | `gloom` | Wavy lines hanging over the head | Exhaustion, sadness | 1.8 s |
+| `notes` | Music notes drifting up | Singing, humming | 2.0 s |
+| `stars` | Stars circling above the head | Dizziness, being starstruck | 1.6 s |
+| `lightbulb` | Glowing bulb popping up | An idea | 1.2 s |
 
 ```json
 { "at": 7.8, "actor": "azul", "action": "fx", "type": "surprise" }

@@ -845,8 +845,19 @@
                 "const": "viseme"
               },
               "part": {
-                "type": "string",
-                "description": "Switch part (mouth variants) or morph part (mouth shapes, smooth blending)"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Switch part (mouth variants) or morph part (mouth shapes, smooth blending); a list drives several mouths at once (e.g. one per view)"
               },
               "map": {
                 "description": "Viseme → variant name",

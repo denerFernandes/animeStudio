@@ -184,7 +184,9 @@ export type Viseme = (typeof VISEMES)[number];
 
 export const VisemeControlSchema = z.strictObject({
   type: z.literal("viseme"),
-  part: z.string().describe("Switch part (mouth variants) or morph part (mouth shapes, smooth blending)"),
+  part: z
+    .union([z.string(), z.array(z.string()).min(1)])
+    .describe("Switch part (mouth variants) or morph part (mouth shapes, smooth blending); a list drives several mouths at once (e.g. one per view)"),
   map: z.record(z.string(), z.string()).optional().describe("Viseme → variant name"),
 });
 

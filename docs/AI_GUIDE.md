@@ -53,6 +53,48 @@ Rules of thumb for fluid results:
 - Build episodes as a `toon-sequence` of scenes with transitions; end with an `iris` on the
   character who has the last beat.
 
+### Continuity (staging whole episodes)
+
+Lessons from converting a 66-shot storyboard into an episode:
+
+- **Stage continuous scenes, not one scene per storyboard shot.** Put a whole location and its
+  action (walk, incident, conversation) in one scene and make cuts with `camera` actions
+  (`duration: 0`, or `frame` / `follow` rigs). Characters, props and vehicles then keep their
+  positions between cuts instead of vanishing, jumping sides or reappearing elsewhere.
+- **Keep screen direction (the 180° rule).** Who stands left of whom must not change between
+  cuts unless the audience sees them move.
+- **Objects keep their history.** A ball held in a hand is grabbed from the first frame of the
+  scene; once it rolls away it stays where it stopped until someone picks it up. Vehicles drive
+  through and leave the frame — they never pop in parked.
+- **Time actions to the audio.** If a narration describes a motion ("it rolled… down the kerb…
+  across the street… and stopped by the flowers"), key the motion to those lines so it lasts as
+  long as the narration.
+- **Reuse footage for recaps and songs.** A sequence shot can show any window of an earlier scene
+  (`from` + `duration`); prefer windows where nobody speaks (only narration or effects).
+- **On-screen text belongs to the screen.** Captions and labels go in a screen-fixed layer
+  (`parallax: 0` props, or an overlay on top of the composition), at a fixed place, only while
+  their line plays.
+- **Front view = looking at the camera.** Draw it truly frontal: everything symmetric about the
+  body's centre line, eyes on that line with centred pupils (clear the gaze target with
+  `lookAt: null`), snout/beak/moustache centred under the eyes, ears or hair symmetric, and the
+  same heights as the profile (eye line, chin, shoulders). A 3/4 drawing does not read as
+  "talking to you".
+- **Views:** front views are for talking to the audience; walking away from the camera uses a
+  back view with an in-place walk (legs foreshortened, not bent sideways).
+- **Listeners face the speaker.** On every line, turn listeners towards whoever speaks and the
+  speaker towards the one addressed (by name, else the closest) — unless they are walking,
+  holding hands, in a front/back view, or a staged turn happens around that time. Characters
+  facing away from the conversation read as a mistake.
+- **Leave room for heads.** Profile heads reach far in front of the feet (snouts, beaks, cap
+  brims) and shells behind them: space neighbours by those extents, not by their feet.
+- **Hand-held props follow the hand.** When a character bounces or throws something, key the
+  prop from the hand positions of the clip (measure the anchor at the clip's key times) so the
+  palm actually touches it.
+- **Vehicles exist only while they drive.** Hide them (`actors.<id>.opacity`) before they enter
+  and after they leave, and start them so they enter the frame with their sound effect.
+- **Tracks hold their first key before it.** A `pose`/`set` at t = 40 s also applies before
+  40 s, so give every changing channel an explicit value at t = 0 (e.g. `view: "profile"`).
+
 ### Lighting
 
 - Give scenes a `lighting` block for mood: a `point` light with `glow` for visible light sources
@@ -77,6 +119,12 @@ Rules of thumb for fluid results:
 - Loop clips should start and end with the same values.
 - Secondary motion: `spring` physics on ears, tails and hair; keep `squash` for intentional
   moments (jumps, impacts) authored in clips.
+- Several views (profile, 3/4 front, 3/4 back) share one skeleton: add a hidden `switch` part
+  (`view`) whose variants are empty, give view-specific parts `visibleWhen: { part: "view", … }`,
+  and a `pose` control that sets `parts.view.variant` and moves bones (arms to the sides, eyes and
+  mouth towards the middle of the face, `parts.<id>.opacity: -1` to hide the face from behind).
+  When each view has its own mouth, list them all in the viseme control (`part: ["mouth", "mouthFront"]`).
+  Hide the switch with a quick squash clip (e.g. `bones.root.scaleX` 1 → 0.8 → 1) at the change.
 
 ## Common validation errors
 

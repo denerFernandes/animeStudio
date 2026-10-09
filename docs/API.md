@@ -210,7 +210,7 @@ Used by `evaluateScene` for the `fx` action; exported for custom renderers.
 | Function / constant | Description |
 |---|---|
 | `fxMarkup(type, u, t, { color, fill?, seed }): string` | SVG of an effect at normalized progress `u` (0..1), `t` seconds in. Drawn around the origin (the anchor) in character-sized units |
-| `FX_TYPES` | `surprise`, `exclaim`, `question`, `sweat`, `sparkle`, `dust`, `hearts`, `zzz`, `anger`, `impact`, `gloom` (type `FxType`) |
+| `FX_TYPES` | `surprise`, `exclaim`, `question`, `sweat`, `sparkle`, `dust`, `hearts`, `zzz`, `anger`, `impact`, `gloom`, `notes`, `stars`, `lightbulb` (type `FxType`) |
 | `FX_DURATIONS` | Default duration per effect (seconds) |
 
 ### Debug mode — `debug.ts`

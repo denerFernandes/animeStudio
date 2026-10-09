@@ -376,18 +376,20 @@ export function evaluatePose(
       // A viseme letter, or a weight blend such as { C: 0.3, D: 0.7 } (smooth transitions).
       const weights: Record<string, number> =
         typeof value === "string" ? { [value]: 1 } : typeof value === "object" && !Array.isArray(value) ? value : {};
-      const part = rig.parts[control.part];
-      if (part.type === "switch") {
-        let best = "";
-        let bw = 0;
-        for (const [v, w] of Object.entries(weights)) if (w > bw) [best, bw] = [v, w];
-        const variant = best ? visemeVariant(control, part, best) : undefined;
-        if (variant !== undefined) s.variant[control.part] = variant;
-      } else if (part.type === "morph") {
-        const m = s.morph[control.part];
-        for (const [v, w] of Object.entries(weights)) {
-          const shape = visemeVariant(control, part, v);
-          if (shape !== undefined && w > 0) m[shape] = (m[shape] ?? 0) + w;
+      for (const index of control.parts) {
+        const part = rig.parts[index];
+        if (part.type === "switch") {
+          let best = "";
+          let bw = 0;
+          for (const [v, w] of Object.entries(weights)) if (w > bw) [best, bw] = [v, w];
+          const variant = best ? visemeVariant(control, part, best) : undefined;
+          if (variant !== undefined) s.variant[index] = variant;
+        } else if (part.type === "morph") {
+          const m = s.morph[index];
+          for (const [v, w] of Object.entries(weights)) {
+            const shape = visemeVariant(control, part, v);
+            if (shape !== undefined && w > 0) m[shape] = (m[shape] ?? 0) + w;
+          }
         }
       }
     }
