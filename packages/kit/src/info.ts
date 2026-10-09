@@ -22,11 +22,16 @@ export interface RigInfo {
   hip?: P;
   /** Thigh + shin length (hip joint to ankle). */
   legLength?: { F: number; B: number };
+  /**
+   * Half thickness of the torso (back and belly, from the body's centre line): what rests on a bed
+   * or the ground when lying. Not the reach (`extent` includes tails, backpacks, shells, snouts).
+   */
+  depth?: { back: number; front: number };
 }
 
 type Bone = { id: string; from?: P; to?: P };
 
-export function rigInfo(doc: ToonDoc, o: { extent: { front: number; back: number }; height: number }): RigInfo {
+export function rigInfo(doc: ToonDoc, o: { extent: { front: number; back: number }; height: number; depth?: number | { back: number; front: number } }): RigInfo {
   const bones = new Map((doc.skeleton as Bone[]).map((b) => [b.id, b]));
   const from = (id: string): P => {
     const b = bones.get(id);
@@ -45,6 +50,7 @@ export function rigInfo(doc: ToonDoc, o: { extent: { front: number; back: number
     backShoulder: { F: move.armF1 ?? [0, 0], B: move.armB1 ?? [0, 0] },
     extent: o.extent,
     height: o.height,
+    ...(o.depth !== undefined ? { depth: typeof o.depth === "number" ? { back: o.depth, front: o.depth } : o.depth } : {}),
     hip: [(from("legF1")[0] + from("legB1")[0]) / 2, (from("legF1")[1] + from("legB1")[1]) / 2],
     legLength: {
       F: dist(from("legF1"), from("legF2")) + dist(from("legF2"), from("footF")),

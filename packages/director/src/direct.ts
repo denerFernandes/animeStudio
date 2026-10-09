@@ -990,7 +990,7 @@ class BlockScene {
     const s = this.scaleOf(actor);
     const height = (rig?.height ?? 200) * s;
     const front = side === "front";
-    const depth = (front ? (rig?.extent.front ?? 60) * 0.8 : (rig?.extent.back ?? 60) * 0.7) * s;
+    const depth = this.depthOf(actor, front ? "front" : "back") * s;
     const y = this.groundY(actor, at);
     this.slide(actor, this.xAt(actor, at) + dir * (shift ?? (front ? 0.12 : -0.06) * height), at, dur);
     this.set(actor, "rotation", dir * (front ? 84 : -84), at, dur, "easeIn");
@@ -1037,6 +1037,14 @@ class BlockScene {
     const s = this.scaleOf(actor);
     if (this.hasChain(actor, "footF")) this.push({ at: this.t(at), actor, action: "reach", chain: "footF", target: [Math.round(x + dir * 4 * s), Math.round(y)], duration: dur });
     if (this.hasChain(actor, "footB")) this.push({ at: this.t(at), actor, action: "reach", chain: "footB", target: [Math.round(x - dir * 8 * s), Math.round(y)], duration: dur });
+  }
+  /**
+   * Half thickness of the torso on one side (setup px): what rests on the bed or the ground when
+   * lying. `RigInfo.depth`, else a guess capped so tails, backpacks or snouts never lift the body.
+   */
+  private depthOf(actor: string, side: "back" | "front") {
+    const rig = this.member(actor)?.rig;
+    return rig?.depth?.[side] ?? Math.min(rig?.extent[side] ?? 34, 34) * 0.7;
   }
   private hipOf(actor: string): [number, number] {
     const rig = this.member(actor)?.rig;
@@ -1146,7 +1154,7 @@ class BlockScene {
     const s = this.scaleOf(actor);
     const hip = this.hipOf(actor);
     // The back rests on the surface, not the spine: about half the body's depth.
-    const back = (rig?.extent.back ?? 60) * 0.7;
+    const back = this.depthOf(actor, "back");
     if ("furniture" in place) {
       // With a `pillow` anchor the head goes on it (any body length); else the hips go on `bed` / `seat`.
       const head = ((this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, { at: [number, number] }>).head?.at;

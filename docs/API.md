@@ -337,7 +337,7 @@ gesture clips, emotions and the director work for every character.
 | `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
 | `withViews(doc, spec)`, `ViewSpec`, `STILL_MIX` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); bones in `still` (default the head) keep only `STILL_MIX` of their rotation in those views; records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
-| `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director (hands, shoulders, arm lengths, `hip` joint, `legLength`) |
+| `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director (hands, shoulders, arm lengths, `hip` joint, `legLength`, optional `depth`: half torso thickness for lying) |
 | `withProportions(doc, { head, torso, legs, arms })`, `proportionMeasure(measure, p, hipHeight)` | Build-time body proportions (e.g. a grown-up from a child template: smaller head, longer torso, legs and arms): remaps bones, setup-space art, morph paths, anchors and pose offsets; parts in bone space keep their size |
 
 ## `@animestudio/director`

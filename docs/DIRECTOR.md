@@ -149,7 +149,9 @@ part of the place goes in the set, always there: `SetDef.furniture: [{ id, kind,
 background art), plus `"lie": true` for places to lie on (grass bank).
 
 Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `RigInfo.hip` /
-`legLength` (from `rigInfo`); without leg chains they still sit (legs not bent) and ride. A
+`legLength` (from `rigInfo`). Lying and falls rest the body on `RigInfo.depth` — half the torso's
+thickness, `rigInfo(doc, { …, depth: 30 })` or `{ back, front }` (a shell is thicker) — never on the
+reach (`extent` includes tails, backpacks, snouts); without it a small default is used; without leg chains they still sit (legs not bent) and ride. A
 `ground` bone carrying the `shadow` part keeps the shadow on the floor while sitting.
 
 ### Automatic (never written in a staging)
