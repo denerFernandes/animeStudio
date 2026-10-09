@@ -25,7 +25,9 @@ The soundtrack, already timed (seconds), one entry per line:
 ```
 
 `speaker` is a cast name (or alias), a narrator, `"sfx"`, or `"song"` / `song: true` (everybody
-present sings). Lip sync comes from the word timings.
+present sings). Lip sync comes from the word timings; the last word lasts until `voiceEnd` (when
+the voice really stops, measured from the line's audio) or, without it, until the line end minus
+its usual trailing silence (0.22 s), because aligners tend to end drawn-out last words early.
 
 ## Kit
 
@@ -81,7 +83,7 @@ never coordinates.
 
 | Action | Fields | Effect |
 |---|---|---|
-| `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`) |
+| `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
 | `enter` | `who`, `from`, `run?` | Same as `enter` on the cast entry: comes in from off screen |
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame |
 | `face` | `who`, `direction` | Turns around |
@@ -98,7 +100,7 @@ never coordinates.
 | `dribble` | `who`, `prop`, `until` | Bounces the prop in sync with the hand of the `dribble` clip |
 | `vehicle` | `kind`, `lane` (`near`/`far`), `color`, `dir?` | Drives through and leaves (invisible before and after); ids are `<kind><n>` |
 | `fixture` | `id`, `value` | Changes a fixture (traffic light `red`/`green`) |
-| `camera` | `type` (`wide`, `group`, `two-shot`, `close`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment |
+| `camera` | `type` (`wide`, `group`, `two-shot`, `close`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `follow` of an object (ball, car) frames it with the cast; `reveal` pans towards a mark without losing the cast |
 | `light` | `mood` (`day`, `afternoon`, `evening`, `night`) or `channel` + `value`, `until?` | Lighting change |
 
 ### Automatic (never written in a staging)
@@ -129,7 +131,9 @@ plays (at least 1.6 s), or `until` a moment.
 ## Checks
 
 `check()` returns `{ severity, where, message }`: anyone acting in a block they are not in (with
-who is present), unknown ids (with the closest valid one),
+who is present), characters standing on top of each other for more than half a second (not hand
+in hand, not walking past; depth-aware), a speaker out of the frame or at its edge (the camera is
+evaluated), unknown ids (with the closest valid one),
 unknown actions/marks/props/vehicles/fixtures, a speaker missing from the block where they
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a
 replay cut), and every

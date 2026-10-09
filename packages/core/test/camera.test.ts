@@ -132,6 +132,28 @@ describe("advanced camera", () => {
     expect(() => evaluateScene(s, 1)).not.toThrow();
   });
 
+  it("rolls every depth by the same angle (no shear between layers)", () => {
+    const s = compile(scene({ camera: { rotation: 3 } }));
+    const c = cameraAt(s, 0);
+    const angle = (m: number[]) => Math.atan2(m[1], m[0]);
+    expect(angle(viewMatrix(s, c, 0.4))).toBeCloseTo(angle(viewMatrix(s, c, 1)));
+    expect(angle(viewMatrix(s, c, 0))).toBeCloseTo(0);
+  });
+
+  it("does not mirror glyph effects and hides the shading of invisible actors", () => {
+    const s = compile(
+      scene({
+        actors: [{ id: "a", character: "stick", x: 100, y: 380, flip: true, opacity: 0 }],
+        lighting: { lights: [{ id: "key", type: "directional", angle: 130, glow: 0 }], shading: { light: "key" } },
+        script: [{ at: 0, action: "fx", type: "question", actor: "a" }],
+      }),
+    );
+    const f = evaluateScene(s, 0.3);
+    const fx = f.nodes.find((n) => n.key.startsWith("fx-"));
+    expect(fx && "transform" in fx && fx.transform![0]).toBeGreaterThan(0);
+    expect(f.nodes.some((n) => n.key === "shade-a")).toBe(false);
+  });
+
   it("validates camera targets", () => {
     const r = validateScene(scene({ script: [{ at: 0, action: "camera", frame: ["ghost"] }] }), { characters: { stick } });
     expect(r.ok).toBe(false);

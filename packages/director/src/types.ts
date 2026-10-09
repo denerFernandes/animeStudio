@@ -11,6 +11,8 @@ export interface Line {
   /** Cast name, a narrator name, "song" (everybody present sings) or "sfx". */
   speaker: string;
   words?: { w: string; s: number; e: number }[] | null;
+  /** When the voice actually stops (s), if measured from the audio; lip sync lasts until then. */
+  voiceEnd?: number;
   /** A sung line: everybody present sings it. */
   song?: boolean;
 }

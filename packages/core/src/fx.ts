@@ -23,6 +23,7 @@ export const FX_TYPES = [
   "notes",
   "stars",
   "lightbulb",
+  "birds",
 ] as const;
 
 export type FxType = (typeof FX_TYPES)[number];
@@ -43,6 +44,7 @@ export const FX_DURATIONS: Record<FxType, number> = {
   notes: 2.0,
   stars: 1.6,
   lightbulb: 1.2,
+  birds: 3.2,
 };
 
 export interface FxStyle {
@@ -245,6 +247,25 @@ export function fxMarkup(type: FxType, u: number, t: number, style: FxStyle): st
           rays,
         `transform="translate(0 -40) scale(${f(pop)})" opacity="${f(alpha)}"`,
       );
+    }
+    case "birds": {
+      // A few little birds crossing the sky (left → right) with flapping wings; around the origin.
+      const fill = style.fill ?? "#ff8a3d";
+      return Array.from({ length: 3 }, (_, i) => {
+        const delay = i * 0.12;
+        const v = clamp((u - delay) / (1 - delay), 0, 1);
+        if (v <= 0 || v >= 1) return "";
+        const x = -320 + v * 640 + (i - 1) * 40;
+        const y = -40 * i + Math.sin(v * Math.PI * 2 + i) * 18;
+        const flapUp = Math.sin(t * 22 + i * 2) > 0;
+        const wing = flapUp ? "M-2 -2 C4 -16 16 -18 20 -10 C12 -8 6 -4 -2 -2 Z" : "M-2 0 C4 12 14 14 18 8 C10 6 6 2 -2 0 Z";
+        const body =
+          `<ellipse cx="0" cy="0" rx="13" ry="9" fill="${fill}" stroke="${c}" stroke-width="2.5"/>` +
+          `<circle cx="10" cy="-6" r="7" fill="${fill}" stroke="${c}" stroke-width="2.5"/><circle cx="12.5" cy="-7.5" r="1.8" fill="${c}"/>` +
+          `<path d="M16 -7 L23 -5 L16 -3 Z" fill="#ffd23f" stroke="${c}" stroke-width="1.8" stroke-linejoin="round"/>` +
+          `<path d="${wing}" fill="${fill}" stroke="${c}" stroke-width="2.2" stroke-linejoin="round"/>`;
+        return g(body, `transform="translate(${f(x)} ${f(y - 120)}) scale(${f(1 - i * 0.12)})" opacity="${f(clamp(Math.min(v, 1 - v) / 0.08, 0, 1))}"`);
+      }).join("");
     }
     case "gloom": {
       // Wavy vertical lines hanging above the head.

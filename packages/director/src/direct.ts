@@ -4,6 +4,7 @@ import {
   type SequenceDoc,
   anchorPosition,
   compileScene,
+  screenPoint,
   cuesFromText,
   mergeCues,
   validateScene,
@@ -82,8 +83,13 @@ export class Timeline {
 export function lineCues(l: Line): MouthCue[] {
   if (!l.words?.length) return cuesFromText(l.text, { duration: l.e - l.s });
   const cues: MouthCue[] = [];
-  for (const w of l.words) {
-    for (const c of cuesFromText(w.w, { start: Math.max(0, w.s - l.s), duration: Math.max(0.08, w.e - w.s) })) if (c.value !== "X" || c.end - c.start > 0.06) cues.push(c);
+  const last = l.words.length - 1;
+  for (const [i, w] of l.words.entries()) {
+    // Aligners often end the last word early (a drawn-out last word): keep the mouth moving until
+    // the voice ends — `voiceEnd` when known, else the line end minus its usual trailing silence.
+    const voiceEnd = l.voiceEnd ?? l.e - 0.22;
+    const end = i === last ? Math.max(w.e, voiceEnd) : w.e;
+    for (const c of cuesFromText(w.w, { start: Math.max(0, w.s - l.s), duration: Math.max(0.08, end - w.s) })) if (c.value !== "X" || c.end - c.start > 0.06) cues.push(c);
   }
   cues.sort((a, b) => a.start - b.start);
   const out: MouthCue[] = [];
@@ -119,6 +125,8 @@ class BlockScene {
   private views: { actor: string; t: number; view: string }[] = [];
   private holds: { actor: string; t0: number; t1: number }[] = [];
   private faces: { actor: string; t: number }[] = [];
+  /** When each actor started crossing to the far ground (smaller from then on). */
+  private crossed = new Map<string, number>();
   private propStates = new Map<string, PropState>();
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
@@ -139,7 +147,7 @@ class BlockScene {
     const set = kit.sets[block.set];
     if (!set) throw new Error(`block "${block.id}": unknown set "${block.set}" (sets: ${Object.keys(kit.sets).join(", ")})`);
     this.setDef = set;
-    this.cam = { x: this.mark("center").x, y: (kit.height ?? 1080) / 2, zoom: 1, handheld: 1.5, ...(set.bounds ? { bounds: set.bounds } : {}) };
+    this.cam = { x: this.mark("center").x, y: (kit.height ?? 1080) / 2, zoom: 1, ...(set.bounds ? { bounds: set.bounds } : {}) };
   }
 
   // -------------------------------------------------- helpers
@@ -165,16 +173,28 @@ class BlockScene {
   scaleOf(id: string) {
     return this.member(id)?.scale ?? 1;
   }
-  /** Scene x of a place at a given time. */
+  /** Smallest distance between two characters standing side by side, `a` left of `b`, so that
+   *  neither covers the other: what `a` reaches to the right plus what `b` reaches to the left. */
+  pairGap(a: string, b: string, aRight = true, bRight = true): number {
+    const ea = this.member(a)?.rig.extent ?? { front: 60, back: 60 };
+    const eb = this.member(b)?.rig.extent ?? { front: 60, back: 60 };
+    return ((aRight ? ea.front : ea.back) * this.scaleOf(a) + (bRight ? eb.back : eb.front) * this.scaleOf(b)) * 0.95 + 20;
+  }
+  /** Scene x of a place at a given time. Next to someone = beside them, never on top of them. */
   placeX(p: Place, abs: number, who?: string): number {
+    const beside = (target: string, side?: "left" | "right") => {
+      const tx = this.xAt(target, abs);
+      const left = side ? side === "left" : !!who && this.xAt(who, abs) < tx;
+      // The walker ends facing the target.
+      return left ? tx - (who ? this.pairGap(who, target, true, false) : SLOT) : tx + (who ? this.pairGap(target, who, true, false) : SLOT);
+    };
     if (typeof p === "string") {
-      if (this.present.includes(p)) return this.xAt(p, abs) + (who && this.xAt(who, abs) < this.xAt(p, abs) ? -1 : 1) * SLOT * 0.8;
+      if (this.present.includes(p)) return beside(p);
       if (this.propStates.has(p)) return this.propX(p, abs);
       return this.mark(p).x;
     }
     if ("mark" in p) return this.mark(p.mark).x + (p.dx ?? 0);
-    const side = p.side === "left" ? -1 : 1;
-    return this.xAt(p.near, abs) + side * SLOT * 0.8;
+    return beside(p.near, p.side);
   }
   xAt(actor: string, abs: number): number {
     let x = this.x0[actor] ?? 960;
@@ -385,8 +405,19 @@ class BlockScene {
     switch (b.do) {
       case "walk":
       case "run": {
+        // Several going to the same place stand side by side around it (left → right order kept).
+        const dest = new Map<string, number>();
+        if (who.length > 1) {
+          const centre = this.placeX(b.to as Place, at, who[0]);
+          const order = [...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
+          const right = centre >= order.reduce((s, w) => s + this.xAt(w, at), 0) / order.length;
+          const xs = [0];
+          for (let i = 1; i < order.length; i++) xs.push(xs[i - 1] + this.pairGap(order[i - 1], order[i], right, right));
+          const mid = (xs[0] + xs[xs.length - 1]) / 2;
+          order.forEach((w, i) => dest.set(w, centre - mid + xs[i]));
+        }
         for (const w of who) {
-          const x = this.placeX(b.to as Place, at, w);
+          const x = dest.get(w) ?? this.placeX(b.to as Place, at, w);
           const speed = (this.member(w)?.speed?.[b.do as "walk" | "run"] ?? (b.do === "run" ? 380 : 170)) * this.scaleOf(w);
           this.walk(w, x, at, until ? until - at : Math.abs(x - this.xAt(w, at)) / speed, { clip: b.do });
         }
@@ -649,6 +680,7 @@ class BlockScene {
     const target = this.mark(to).x;
     const centre = who.reduce((a, w) => a + this.xAt(w, at), 0) / who.length;
     for (const w of who) {
+      this.crossed.set(w, at);
       this.view(w, "back", at - 0.15);
       const s0 = this.scaleOf(w);
       const x1 = target + (this.xAt(w, at) - centre) * ds;
@@ -666,7 +698,11 @@ class BlockScene {
     const abs = this.t(at);
     switch (c.type) {
       case "follow":
-        this.push({ at: abs, action: "camera", follow: who[0], offset: [120, -40], lag: 0.6, axes: "x", blend: 0.8 });
+        if (who[0] && !this.present.includes(who[0]) || (c.who === undefined && !who.length)) {
+          // Following an object (ball, car): frame it together with the cast, nobody is cut off.
+          const subject = Array.isArray(c.who) ? c.who : c.who ? [c.who] : [];
+          this.push({ at: abs, action: "camera", frame: [...subject.filter((s) => this.propStates.has(s) || this.actors.some((a) => a.id === s)), ...this.present], padding: 200, minZoom: 1, maxZoom: 1.1, blend: 1 });
+        } else this.push({ at: abs, action: "camera", follow: who[0], offset: [120, -40], lag: 0.6, axes: "x", blend: 0.8 });
         break;
       case "close":
         this.push({ at: abs, action: "camera", frame: who.slice(0, 1), padding: 300, minZoom: 1.2, maxZoom: 1.5, blend: 0.8 });
@@ -674,9 +710,17 @@ class BlockScene {
       case "two-shot":
         this.push({ at: abs, action: "camera", frame: who.slice(0, 2), padding: 260, minZoom: 1.05, maxZoom: 1.3, blend: 1 });
         break;
-      case "reveal":
-        this.push({ at: abs, action: "camera", x: this.mark(c.mark ?? "center").x, y: 520, zoom: 1.1, duration: 2.5, ease: "sineInOut" });
+      case "reveal": {
+        // Pan towards a mark, but never so far that the cast leaves the frame.
+        const W = this.kit.width ?? 1920;
+        const zoom = 1.05;
+        const half = (W / 2 - 170) / zoom;
+        const xs = this.present.map((p) => this.xAt(p, at));
+        let x = this.mark(c.mark ?? "center").x;
+        if (xs.length) x = Math.min(Math.max(x, Math.max(...xs) - half), Math.min(...xs) + half);
+        this.push({ at: abs, action: "camera", x: Math.round(x), y: 520, zoom, duration: 2.5, ease: "sineInOut" });
         break;
+      }
       case "cross": {
         const x = this.mark("crossing").x;
         this.push({ at: abs, action: "camera", x, y: 640, zoom: 1.25, duration: 3, ease: "sineInOut" });
@@ -688,6 +732,35 @@ class BlockScene {
       default:
         this.push({ at: abs, action: "camera", frame: who.length ? who : this.present, padding: c.type === "wide" ? 260 : 220, minZoom: 1, maxZoom: 1.15, blend: 1.2 });
     }
+  }
+
+  // -------------------------------------------------- continuity checks
+  /** Two characters covering each other for more than half a second (not hand in hand). */
+  private checkOverlaps() {
+    const ids = this.present;
+    const reported = new Set<string>();
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++) {
+        let run = 0;
+        for (let t = this.t0; t < this.t1; t += 0.25) {
+          const a = ids[i], b = ids[j];
+          const holding = this.holds.some((h) => (h.actor === a || h.actor === b) && h.t0 <= t && h.t1 > t);
+          const [l, r] = this.xAt(a, t) <= this.xAt(b, t) ? [a, b] : [b, a];
+          // On the far ground everyone is smaller (depthScale): they need less room.
+          const far = (id: string) => (this.crossed.has(id) && t >= this.crossed.get(id)! ? (this.setDef.depthScale ?? 0.6) : 1);
+          const need = (this.pairGap(l, r, this.facing(l, t), this.facing(r, t)) - 20) * Math.max(far(l), far(r));
+          const gap = this.xAt(r, t) - this.xAt(l, t);
+          // Walking past someone is fine; standing on top of each other is not.
+          const moving = this.walks.some((w) => (w.actor === a || w.actor === b) && w.t0 <= t && w.t1 > t);
+          run = !holding && !moving && gap < need * 0.7 ? run + 0.25 : 0;
+          const key = `${a}|${b}`;
+          if (run > 0.5 && !reported.has(key)) {
+            reported.add(key);
+            const line = this.time.lines.filter((x) => x.s <= t).pop()?.i ?? this.block.from;
+            this.issue("error", `around line ${line}: ${l} and ${r} cover each other (${Math.round(gap)} px apart, need ${Math.round(need)}): send them to different places or use "near"`);
+          }
+        }
+      }
   }
 
   // -------------------------------------------------- dialogue (automatic)
@@ -765,7 +838,20 @@ class BlockScene {
     }
     this.camera(this.block.camera ?? { type: "wide" }, this.t0);
     const noTurn = new Set<number>();
-    for (const b of [...(this.block.beats ?? [])].sort((a, b) => this.time.at(a) - this.time.at(b))) {
+    // Walks of several characters to the same place at the same moment act as one group walk.
+    const beats: Beat[] = [];
+    for (const b of this.block.beats ?? []) {
+      if (b.do !== "walk" && b.do !== "run") {
+        beats.push(b);
+        continue;
+      }
+      const key = (x: Beat) => JSON.stringify([x.do, x.line, x.word ?? null, !!x.end, x.offset ?? 0, x.to, x.until ?? null]);
+      const same = beats.find((x) => (x.do === "walk" || x.do === "run") && key(x) === key(b));
+      const list = (w: unknown) => (Array.isArray(w) ? w : [w]) as string[];
+      if (same) same.who = [...list(same.who), ...list(b.who)];
+      else beats.push({ ...b });
+    }
+    for (const b of [...beats].sort((a, b) => this.time.at(a) - this.time.at(b))) {
       try {
         this.beat(b);
       } catch (e) {
@@ -774,6 +860,7 @@ class BlockScene {
       if (b.do === "look" || b.do === "face") noTurn.add(b.line);
     }
     this.dialogue(noTurn);
+    this.checkOverlaps();
     for (const st of this.propStates.values()) {
       for (const [ch, keys] of [["x", st.x], ["y", st.y], ["scale", st.scale], ["rotation", st.rotation]] as const)
         if (keys.length) this.tracks[`props.${st.id}.${ch}`] = [...keys].sort((a, b) => a[0] - b[0]);
@@ -890,6 +977,12 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   return { sequence, scenes, overlays, issues };
 }
 
+/** Episode time where a block's scene starts (the first block starts at 0). */
+function blocks0(staging: Staging, time: Timeline, block: Block) {
+  const first = [...staging.blocks].sort((a, b) => a.from - b.from)[0];
+  return block === first ? 0 : time.blockStart(block);
+}
+
 /** direct() + document validation + continuity checks. */
 export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
   let out: Directed;
@@ -914,6 +1007,26 @@ export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
     const block = staging.blocks.find((b) => l.i >= b.from && l.i < b.to);
     const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
     if (block && !replayed && !block.cast.some((c) => c.id === id)) issues.push({ severity: "error", where: `line ${l.i}`, message: `${l.speaker} speaks but is not in block "${block.id}"` });
+  }
+  // Whoever speaks must be in the frame (camera rigs are evaluated, not guessed).
+  const W = kit.width ?? 1920, H = kit.height ?? 1080;
+  const compiled = new Map<string, ReturnType<typeof compileScene>>();
+  for (const l of lines) {
+    const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
+    const block = staging.blocks.find((b) => l.i >= b.from && l.i < b.to);
+    if (!id || !block || !block.cast.some((c) => c.id === id) || !out.scenes[block.id]) continue;
+    const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
+    if (replayed) continue;
+    try {
+      if (!compiled.has(block.id)) compiled.set(block.id, compileScene(out.scenes[block.id], assets as never));
+      const sc = compiled.get(block.id)!;
+      const t0 = blocks0(staging, time, block);
+      const [x, y] = screenPoint(sc, id, Math.max(0, (l.s + l.e) / 2 - t0));
+      if (x < W * 0.06 || x > W * 0.94 || y < H * 0.03 || y > H)
+        issues.push({ severity: "error", where: `line ${l.i}`, message: `${l.speaker} speaks out of the frame or at its edge (head at x ${Math.round(x)}, y ${Math.round(y)}): change the camera so the speaker is in shot` });
+    } catch {
+      // validation already reports scenes that do not compile
+    }
   }
   return issues;
 }

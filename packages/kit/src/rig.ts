@@ -396,6 +396,18 @@ export function characterClips(o: ClipOptions) {
         "bones.head.rotation": [[0, -10], [1.2, -10]],
       },
     },
+    // Flapping both arms (wings) fast: arriving in a hurry, excitement, a bird taking off.
+    flap: {
+      duration: 0.28,
+      loop: true,
+      tracks: {
+        "bones.armF1.rotation": [[0, k(-40)], [0.14, k(-120), "easeOut"], [0.28, k(-40), "easeIn"]],
+        "bones.armF2.rotation": [[0, -10], [0.14, 20], [0.28, -10]],
+        ...farArm({ "bones.armB1.rotation": [[0, k(40)], [0.14, k(120), "easeOut"], [0.28, k(40), "easeIn"]], "bones.armB2.rotation": [[0, 10], [0.14, -20], [0.28, 10]] }),
+        "bones.hips.y": [[0, 0], [0.14, -3], [0.28, 0]],
+        "bones.head.rotation": [[0, -4], [0.28, -4]],
+      },
+    },
     // Hand in hand (the IK target is set by the scene); a gentle sway.
     hold: {
       duration: 2,

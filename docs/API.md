@@ -210,7 +210,7 @@ Used by `evaluateScene` for the `fx` action; exported for custom renderers.
 | Function / constant | Description |
 |---|---|
 | `fxMarkup(type, u, t, { color, fill?, seed }): string` | SVG of an effect at normalized progress `u` (0..1), `t` seconds in. Drawn around the origin (the anchor) in character-sized units |
-| `FX_TYPES` | `surprise`, `exclaim`, `question`, `sweat`, `sparkle`, `dust`, `hearts`, `zzz`, `anger`, `impact`, `gloom`, `notes`, `stars`, `lightbulb` (type `FxType`) |
+| `FX_TYPES` | `surprise`, `exclaim`, `question`, `sweat`, `sparkle`, `dust`, `hearts`, `zzz`, `anger`, `impact`, `gloom`, `notes`, `stars`, `lightbulb`, `birds` (type `FxType`) |
 | `FX_DURATIONS` | Default duration per effect (seconds) |
 
 ### Debug mode — `debug.ts`
@@ -333,11 +333,12 @@ gesture clips, emotions and the director work for every character.
 | `eyeArt(spec)`, `eyeWhite`, `eyeArc`, `eyeLid`, `eyeSwitch(bone)` | Storybook eyes: open, wide, closed, happy, half-lidded, pupils |
 | `browShapes(eyes, rad, lift?)` | Brow morph (up, sad, cross, smug) |
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
-| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, hold) |
+| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold) |
 | `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
 | `withViews(doc, spec)`, `ViewSpec` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
 | `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director |
+| `withProportions(doc, { head, torso, legs, arms })`, `proportionMeasure(measure, p, hipHeight)` | Build-time body proportions (e.g. a grown-up from a child template: smaller head, longer torso, legs and arms): remaps bones, setup-space art, morph paths, anchors and pose offsets; parts in bone space keep their size |
 
 ## `@animestudio/director`
 

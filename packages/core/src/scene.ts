@@ -1070,7 +1070,9 @@ export function viewMatrix(scene: CompiledScene, cam: CameraState, parallax = 1)
   const cx = lerp(scene.width / 2, cam.x, parallax);
   const cy = lerp(scene.height / 2, cam.y, parallax);
   const zoom = Math.pow(cam.zoom, parallax) * Math.exp(-(cam.dolly ?? 0) * (1 - parallax));
-  return multiply(fromTRS(scene.width / 2, scene.height / 2, cam.rotation * parallax, zoom, zoom), fromTRS(-cx, -cy, 0));
+  // A camera roll turns the whole picture alike: rotating each depth by a different angle would
+  // shear the scene. Only screen-fixed items (parallax 0) stay upright.
+  return multiply(fromTRS(scene.width / 2, scene.height / 2, parallax > 0 ? cam.rotation : 0, zoom, zoom), fromTRS(-cx, -cy, 0));
 }
 
 const LOOK_BLEND = 0.35;
@@ -1281,14 +1283,15 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       children: renderCharacter(actor.rig, pose, `${actor.id}-`),
     };
     items.push({ z, order: order++, node: actorNode });
-    if (light && actor.def.shading !== false) {
+    // Shading copies the actor's art, so it must fade with it (and vanish with a hidden actor).
+    if (light && actor.def.shading !== false && p.opacity > 0.01) {
       // Shade around the actor's middle (head anchor if any, else ~100 px above its origin).
       const head = actor.rig.anchors.head;
       const local: Vec2 = head ? [head.at[0] * 0.5, head.at[1] * 0.5] : [0, -100];
       // The masks get their own copy of the (unfiltered, id-less) actor art.
       const art = nodeToString({ ...actorNode, id: undefined, filter: undefined, opacity: undefined });
       const markup = shadingMarkup(light, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height);
-      if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup } });
+      if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup: p.opacity < 1 ? `<g opacity="${p.opacity}">${markup}</g>` : markup } });
     }
   }
 
@@ -1328,10 +1331,12 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       }
       const am = multiply(viewMatrix(scene, cam, actor.def.parallax ?? 1), actorPlacement(actor, t));
       const p = apply(am, [local[0] + e.offset[0], local[1] + e.offset[1]]);
-      // Keep the actor's flip and scale, but not its rotation (effects stay upright).
+      // Keep the actor's flip and scale, but not its rotation (effects stay upright). Symbols that
+      // read like text (?, !, Z, notes) are never mirrored: they are moved to the other side instead.
       const sx = Math.hypot(am[0], am[1]) * e.scale;
       const det = am[0] * am[3] - am[1] * am[2];
-      m = [det < 0 ? -sx : sx, 0, 0, sx, p[0], p[1]];
+      const glyph = e.type === "question" || e.type === "exclaim" || e.type === "zzz" || e.type === "notes";
+      m = [det < 0 && !glyph ? -sx : sx, 0, 0, sx, p[0], p[1]];
       z = (actor.def.z ?? 0) + 0.5;
     } else {
       const v = viewMatrix(scene, cam, 1);

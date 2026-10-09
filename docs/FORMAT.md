@@ -362,7 +362,7 @@ blend modes), so it works in browsers and Remotion and stays deterministic.
 | `grade` | Full-frame color grading (`blend`: `multiply`, `screen`, `overlay`, `soft-light`, …) |
 | `vignette` | Darkened frame edges |
 
-Screen blending lifts blacks, so keep big glows away from line art (or use a separate
+Shading follows the actor's opacity (a hidden actor casts no shading). Screen blending lifts blacks, so keep big glows away from line art (or use a separate
 directional key light with `glow: 0` for shading, as above). Actors opt out with `"shading": false`.
 
 **Animating lighting:** channels `lights.<id>.(x|y|angle|color|intensity|radius|glow)` and
@@ -427,7 +427,8 @@ Actions are compiled into clip instances and tracks before rendering.
 ### 3.4 Cartoon effects (`fx`)
 
 Procedural "emanata" drawn in front of an actor (following, flipping and scaling with it) or at a
-scene point. Each pops in, animates and fades out on its own; all are deterministic.
+scene point. Glyph-like effects (`question`, `exclaim`, `zzz`, `notes`) never mirror: on a flipped
+actor they move to the other side but stay readable. Each pops in, animates and fades out on its own; all are deterministic.
 
 | `type` | Look | Typical use | Default duration |
 |---|---|---|---|
@@ -445,6 +446,7 @@ scene point. Each pops in, animates and fades out on its own; all are determinis
 | `notes` | Music notes drifting up | Singing, humming | 2.0 s |
 | `stars` | Stars circling above the head | Dizziness, being starstruck | 1.6 s |
 | `lightbulb` | Glowing bulb popping up | An idea | 1.2 s |
+| `birds` | Little birds flying across (left → right), wings flapping | A sunny day, birdsong | 3.2 s |
 
 ```json
 { "at": 7.8, "actor": "azul", "action": "fx", "type": "surprise" }
@@ -467,7 +469,7 @@ segments come `punch`, handheld drift, `shake` and `bounds`. All of it is determ
 | Follow an actor | `follow: id`, `offset`, `lag` (0.3 s), `axes` (`x` \| `xy`), `deadZone` (`[w, h]` half size), `lookAhead` (s), `blend` (0.6 s), `zoom?`, `duration?` | Smoothing is baked (deterministic). The actor can move inside the dead zone without moving the camera; look-ahead frames the space it moves into. Lasts until the next camera action (or `duration`, then holds); `follow: null` holds |
 | Frame targets | `frame: [ids]`, `padding` (80), `minZoom`, `maxZoom`, `lag` (0.4 s), `blend`, `duration?` | Position and zoom keep all targets in shot (smoothed, so a target turning around never makes the camera pop), until the next camera action; `frame: null` holds |
 | Punch-in | `punch: 0.15`, `duration` (0.4) | Quick zoom pulse with a springy settle (impacts, reactions) |
-| Handheld | `handheld: px` (scene camera or action) | Continuous organic drift (position + slight roll) |
+| Handheld | `handheld: px` (scene camera or action) | Continuous organic drift (position + slight roll). A roll turns every depth by the same angle; screen-fixed items (parallax 0) stay upright |
 | Vertigo / dolly zoom | `dolly: value` | Scales depths relative to the subject plane (parallax 1): `> 0` pushes the background away while the subject keeps its size; combine with a zoom-in for the classic effect |
 | Depth of field | `blur` (max px), `focus` (parallax depth or an actor/prop/layer id), `focusRange` (0.5) | Items blur by their depth distance from the focus; animate `focus` for a rack focus |
 | Motion blur | `motionBlur: 0..1` (shutter) | Blur proportional to each item's on-screen motion between frames (fast pans, hops) |
