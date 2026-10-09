@@ -10,7 +10,7 @@ import { check, describeKit, direct } from "@animestudio/director";
 
 const issues = check(staging, lines, kit);              // validation + continuity checklist
 const { sequence, scenes, overlays } = direct(staging, lines, kit);
-const catalogue = describeKit(kit);                      // what a staging may use (for prompts)
+const catalogue = describeKit(kit);                      // what a staging may use (for prompts; cast[id].wear lists the wardrobe)
 ```
 
 `direct` and `check` are pure: they run in node and inside a Remotion bundle.
@@ -48,6 +48,12 @@ to have the clips `idle walk run talk sing dance wave point cheer laugh cry scar
 present shrug turn hold walkDepth`, the controls `emotion`, `view` and a viseme control, and a
 `hand` anchor. Missing automatic clips are skipped; staged ones are reported.
 
+**Wardrobe.** A character can carry every outfit and accessory in one rig, each shown or hidden by
+a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit` {`tee`, `polo`,
+`swim`} and `backpack` {`on`, `off`}. List them in the rig's `meta.wardrobe` (`["outfit",
+"backpack"]`); without that list every pose control except `view` and `emotion` counts as wardrobe.
+`wardrobeOf(doc)` returns `{ control: [poses] }`.
+
 ## Staging
 
 Times are always **relative to a line**: `{ "line": 25 }` (its start), `{ "line": 25, "word":
@@ -61,7 +67,7 @@ never coordinates.
     {
       "id": "street", "set": "street", "from": 16, "to": 85,      // lines [from, to)
       "cast": [                                                  // left → right
-        { "id": "grandma", "at": "start", "facing": "right" },
+        { "id": "grandma", "at": "start", "facing": "right", "wear": { "outfit": "coat" } },
         { "id": "ana", "at": "start" },
         { "id": "max", "enter": { "line": 20, "from": "left", "run": true } }
       ],
@@ -89,6 +95,7 @@ never coordinates.
 | `face` | `who`, `direction` | Turns around |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
 | `emotion` | `who`, `value` | Emotion pose |
+| `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once) |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
@@ -135,7 +142,8 @@ who is present), characters standing on top of each other for more than half a s
 in hand, not walking past; depth-aware), a hold whose hands cannot meet (an arm would stretch
 more than 60%), a speaker out of the frame or at its edge (the camera is
 evaluated), unknown ids (with the closest valid one),
-unknown actions/marks/props/vehicles/fixtures, a speaker missing from the block where they
+unknown actions/marks/props/vehicles/fixtures, unknown wardrobe controls or poses (and `view` /
+`emotion` given as wardrobe), a speaker missing from the block where they
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a
 replay cut), and every
 `validateScene` / `validateSequence` issue.

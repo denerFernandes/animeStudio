@@ -25,6 +25,19 @@ const norm = (s: string) =>
     .trim();
 
 /** "unknown x" messages name the closest valid id. */
+/** Controls with their own actions, never worn. */
+const NOT_WORN = ["view", "emotion"];
+/**
+ * Wardrobe controls of a rig (outfits, accessories): the pose controls listed in `meta.wardrobe`,
+ * or, without that list, every pose control except `view` and `emotion`.
+ */
+export function wardrobeOf(doc: unknown): Record<string, string[]> {
+  const d = doc as { meta?: { wardrobe?: string[] }; controls?: Record<string, { type: string; poses?: Record<string, unknown> }> } | undefined;
+  const pose = Object.entries(d?.controls ?? {}).filter(([id, c]) => c.type === "pose" && !NOT_WORN.includes(id));
+  const listed = d?.meta?.wardrobe;
+  return Object.fromEntries(pose.filter(([id]) => !listed || listed.includes(id)).map(([id, c]) => [id, Object.keys(c.poses ?? {})]));
+}
+
 export function closest(word: string, options: string[]): string {
   const d = (a: string, b: string) => {
     const m = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
@@ -104,7 +117,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light"];
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
 
@@ -239,6 +252,7 @@ class BlockScene {
       const startX = enter ? (enter.from === "left" ? -400 : (this.kit.width ?? 1920) + 400) : x;
       const flip = c.facing ? c.facing === "left" : enter ? enter.from === "right" : x > this.mark("center").x + 120;
       this.addActor(c.id, startX, { flip, emotion: c.emotion });
+      if (c.wear) this.wear(c.id, c.wear, this.t0);
       if (enter) {
         const at = this.time.at(enter);
         this.walk(c.id, x, at, Math.abs(x - startX) / ((this.member(c.id)?.speed?.[enter.run ? "run" : "walk"] ?? (enter.run ? 380 : 170)) * this.scaleOf(c.id)), { clip: enter.run ? "run" : "walk" });
@@ -301,6 +315,27 @@ class BlockScene {
   }
   hasClip(actor: string, clip: string) {
     return !!this.kit.characters[this.characterOf(actor)]?.clips?.[clip];
+  }
+  /** Outfit / accessory changes (pose controls of the rig's wardrobe), instantly. */
+  wear(actor: string, items: Record<string, string>, abs: number) {
+    const doc = this.kit.characters[this.characterOf(actor)];
+    const wardrobe = wardrobeOf(doc);
+    for (const [control, value] of Object.entries(items)) {
+      if (NOT_WORN.includes(control)) {
+        this.issue("error", `"${control}" is not worn: use the "${control}" action`);
+        continue;
+      }
+      const poses = wardrobe[control];
+      if (!poses) {
+        this.issue("error", `${actor} has no wardrobe control "${control}"${closest(control, Object.keys(wardrobe))}${Object.keys(wardrobe).length ? "" : " (the rig has none)"}`);
+        continue;
+      }
+      if (!poses.includes(String(value))) {
+        this.issue("error", `${actor}'s "${control}" has no "${value}"${closest(String(value), poses)} (has ${poses.join(", ")})`);
+        continue;
+      }
+      this.push({ at: this.t(abs), actor, action: "pose", control, value, duration: 0 });
+    }
   }
   hasControl(actor: string, control: string) {
     return !!this.kit.characters[this.characterOf(actor)]?.controls?.[control];
@@ -449,6 +484,13 @@ class BlockScene {
       case "emotion":
         for (const w of who.filter((w) => this.hasControl(w, "emotion"))) this.push({ at: this.t(at), actor: w, action: "pose", control: "emotion", value: b.value, duration: 0.35 });
         break;
+      case "wear": {
+        // { wear: { control: pose } } or the shorthand { control, value }.
+        const items = (b.wear as Record<string, string> | undefined) ?? (b.control ? { [b.control as string]: b.value as string } : {});
+        if (!Object.keys(items).length) this.issue("error", `line ${b.line}: "wear" needs \`wear: { control: pose }\``);
+        for (const w of who) this.wear(w, items, at);
+        break;
+      }
       case "gesture":
         for (const w of who) this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
         break;

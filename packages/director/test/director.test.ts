@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateSequence, compileSequence } from "@animestudio/core";
-import { check, direct, type Kit, type Line, type Staging } from "../src";
+import { check, describeKit, direct, type Kit, type Line, type Staging } from "../src";
 import { stick } from "../../core/test/fixtures";
 
 const rig = { hand: { F: [80, -110], B: [80, -110] }, shoulder: { F: [0, -110], B: [0, -110] }, armLength: { F: 80, B: 80 }, backShoulder: { F: [0, 0], B: [0, 0] }, extent: { front: 60, back: 40 }, height: 160 } as const;
@@ -69,6 +69,32 @@ describe("director", () => {
     const script = out.scenes.x.script as { action: string; actor?: string; channel?: string }[];
     // a's arm is re-aimed when b steps towards c, so a and b stay hand in hand.
     expect(script.filter((x) => x.action === "set" && x.actor === "a" && x.channel === "ik.handF.x").length).toBe(2);
+  });
+
+  it("dresses the cast per block and mid-block (wardrobe controls)", () => {
+    const dressed = {
+      ...stick,
+      meta: { ...(stick as { meta?: object }).meta, wardrobe: ["outfit", "backpack"] },
+      controls: { ...stick.controls, outfit: { type: "pose", poses: { tee: {}, swim: {} } }, backpack: { type: "pose", poses: { on: {}, off: {} } }, mood: { type: "pose", poses: { a: {} } } },
+    } as unknown as typeof stick;
+    const k: Kit = { ...kit, characters: { a: dressed, b: stick } };
+    expect(describeKit(k).cast.a.wear).toEqual({ outfit: ["tee", "swim"], backpack: ["on", "off"] });
+    const s: Staging = {
+      blocks: [{
+        id: "x", set: "room", from: 0, to: 4,
+        cast: [{ id: "a", wear: { outfit: "swim" } }, { id: "b" }],
+        beats: [{ line: 2, do: "wear", who: "a", wear: { backpack: "off" } }, { line: 3, do: "wear", who: "a", control: "outfit", value: "swimm" }],
+      }],
+    };
+    const out = direct(s, lines, k);
+    const poses = (out.scenes.x.script as { action: string; actor?: string; control?: string; value?: string; at: number }[]).filter((x) => x.action === "pose" && x.actor === "a" && x.control !== "emotion" && x.control !== "view");
+    expect(poses.map((p) => [p.control, p.value])).toEqual([["outfit", "swim"], ["backpack", "off"]]);
+    expect(poses[1].at).toBeCloseTo(lines[2].s, 2);
+    const msgs = check(s, lines, k).map((i) => i.message).join("\n");
+    expect(msgs).toContain(`a's "outfit" has no "swimm" (did you mean "swim"`);
+    const bad = check({ blocks: [{ ...s.blocks[0], cast: [{ id: "a", wear: { hat: "on" } }, { id: "b", wear: { outfit: "tee" } }], beats: [] }] }, lines, k).map((i) => i.message).join("\n");
+    expect(bad).toContain('a has no wardrobe control "hat"');
+    expect(bad).toContain("(the rig has none)");
   });
 
   it("reports staging problems", () => {

@@ -1,5 +1,5 @@
 import { FX_TYPES } from "@animestudio/core";
-import { ACTIONS, CAMERAS, MOODS } from "./direct";
+import { ACTIONS, CAMERAS, MOODS, wardrobeOf } from "./direct";
 import type { Kit } from "./types";
 
 type Doc = { clips?: Record<string, unknown>; controls?: Record<string, { type: string; poses?: Record<string, unknown> }>; parts?: { id: string; type: string; variants?: Record<string, unknown> }[] };
@@ -19,6 +19,7 @@ export function describeKit(kit: Kit) {
             clips: Object.keys(d?.clips ?? {}).filter((k) => !["idle", "turn", "walkDepth"].includes(k)),
             emotions: Object.keys(d?.controls?.emotion?.poses ?? {}),
             views: Object.keys(d?.controls?.view?.poses ?? { profile: 1 }),
+            wear: wardrobeOf(d),
           },
         ];
       }),

@@ -61,6 +61,10 @@ Lessons from converting a 66-shot storyboard into an episode:
   action (walk, incident, conversation) in one scene and make cuts with `camera` actions
   (`duration: 0`, or `frame` / `follow` rigs). Characters, props and vehicles then keep their
   positions between cuts instead of vanishing, jumping sides or reappearing elsewhere.
+- **Wardrobe follows the place, not the previous scene.** Outfits and accessories are pose
+  controls on the same rig (e.g. `outfit`, `backpack`); dress each block in its cast entry
+  (`wear`) — swimsuits at the beach, backpacks at school — and change them on screen with a
+  `wear` beat when the story does (taking the backpack off at home).
 - **Keep screen direction (the 180° rule).** Who stands left of whom must not change between
   cuts unless the audience sees them move.
 - **Objects keep their history.** A ball held in a hand is grabbed from the first frame of the

@@ -39,6 +39,11 @@ export interface CastEntry {
   offset?: number;
   facing?: "left" | "right";
   emotion?: string;
+  /**
+   * Wardrobe for this block: wardrobe control → pose (e.g. `{ "outfit": "swim", "backpack": "off" }`).
+   * Every block starts from the rig's defaults; only what is listed here changes.
+   */
+  wear?: Record<string, string>;
   /** They enter later instead of being there from the start. */
   enter?: { line: number; word?: string; from: "left" | "right"; run?: boolean };
 }
