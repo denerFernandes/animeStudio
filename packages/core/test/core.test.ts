@@ -304,6 +304,31 @@ describe("physics on flips", () => {
   });
 });
 
+describe("anime effects", () => {
+  it("draws screen effects fixed to the frame and the aura behind its actor", () => {
+    const doc = {
+      format: "toon-scene", version: 1, width: 800, height: 400, fps: 30, duration: 3,
+      characters: { stick: "stick" },
+      camera: { x: 400, y: 200, zoom: 2 },
+      actors: [{ id: "a", character: "stick", x: 300, y: 350, z: 2 }],
+      script: [
+        { at: 0, action: "fx", type: "caption", text: "K.O.", style: "ko" },
+        { at: 0, action: "fx", type: "aura", actor: "a", anchor: "origin" },
+        { at: 0, action: "fx", type: "focusLines" },
+      ],
+    } as unknown as SceneDoc;
+    expect(validateScene(doc, { characters: { stick } }).ok).toBe(true);
+    const frame = evaluateScene(compileScene(doc, { characters: { stick } }), 1);
+    const json = JSON.stringify(frame);
+    expect(json).toContain("K.O.");
+    // The caption sits at the screen centre (default for "ko"), unscaled by the camera's zoom.
+    const caption = (frame as unknown as { nodes: { kind: string; markup?: string; transform?: number[] }[] }).nodes.find((n) => n.markup?.includes("K.O."));
+    expect(caption?.transform?.slice(0, 1)).toEqual([1]);
+    // The aura comes before the actor in drawing order.
+    expect(json.indexOf("#ff3b4e")).toBeLessThan(json.indexOf("actor-a"));
+  });
+});
+
 describe("riding (mount + reach)", () => {
   const bike = {
     format: "toon",

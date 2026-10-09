@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { EASING_NAMES } from "../easing";
-import { FX_TYPES } from "../fx";
+import { CAPTION_STYLES, FX_TYPES } from "../fx";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -552,6 +552,9 @@ export const ActionSchema = z.discriminatedUnion("action", [
     scale: z.number().positive().optional(),
     color: z.string().optional().describe("Ink color (default #1D2833)"),
     fill: z.string().optional().describe("Secondary color (drops, hearts, sparkles…)"),
+    text: z.string().optional().describe("caption: the text"),
+    style: z.enum(CAPTION_STYLES).optional().describe("caption: title | impact | ko | place"),
+    angle: z.number().optional().describe("speedLines: direction of travel in degrees (0 = to the right)"),
   }),
   z.strictObject({
     ...At,

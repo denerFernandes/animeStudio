@@ -454,6 +454,20 @@ actor they move to the other side but stay readable. Each pops in, animates and 
 | `lightbulb` | Glowing bulb popping up | An idea | 1.2 s |
 | `birds` | Little birds flying across (left → right), wings flapping | A sunny day, birdsong | 3.2 s |
 
+**Anime effects.** `focusLines`, `speedLines`, `impactFrame` and `caption` are drawn in **screen
+space** (fixed to the frame, never moved by the camera; `x`/`y` are screen coordinates, default
+the centre). `aura` is drawn just **behind** its actor.
+
+| `type` | Look | Typical use | Default duration |
+|---|---|---|---|
+| `focusLines` | Wedges converging on the centre of the frame, a new pattern every two frames (`color`, e.g. `#ffffff` or ink) | A shock, a reveal, a shout | 1.2 s |
+| `speedLines` | Streaks across the frame (`angle`: direction, `fill`: colour) | A dash, a fast move | 0.8 s |
+| `impactFrame` | The whole frame white, then black (`fill`, `color`) | The instant a hit lands | 0.14 s |
+| `burst` | Jagged yellow star with a red heart and a white core, growing and flickering | A punch landing (at the target's head or the fist) | 0.35 s |
+| `aura` | Three layers of flames behind the actor, flickering (`fill`: base colour; use `anchor: "origin"`) | Powering up, a fighting spirit | 3 s |
+| `ghost` | A little ghost with a halo floating up from the actor (use `anchor: "origin"`) | A comic death, a knock-out | 4 s |
+| `caption` | Screen text with `text` and `style`: `title` (big, yellow, ink outline), `impact` (red, white outline, shaking), `ko` (huge, yellow, red outline), `place` (italic name sliding in at the bottom left) | Title cards, "CRITICAL FAIL!", "K.O.", place names | 2 s |
+
 ```json
 { "at": 7.8, "actor": "azul", "action": "fx", "type": "surprise" }
 { "at": 8.3, "actor": "azul", "action": "fx", "type": "dust", "anchor": "origin" }

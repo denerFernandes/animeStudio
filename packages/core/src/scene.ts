@@ -3,7 +3,7 @@ import { getEasing } from "./easing";
 import type { ActionDef, ActorDef, LayerDef, LightingDef, LipsyncDoc, MouthCue, PropDef, SceneDoc, ToonDoc, Value } from "./format/schema";
 import { type Key, type Track, makeTrack, normalizeTrack, sampleTrack } from "./keyframes";
 import { cuesFromText } from "./lipsync";
-import { FX_DURATIONS, type FxType, fxMarkup } from "./fx";
+import { BEHIND_FX, FX_DURATIONS, type FxType, SCREEN_FX, fxMarkup } from "./fx";
 import {
   cssBlur,
   type CameraBounds,
@@ -149,6 +149,9 @@ export interface CompiledFx {
   color: string;
   fill?: string;
   seed: number;
+  text?: string;
+  variant?: string;
+  angle?: number;
 }
 
 export interface CompiledTransition {
@@ -821,6 +824,9 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
           color: a.color ?? "#1D2833",
           fill: a.fill,
           seed: hashString(`fx${fx.length}:${a.type}`),
+          ...(a.text !== undefined ? { text: a.text } : {}),
+          ...(a.style ? { variant: a.style } : {}),
+          ...(a.angle !== undefined ? { angle: a.angle } : {}),
         });
         return;
       }
@@ -1483,7 +1489,13 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     if (u < 0 || u > 1) continue;
     let m: Mat;
     let z = 100;
-    if (e.actor) {
+    if (SCREEN_FX.includes(e.type)) {
+      // Fixed to the frame: x/y are screen coordinates (default: the centre; captions per look).
+      const dflt: Vec2 = e.type === "caption" ? (e.variant === "place" ? [70, scene.height - 130] : e.variant === "impact" ? [scene.width / 2, 200] : [scene.width / 2, scene.height * 0.42]) : [scene.width / 2, scene.height / 2];
+      const px = e.x || e.y ? e.x : dflt[0], py = e.x || e.y ? e.y : dflt[1];
+      m = [e.scale, 0, 0, e.scale, px, py];
+      z = e.type === "caption" ? 1e6 : e.type === "impactFrame" ? 1e6 + 1 : 999;
+    } else if (e.actor) {
       const actor = scene.actors.find((a) => a.id === e.actor)!;
       const pose = poses.get(actor.id)!;
       const name = e.anchor ?? (actor.rig.anchors.head ? "head" : "origin");
@@ -1500,14 +1512,14 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       const det = am[0] * am[3] - am[1] * am[2];
       const glyph = e.type === "question" || e.type === "exclaim" || e.type === "zzz" || e.type === "notes";
       m = [det < 0 && !glyph ? -sx : sx, 0, 0, sx, p[0], p[1]];
-      z = (actor.def.z ?? 0) + 0.5;
+      z = (actor.def.z ?? 0) + (BEHIND_FX.includes(e.type) ? -0.01 : 0.5);
     } else {
       const v = viewMatrix(scene, cam, 1);
       const p = apply(v, [e.x, e.y]);
       const s = Math.hypot(v[0], v[1]) * e.scale;
       m = [s, 0, 0, s, p[0], p[1]];
     }
-    const markup = fxMarkup(e.type, u, t - e.start, { color: e.color, fill: e.fill, seed: e.seed });
+    const markup = fxMarkup(e.type, u, t - e.start, { color: e.color, fill: e.fill, seed: e.seed, text: e.text, variant: e.variant, angle: e.angle, width: scene.width, height: scene.height });
     items.push({ z, order: order++, node: { kind: "markup", key: `fx-${e.seed}-${e.start}`, transform: m, markup } });
   }
 
