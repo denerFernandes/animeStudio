@@ -103,6 +103,10 @@ never coordinates.
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once). From the front, `facepalm`, `despair`, `think`, `cover`, `excited` and `shout` are hand positions on the posed face (IK), and the hands come back where they were (on a table…) afterwards |
 | `hands` | `who`, `on` (a fixture or furniture with a `top` anchor) | Forearms on the table: both hands on its top |
 | `sound` | `name` (a kit sound) or `src`, `volume?` | A sound effect at that moment |
+| `give` | `who` (giver), `to`, `prop` | Walks over if needed, both reach out, the prop changes hands between them |
+| `highFive` | `who` (two) | They step close, the near hands meet above between them: a slap and a sparkle (`clap` sound) |
+| `hug` | `who` (two), `until?` | Close together, arms around each other's back, joy and hearts (`hug` sound) |
+| `carry` | `who` (carrier), `target`, `until?` | Piggyback: the target runs over and climbs on the carrier's back (arms around the neck, legs held by the carrier's hands), carried along until set down beside them |
 | `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |

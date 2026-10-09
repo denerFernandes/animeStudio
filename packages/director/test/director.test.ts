@@ -274,6 +274,22 @@ describe("director", () => {
     expect(volumeAt(m.volume, m.end)).toBe(0);
   });
 
+  it("gives, high-fives, hugs and carries", () => {
+    const person = { ...stick, ik: [{ id: "handF", bones: ["arm1", "arm2"], mix: 0 }, { id: "handB", bones: ["arm1", "arm2"], mix: 0 }] } as unknown as typeof stick;
+    const k: Kit = { ...kit, characters: { a: person, b: person }, props: { ball: kit.props.ball } };
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b", at: "door" }], props: [{ id: "bola", kind: "ball", heldBy: "a" }], beats: [
+      { line: 0, do: "give", who: "a", to: "b", prop: "bola" },
+      { line: 1, do: "highFive", who: ["a", "b"] },
+      { line: 2, do: "hug", who: ["a", "b"] },
+      { line: 3, do: "carry", who: "a", target: "b", until: { line: 3, end: true } },
+    ] }] }, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; prop?: string; on?: string | null }[];
+    expect(script.filter((x) => x.action === "grab").map((x) => x.actor)).toEqual(["a", "b"]);
+    expect(script.filter((x) => x.action === "reach" && x.actor === "b").length).toBeGreaterThan(4);
+    expect(script.filter((x) => x.action === "mount" && x.actor === "b").map((x) => x.on)).toEqual(["a", null]);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

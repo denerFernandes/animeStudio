@@ -135,7 +135,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -605,6 +605,20 @@ class BlockScene {
         break;
       case "hit":
         if (one) this.hit(one, b.target as string, at, { ko: !!b.ko, until });
+        break;
+      case "give":
+        if (one) this.give(one, b.to as string, b.prop as string, at);
+        break;
+      case "highFive":
+        if (who.length === 2) this.highFive(who[0], who[1], at);
+        else this.issue("error", `line ${b.line} "highFive": needs two people in "who"`);
+        break;
+      case "hug":
+        if (who.length === 2) this.hug(who[0], who[1], at, until ?? at + 1.8);
+        else this.issue("error", `line ${b.line} "hug": needs two people in "who"`);
+        break;
+      case "carry":
+        if (one) this.carry(one, b.target as string, at, until);
         break;
       case "sound": {
         // A sound of the kit by name, or a file.
@@ -1258,6 +1272,128 @@ class BlockScene {
     }
   }
 
+  // -------------------------------------------------- interactions
+  /** Comes (or stays) within `gap` of someone, facing them; returns the time they stand there. */
+  private approach(actor: string, other: string, gap: number, at: number) {
+    const xo = this.xAt(other, at), xa = this.xAt(actor, at);
+    const side = xa <= xo ? -1 : 1;
+    const x = xo + side * gap;
+    // They walk over from the beat's moment; the interaction happens when they get there.
+    let t = at;
+    if (Math.abs(xa - x) > 20) {
+      // At most 1.6 s: running when it is far.
+      const walkSpeed = (this.member(actor)?.speed?.walk ?? 170) * this.scaleOf(actor);
+      const dur = Math.min(1.6, Math.max(0.5, Math.abs(xa - x) / walkSpeed));
+      const fast = Math.abs(xa - x) / dur > walkSpeed * 1.4 && this.hasClip(actor, "run");
+      this.walk(actor, x, at, dur, { clip: fast ? "run" : "walk" });
+      t = at + dur;
+    }
+    this.face(actor, side < 0 ? "right" : "left", t);
+    this.face(other, side < 0 ? "left" : "right", t);
+    return t;
+  }
+  private shoulderHeight(actor: string) {
+    const rig = this.member(actor)?.rig;
+    return Math.abs(rig?.shoulder.F[1] ?? -120) * this.scaleOf(actor);
+  }
+  /** Hands a held prop to someone: both reach out, the prop changes hands between them. */
+  give(giver: string, to: string, prop: string, at: number) {
+    if (!this.present.includes(to)) return this.issue("error", `${giver} cannot give to "${to}": not in block "${this.block.id}"${closest(to, this.present)}`);
+    const st = this.propStates.get(prop);
+    if (!st?.heldBy.some((h) => h.actor === giver && h.t1 === Infinity)) return this.issue("error", `${giver} cannot give "${prop}": not holding it`);
+    const gap = this.pairGap(giver, to) * 0.95;
+    at = this.approach(giver, to, gap, at);
+    const mid = (this.xAt(giver, at) + this.xAt(to, at)) / 2;
+    const y = this.groundY(giver, at) - Math.min(this.shoulderHeight(giver), this.shoulderHeight(to)) * 0.82;
+    for (const [actor, hand] of [[giver, "handF"], [to, "handF"]] as const)
+      if (this.hasChain(actor, hand)) {
+        this.reach(actor, hand, [Math.round(mid), Math.round(y)], at, 0.4);
+        this.reach(actor, hand, null, at + 1.1, 0.4);
+      }
+    this.release(prop, at + 0.5);
+    this.grab(to, prop, at + 0.5);
+  }
+  /** A high five: both near hands up, meeting above between them (a slap, a sparkle). */
+  highFive(a: string, b: string, at: number) {
+    const gap = this.pairGap(a, b) * 0.95;
+    at = this.approach(a, b, gap, at) + 0.3;
+    const mid = (this.xAt(a, at) + this.xAt(b, at)) / 2;
+    const y = this.groundY(a, at) - Math.max(this.shoulderHeight(a), this.shoulderHeight(b)) * 1.45;
+    for (const actor of [a, b])
+      if (this.hasChain(actor, "handF")) {
+        this.reach(actor, "handF", [Math.round(mid), Math.round(y + 40)], at - 0.3, 0.2);
+        this.reach(actor, "handF", [Math.round(mid), Math.round(y)], at - 0.1, 0.1);
+        this.reach(actor, "handF", null, at + 0.4, 0.35);
+      }
+    this.push({ at: this.t(at), action: "fx", type: "impact", x: Math.round(mid), y: Math.round(y), scale: 0.8 });
+    this.push({ at: this.t(at), action: "fx", type: "sparkle", x: Math.round(mid), y: Math.round(y - 20), scale: 1 });
+    this.sfx("clap", at);
+    for (const actor of [a, b]) if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at), actor, action: "pose", control: "emotion", value: "joy", duration: 0.2 });
+  }
+  /** A hug: close together, each one's arms around the other's back; hearts. */
+  hug(a: string, b: string, at: number, until: number) {
+    const close = (this.pairGap(a, b) - 20) * 0.45;
+    const arrive = this.approach(a, b, close, at);
+    until += arrive - at;
+    at = arrive;
+    const xa = this.xAt(a, at), xb = this.xAt(b, at);
+    const y = (who: string) => this.groundY(who, at) - this.shoulderHeight(who) * 0.85;
+    for (const [actor, other] of [[a, b], [b, a]] as const) {
+      const xo = actor === a ? xb : xa, dir = xo > (actor === a ? xa : xb) ? 1 : -1;
+      const back = xo + dir * (this.member(other)?.rig.extent.back ?? 50) * this.scaleOf(other) * 0.5;
+      for (const chain of ["handF", "handB"])
+        if (this.hasChain(actor, chain)) {
+          this.reach(actor, chain, [Math.round(back), Math.round(y(other) + (chain === "handB" ? -10 : 10))], at, 0.4);
+          this.reach(actor, chain, null, until, 0.4);
+        }
+      this.holds.push({ actor, t0: at, t1: until });
+      if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at), actor, action: "pose", control: "emotion", value: "joy", duration: 0.3 });
+    }
+    this.push({ at: this.t(at + 0.3), action: "fx", type: "hearts", actor: a, duration: 1.6 });
+    this.sfx("hug", at);
+  }
+  /**
+   * Carries someone on the back (piggyback): the rider behind the carrier's shoulders, arms around
+   * the neck, head and chest showing behind the carrier's head; set down beside them at `until`.
+   */
+  carry(carrier: string, rider: string, at: number, until?: number) {
+    if (!this.present.includes(rider)) return this.issue("error", `${carrier} cannot carry "${rider}": not in block "${this.block.id}"${closest(rider, this.present)}`);
+    const anchors = (this.kit.characters[this.characterOf(carrier)]?.anchors ?? {}) as Record<string, { at: [number, number] }>;
+    if (!anchors.head) return this.issue("error", `${carrier} cannot carry anyone: the rig has no "head" anchor`);
+    const arrive = this.approach(rider, carrier, (this.member(carrier)?.rig.extent.front ?? 60) * this.scaleOf(carrier) * 0.5, at);
+    if (until !== undefined) until += arrive - at;
+    at = arrive;
+    const hip = this.hipOf(rider);
+    const headH = (this.member(carrier)?.rig.height ?? 300) * this.scaleOf(carrier) * 0.12;
+    this.face(rider, this.facing(carrier, at) ? "right" : "left", at);
+    // On the back (piggyback): the rider's hips behind the carrier's shoulders, a little lower than
+    // the head, so the rider's head and chest show behind the carrier's head.
+    const sr = this.scaleOf(rider);
+    const behind = (this.member(carrier)?.rig.extent.back ?? 60) * this.scaleOf(carrier) * 1.1;
+    const D: [number, number] = [-behind / sr, (headH * 0.4) / sr];
+    this.push({ at: this.t(at), actor: rider, action: "mount", on: carrier, anchor: "head", point: [r3(hip[0] - D[0]), r3(hip[1] - D[1])], duration: 0.5 });
+    // Arms around the carrier's neck.
+    const neck = { actor: carrier, anchor: "head" };
+    if (this.hasChain(rider, "handF")) this.reach(rider, "handF", neck, at + 0.3, 0.3);
+    // Legs around the carrier, held by the carrier's hands.
+    const cAnchors = Object.keys((this.kit.characters[this.characterOf(carrier)]?.anchors ?? {}) as Record<string, unknown>);
+    for (const [foot, hand] of [["footF", "hand"], ["footB", "handB"]] as const)
+      if (this.hasChain(rider, foot) && cAnchors.includes(hand)) this.reach(rider, foot, { actor: carrier, anchor: hand }, at + 0.2, 0.3);
+    const actor = this.actors.find((x) => x.id === rider) as { z?: number } | undefined;
+    const carrierZ = (this.actors.find((x) => x.id === carrier) as { z?: number } | undefined)?.z ?? 2;
+    if (actor && (actor.z ?? 2) >= carrierZ) actor.z = carrierZ - 0.05;
+    this.holds.push({ actor: rider, t0: at, t1: until ?? Infinity });
+    if (this.hasControl(rider, "emotion")) this.push({ at: this.t(at + 0.4), actor: rider, action: "pose", control: "emotion", value: "joy", duration: 0.3 });
+    this.sfx("jump", at);
+    this.rides.push({ rider, vehicle: carrier, t0: at, t1: until ?? Infinity });
+    if (until !== undefined) {
+      for (const chain of ["handF", "footF", "footB"]) if (this.hasChain(rider, chain)) this.reach(rider, chain, null, until, 0.3);
+      this.push({ at: this.t(until), actor: rider, action: "mount", on: null, duration: 0.5 });
+      const side = this.facing(carrier, until) ? 1 : -1;
+      this.slide(rider, this.xAt(carrier, until) + side * this.pairGap(carrier, rider), until, 0.5);
+    }
+  }
+
   // -------------------------------------------------- flying
   /** Characters that fly: `meta.canFly` on the rig, or a `fly` clip. Wings beat with `fly`, else `flap`. */
   canFly(actor: string) {
@@ -1713,6 +1849,7 @@ class BlockScene {
   /** The riding pose (torso into the ride) while mounted. */
   private ridePoses() {
     for (const r of this.rides) {
+      if (!this.vehicleOf.has(r.vehicle)) continue; // carried on someone's shoulders: no riding pose
       const t1 = Math.min(r.t1, this.t1);
       if (t1 - r.t0 > 0.2 && this.hasClip(r.rider, "ride")) this.push({ at: this.t(r.t0), actor: r.rider, action: "play", clip: "ride", loop: true, duration: r3(t1 - r.t0), fadeIn: 0.3, fadeOut: 0.3 });
     }
