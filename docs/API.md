@@ -334,7 +334,7 @@ gesture clips, emotions and the director work for every character.
 | `browShapes(eyes, rad, lift?)` | Brow morph (up, sad, cross, smug) |
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
 | `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold, ride: torso leaning into the ride, head up) |
-| `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
+| `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, sleep, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
 | `withViews(doc, spec)`, `ViewSpec`, `STILL_MIX` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); bones in `still` (default the head) keep only `STILL_MIX` of their rotation in those views; records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
 | `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director (hands, shoulders, arm lengths, `hip` joint, `legLength`, optional `depth`: half torso thickness for lying) |

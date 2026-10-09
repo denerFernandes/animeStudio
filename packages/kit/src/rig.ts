@@ -442,6 +442,7 @@ export const emotions = (extra: Record<string, Record<string, unknown>> = {}) =>
   type: "pose" as const,
   poses: {
     neutral: { "parts.eyes.variant": "open" },
+    sleep: { "parts.eyes.variant": "closed", "parts.mouth.morph.smile": 0.3, "bones.head.rotation": 6 },
     happy: { "parts.eyes.variant": "open", "parts.mouth.morph.smile": 0.9, "parts.brows.morph.up": 0.35, "bones.head.rotation": -3 },
     joy: { "parts.eyes.variant": "happy", "parts.mouth.morph.grin": 0.8, "parts.brows.morph.up": 0.5, "bones.head.rotation": -6 },
     surprised: { "parts.eyes.variant": "wide", "parts.mouth.morph.E": 0.5, "parts.brows.morph.up": 1, "bones.head.rotation": -5 },

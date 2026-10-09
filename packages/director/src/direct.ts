@@ -117,7 +117,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "getUp"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp"];
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
 
@@ -150,7 +150,7 @@ class BlockScene {
   /** Block furniture (id → kind, scale). */
   private furnitureOf = new Map<string, { kind: string; scale: number; y: number }>();
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
-  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean }[] = [];
+  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean }[] = [];
   private propStates = new Map<string, PropState>();
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
@@ -513,6 +513,9 @@ class BlockScene {
         break;
       case "lie":
         for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at);
+        break;
+      case "sleep":
+        for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at, true);
         break;
       case "getUp":
         for (const w of who) this.getUp(w, at);
@@ -990,11 +993,12 @@ class BlockScene {
     const s = this.scaleOf(actor);
     const height = (rig?.height ?? 200) * s;
     const front = side === "front";
-    const depth = this.depthOf(actor, front ? "front" : "back") * s;
+    const g = this.lying(actor, dir, side);
     const y = this.groundY(actor, at);
     this.slide(actor, this.xAt(actor, at) + dir * (shift ?? (front ? 0.12 : -0.06) * height), at, dur);
-    this.set(actor, "rotation", dir * (front ? 84 : -84), at, dur, "easeIn");
-    this.set(actor, "y", Math.round(y - depth), at, dur, "easeIn");
+    this.set(actor, "rotation", g.rotation, at, dur, "easeIn");
+    this.set(actor, "y", Math.round(y - g.offset[1]), at, dur, "easeIn");
+    this.bendNeck(actor, g.neck, at, dur);
     this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y });
     this.shadow(actor, at, { hide: true }, dur);
     if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
@@ -1045,6 +1049,46 @@ class BlockScene {
   private depthOf(actor: string, side: "back" | "front") {
     const rig = this.member(actor)?.rig;
     return rig?.depth?.[side] ?? Math.min(rig?.extent[side] ?? 34, 34) * 0.7;
+  }
+  /**
+   * Lying flat: the spine (hip joint → head) horizontal, whatever the posture (a hunched old turtle's
+   * head sits far in front of its hips), face up (head towards the back) or face down. Returns the
+   * rotation, the setup point that rests on the surface (back or belly at the hips, `depth` out from
+   * the spine), the outward normal of the back, and where that point lands relative to the feet
+   * (scene px, after rotation and scale).
+   */
+  private lying(actor: string, dir: number, side: "back" | "front") {
+    const s = this.scaleOf(actor);
+    const hip = this.hipOf(actor);
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; anchors?: Record<string, { at: [number, number] }> };
+    let head: [number, number] = doc.anchors?.head?.at ?? [0, -(this.member(actor)?.rig.height ?? 200) * 0.85];
+    const lean = (h: [number, number]) => (Math.atan2(h[0] - hip[0], -(h[1] - hip[1])) * 180) / Math.PI;
+    // The neck bends back so the head lines up with the spine (a hunched turtle's head sits far in
+    // front of its hips): the legs stay flat and the head reaches the pillow.
+    const neckBone = doc.skeleton.find((b) => b.id === "neck" && b.from) ?? doc.skeleton.find((b) => b.id === "head" && b.from);
+    let neck: { bone: string; rotation: number } | undefined;
+    if (neckBone?.from) {
+      const rot = Math.max(-60, Math.min(60, -lean(head)));
+      const a = (rot * Math.PI) / 180, [cx, cy] = neckBone.from;
+      head = [cx + (head[0] - cx) * Math.cos(a) - (head[1] - cy) * Math.sin(a), cy + (head[0] - cx) * Math.sin(a) + (head[1] - cy) * Math.cos(a)];
+      if (Math.abs(rot) > 1) neck = { bone: neckBone.id, rotation: r3(rot) };
+    }
+    const rest = lean(head);
+    const v = [head[0] - hip[0], head[1] - hip[1]];
+    const len = Math.hypot(v[0], v[1]) || 1;
+    const normal: [number, number] = [v[1] / len, -v[0] / len]; // out of the back
+    const back = side === "back";
+    const d = this.depthOf(actor, side);
+    const contact: [number, number] = [hip[0] + (back ? 1 : -1) * normal[0] * d, hip[1] + (back ? 1 : -1) * normal[1] * d];
+    const rotation = r3(back ? -dir * (90 + rest) : dir * (90 - rest));
+    const r = (rotation * Math.PI) / 180;
+    const px = contact[0] * dir * s, py = contact[1] * s;
+    const offset: [number, number] = [px * Math.cos(r) - py * Math.sin(r), px * Math.sin(r) + py * Math.cos(r)];
+    return { rotation, contact, normal, offset, head, neck };
+  }
+  /** Bends (or straightens) the neck for lying. */
+  private bendNeck(actor: string, neck: { bone: string; rotation: number } | undefined, abs: number, dur: number) {
+    if (neck) this.set(actor, `bones.${neck.bone}.rotation`, neck.rotation, abs, dur, "sineInOut");
   }
   private hipOf(actor: string): [number, number] {
     const rig = this.member(actor)?.rig;
@@ -1143,13 +1187,34 @@ class BlockScene {
   }
 
   /** Lies down face up on furniture (`bed` anchor, else `seat`), a set place (mark with `seat` and `lie`) or the ground; head towards the back. */
-  lie(actor: string, on: string | null, at: number) {
+  lie(actor: string, on: string | null, at: number, sleep = false) {
     if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot lie down: riding then (dismount first)`);
     const rest = this.restAt(actor, at);
-    if (rest?.kind === "lie" && rest.on === on) return;
+    if (rest?.kind === "lie" && rest.on === on) {
+      if (sleep && !rest.sleep) this.fallAsleep(actor, rest, at);
+      return;
+    }
     const place = this.restPlace(actor, on, "lie");
     if (!place) return;
     if (rest) this.getUp(actor, at - 1.6);
+    // Characters that tuck in (a turtle into its shell, a hedgehog curling up) do that instead.
+    if (this.tucks(actor)) {
+      if ("furniture" in place) {
+        const anchor = this.furniturePoint(place.furniture, "bed") ? "bed" : "seat";
+        const bed = this.furniturePoint(place.furniture, anchor);
+        if (!bed) return this.issue("error", `"${place.furniture}" has no "bed" or "seat" anchor to lie on`);
+        if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
+        this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: [0, 0], duration: 0.5 });
+      } else {
+        if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) this.walk(actor, place.x, at - 0.9, 0.8);
+        if (place.h) this.set(actor, "y", Math.round(this.groundY(actor, at) - place.h), at, 0.5, "sineInOut");
+      }
+      this.push({ at: this.t(at + 0.2), actor, action: "pose", control: "tuck", value: "in", duration: 0.4 });
+      const r = { actor, kind: "lie" as const, on, t0: at, t1: Infinity, y: this.groundY(actor, at), tuck: true };
+      this.rests.push(r);
+      if (sleep) this.fallAsleep(actor, r, at);
+      return;
+    }
     const rig = this.member(actor)?.rig;
     const s = this.scaleOf(actor);
     const hip = this.hipOf(actor);
@@ -1164,24 +1229,49 @@ class BlockScene {
       const dir = this.facing(place.furniture, at) ? 1 : -1;
       if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
       this.face(actor, dir > 0 ? "right" : "left", at);
-      this.set(actor, "rotation", -90 * dir, at, 0.6, "sineInOut");
-      const point: [number, number] = anchor === "pillow" ? [-back, head![1]] : [hip[0] - back, hip[1]];
+      const g = this.lying(actor, dir, "back");
+      this.set(actor, "rotation", g.rotation, at, 0.6, "sineInOut");
+      // On the pillow: the back of the head; on the bed: the back at the hips.
+      const point: [number, number] = anchor === "pillow" ? [g.head[0] + g.normal[0] * back, g.head[1] + g.normal[1] * back] : g.contact;
+      this.bendNeck(actor, g.neck, at, 0.6);
       this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point, duration: 0.6 });
       this.shadow(actor, at, { hide: true }, 0.4);
     } else {
       const dir = this.facing(actor, at) ? 1 : -1;
-      // Rotated about the feet, the hips end up |hip| behind them: the feet go that much ahead.
+      const g = this.lying(actor, dir, "back");
+      // Rotated about the feet, the back (at the hips) must land on the place.
       if (place.x !== undefined) {
-        const x = place.x + dir * Math.abs(hip[1]) * s;
+        const x = place.x - g.offset[0];
         if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) this.walk(actor, x, at - 0.9, 0.8);
         this.face(actor, dir > 0 ? "right" : "left", at);
       }
       const y = this.groundY(actor, at);
-      this.set(actor, "rotation", -90 * dir, at, 0.6, "sineInOut");
-      this.set(actor, "y", Math.round(y - place.h - back * s), at, 0.6, "sineInOut");
+      this.set(actor, "rotation", g.rotation, at, 0.6, "sineInOut");
+      this.set(actor, "y", Math.round(y - place.h - g.offset[1]), at, 0.6, "sineInOut");
+      this.bendNeck(actor, g.neck, at, 0.6);
       this.shadow(actor, at, { hide: true }, 0.4);
     }
-    this.rests.push({ actor, kind: "lie", on, t0: at, t1: Infinity, y: this.groundY(actor, at) });
+    const r = { actor, kind: "lie" as const, on, t0: at, t1: Infinity, y: this.groundY(actor, at) };
+    this.rests.push(r);
+    if (sleep) this.fallAsleep(actor, r, at);
+  }
+  /** A rig with a `tuck` pose control (poses `out` / `in`) tucks in to lie down or sleep. */
+  private tucks(actor: string) {
+    const c = (this.kit.characters[this.characterOf(actor)]?.controls as Record<string, { type: string; poses?: Record<string, unknown> }> | undefined)?.tuck;
+    return c?.type === "pose" && !!c.poses?.in;
+  }
+  /** Eyes closed ("sleep" emotion) and floating Zzz until they get up. */
+  private fallAsleep(actor: string, rest: { actor: string; sleep?: boolean }, at: number) {
+    rest.sleep = true;
+    if ((this.kit.characters[this.characterOf(actor)]?.controls as Record<string, { poses?: Record<string, unknown> }> | undefined)?.emotion?.poses?.sleep)
+      this.push({ at: this.t(at + 0.4), actor, action: "pose", control: "emotion", value: "sleep", duration: 0.5 });
+  }
+  /** Zzz over every sleeper, one after the other, while they sleep. */
+  private snores() {
+    for (const r of this.rests.filter((x) => x.sleep)) {
+      const end = Math.min(r.t1, this.t1);
+      for (let t = r.t0 + 0.9; t + 0.5 < end; t += 2.6) this.push({ at: this.t(t), action: "fx", type: "zzz", actor: r.actor });
+    }
   }
   /** Trips and falls (standing), or falls off what they ride. */
   fallDown(actor: string, at: number, side: "front" | "back") {
@@ -1194,7 +1284,17 @@ class BlockScene {
     const l = this.restAt(actor, at);
     if (!l) return this.issue("warning", `${actor} is not sitting or lying to get up`);
     l.t1 = at + 0.6;
+    if (l.sleep && this.hasControl(actor, "emotion")) this.push({ at: this.t(at), actor, action: "pose", control: "emotion", value: "happy", duration: 0.3 });
+    if (l.tuck) {
+      this.push({ at: this.t(at), actor, action: "pose", control: "tuck", value: "out", duration: 0.4 });
+      if (l.on && this.furnitureOf.has(l.on)) {
+        this.push({ at: this.t(at + 0.3), actor, action: "mount", on: null, duration: 0.5 });
+        this.slide(actor, this.xAt(l.on, at) + (this.facing(l.on, at) ? 1 : -1) * 60 * this.scaleOf(actor), at + 0.3, 0.5);
+      } else this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at + 0.2, 0.4, "sineInOut");
+      return;
+    }
     this.shadow(actor, at, { drop: 0, hide: false }, 0.5);
+    if (l.kind !== "sit") this.bendNeck(actor, this.lying(actor, 1, "back").neck && { bone: this.lying(actor, 1, "back").neck!.bone, rotation: 0 }, at, 0.5);
     if (l.kind === "fallen") {
       this.set(actor, "rotation", 0, at, 0.6, "backOut");
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
@@ -1425,6 +1525,7 @@ class BlockScene {
       if (b.do === "look" || b.do === "face") noTurn.add(b.line);
     }
     this.ridePoses();
+    this.snores();
     this.dialogue(noTurn);
     this.checkOverlaps();
     for (const st of this.propStates.values()) {

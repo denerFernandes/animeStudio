@@ -115,6 +115,7 @@ never coordinates.
 | `fall` | `who`, `side?` (`back` default, `front`) | Riding: the vehicle tips and lies on its side, the rider is thrown clear and lands on the back (or face down). Standing: trips and falls. Stars over the head; until `getUp` |
 | `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`), `view?` (`"front"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground. `view: "front"` sits facing the audience (sofa in front of the TV, school desk): thighs foreshortened towards the camera, shins hanging. The next one on the same furniture takes `seat2`, `seat3`…; on a set seat they sit side by side |
 | `lie` | `who`, `on?` (furniture id, set mark with `seat` and `lie`, or `"ground"`) | Lies face up, head towards the back of the furniture (on its `pillow`); the ground shadow hides |
+| `sleep` | `who`, `on?` (as `lie`) | Lies down (or tucks in) with the eyes closed (`sleep` emotion) and Zzz floating up until `getUp` |
 | `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
 
 ### Riding, sitting, lying
@@ -147,6 +148,11 @@ part of the place goes in the set, always there: `SetDef.furniture: [{ id, kind,
 (standing on its mark's `y`, e.g. against the back wall); `on` takes its id like block furniture.
 **Set seats** are marks with a height in scene px: `{ "x": 700, "seat": 90 }` (a seat drawn in the
 background art), plus `"lie": true` for places to lie on (grass bank).
+
+Lying keeps the spine (hip joint → head) flat whatever the posture: the neck bends back first (a
+hunched character's head lines up with its body), the body turns for the rest. A rig with a `tuck`
+pose control (poses `out` / `in`: head and limbs into a shell, a hedgehog curling up) **tucks in**
+instead of lying down for `lie` and `sleep`, where it is (on the bed's `bed` / `seat` anchor).
 
 Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `RigInfo.hip` /
 `legLength` (from `rigInfo`). Lying and falls rest the body on `RigInfo.depth` — half the torso's

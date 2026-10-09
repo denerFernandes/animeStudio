@@ -154,6 +154,18 @@ describe("director", () => {
     expect(() => evaluateSequence(compiled, 2.5)).not.toThrow();
   });
 
+  it("sleeps: lying with Zzz, or tucked in for rigs with a tuck control", () => {
+    const shell = { ...stick, controls: { ...stick.controls, tuck: { type: "pose", poses: { out: {}, in: { "parts.arm.opacity": -1 } } } } } as unknown as typeof stick;
+    const k: Kit = { ...kit, characters: { a: shell, b: stick } };
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], beats: [{ line: 0, do: "sleep", who: ["a", "b"] }, { line: 3, do: "getUp", who: ["a", "b"] }] }] }, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; control?: string; value?: unknown; channel?: string; type?: string }[];
+    expect(script.filter((x) => x.action === "pose" && x.control === "tuck").map((x) => x.value)).toEqual(["in", "out"]);
+    expect(script.some((x) => x.actor === "a" && x.channel === "rotation")).toBe(false);
+    expect(script.some((x) => x.actor === "b" && x.channel === "rotation")).toBe(true);
+    expect(script.filter((x) => x.action === "fx" && x.type === "zzz").length).toBeGreaterThan(2);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");
