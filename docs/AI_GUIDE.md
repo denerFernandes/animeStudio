@@ -104,6 +104,19 @@ Lessons from converting a 66-shot storyboard into an episode:
   palm actually touches it.
 - **Vehicles exist only while they drive.** Hide them (`actors.<id>.opacity`) before they enter
   and after they leave, and start them so they enter the frame with their sound effect.
+- **People around a table: leave the camera side open.** Never stage a row of profiles along a
+  table (everyone stares at the next one's neck and the table cuts them at the waist). Seat the
+  group behind the table facing the camera (front view), with the table as a foreground layer —
+  a tablecloth hides the laps and legs — and the tabletop at elbow height so the forearms rest on
+  it, hands and papers on the top. Put the one they all address (a host, a game master) at the
+  end of the table in profile, facing them, and let the others' eyes turn to them. Keep bottles
+  and props on the table between people, never in front of a face.
+- **Gestures in the front view are hand positions, not arm swings.** Clips rotate the arm in the
+  picture plane, which reads as flapping from the front. Use IK reach targets instead: the hand
+  on the forehead (a facepalm), on a cheek (despair), fists by the chin (excitement), the hand
+  forward over the table (throwing dice). Aim at the centre of the face (a profile head anchor
+  sits on the nose side), and use the near hand: in the front view the far arm is drawn behind
+  the body.
 - **Tracks hold their first key before it.** A `pose`/`set` at t = 40 s also applies before
   40 s, so give every changing channel an explicit value at t = 0 (e.g. `view: "profile"`).
 
@@ -136,6 +149,12 @@ Lessons from converting a 66-shot storyboard into an episode:
   and a `pose` control that sets `parts.view.variant` and moves bones (arms to the sides, eyes and
   mouth towards the middle of the face, `parts.<id>.opacity: -1` to hide the face from behind).
   When each view has its own mouth, list them all in the viseme control (`part: ["mouth", "mouthFront"]`).
+  A profile drawn with one eye needs its own front face: give the front eyes one rigid part per
+  eye variant with `visibleWhen: { part: "eyes", variant }` (blinks and emotions then drive both
+  views), hide them in the other views by opacity, and copy every `parts.mouth.*` / `parts.brows.*`
+  channel of the emotion poses to the front mouth and brows. Draw the front face symmetric about
+  one centre line (two mirrored eyes, centred mouth, both ears) and the hair from the front (the
+  skull's top edge, then the bangs) rather than reusing profile spikes.
   Hide the switch with a quick squash clip (e.g. `bones.root.scaleX` 1 → 0.8 → 1) at the change.
 
 ## Common validation errors

@@ -171,7 +171,9 @@ when the last one gets up. They face right (seat
 front / foot of the bed on the right; a sofa drawn facing the audience is fine). Furniture that is
 part of the place goes in the set, always there: `SetDef.furniture: [{ id, kind, at, facing? }]`
 (standing on its mark's `y`, e.g. against the back wall); `on` takes its id like block furniture.
-**Set seats** are marks with a height in scene px: `{ "x": 700, "seat": 90 }` (a seat drawn in the
+For a group at a table, seat them behind it facing the camera (`sit` with `view: "front"` on
+front-facing chairs) and make the table a set fixture in front of them (a higher `z`) with a
+tablecloth; see AI_GUIDE ("People around a table"). **Set seats** are marks with a height in scene px: `{ "x": 700, "seat": 90 }` (a seat drawn in the
 background art), plus `"lie": true` for places to lie on (grass bank).
 
 Lying keeps the spine (hip joint → head) flat whatever the posture: the neck bends back first (a
