@@ -1,0 +1,264 @@
+{
+  "$schema": "../../schemas/scene.schema.json",
+  "format": "toon-scene",
+  "version": 1,
+  "width": 1920,
+  "height": 1080,
+  "fps": 60,
+  "duration": 14.8,
+  "background": "#DFF4FB",
+  "characters": {
+    "pip": "../characters/pip.toon.json"
+  },
+  "audio": {
+    "l1": "audio/l1.wav",
+    "l2": "audio/l2.wav",
+    "l3": "audio/l3.wav"
+  },
+  "lipsync": {
+    "l1": "audio/l1.cues.json",
+    "l2": "audio/l2.cues.json",
+    "l3": "audio/l3.cues.json"
+  },
+  "world": {
+    "gravity": [
+      0,
+      2200
+    ],
+    "ground": 900,
+    "walls": true
+  },
+  "layers": [
+    {
+      "id": "sky",
+      "parallax": 0,
+      "z": -100,
+      "art": "<defs><linearGradient id=\"skyGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#8FD3F4\"/><stop offset=\"1\" stop-color=\"#DFF4FB\"/></linearGradient></defs><rect x=\"-200\" y=\"-200\" width=\"2320\" height=\"1480\" fill=\"url(#skyGrad)\"/>"
+    },
+    {
+      "id": "sun",
+      "parallax": 0.05,
+      "z": -90,
+      "art": "<circle cx=\"1640\" cy=\"170\" r=\"80\" fill=\"#FFE27A\"/><circle cx=\"1640\" cy=\"170\" r=\"110\" fill=\"#FFE27A\" opacity=\"0.25\"/>"
+    },
+    {
+      "id": "clouds",
+      "parallax": 0.15,
+      "z": -80,
+      "art": "<g fill='#fff' opacity='0.95'><ellipse cx='300' cy='180' rx='110' ry='42'/><ellipse cx='370' cy='160' rx='80' ry='50'/><ellipse cx='1080' cy='120' rx='130' ry='40'/><ellipse cx='1000' cy='105' rx='70' ry='40'/></g>"
+    },
+    {
+      "id": "hills",
+      "parallax": 0.5,
+      "z": -70,
+      "art": "<path d=\"M-400 840 Q 200 560 700 780 T 1700 740 T 2500 810 L 2500 1380 L -400 1380 Z\" fill=\"#8CCB6A\"/>"
+    },
+    {
+      "id": "ground",
+      "z": -60,
+      "art": "<path d=\"M-400 880 Q 960 850 2400 880 L 2400 1480 L -400 1480 Z\" fill=\"#6DB84F\"/><path d=\"M-400 930 Q 960 910 2400 930\" stroke=\"#5DA542\" stroke-width=\"10\" fill=\"none\"/>"
+    },
+    {
+      "id": "tree",
+      "z": -50,
+      "art": "<rect x=\"1660\" y=\"600\" width=\"40\" height=\"300\" rx=\"16\" fill=\"#8A5A3B\"/><circle cx=\"1680\" cy=\"560\" r=\"120\" fill=\"#4FA34A\"/><circle cx=\"1600\" cy=\"610\" r=\"70\" fill=\"#4FA34A\"/>"
+    }
+  ],
+  "actors": [
+    {
+      "id": "pip",
+      "character": "pip",
+      "x": 380,
+      "y": 900,
+      "scale": 1.5
+    },
+    {
+      "id": "bia",
+      "character": "pip",
+      "x": 1380,
+      "y": 904,
+      "scale": 1.42,
+      "flip": true,
+      "seed": "bia",
+      "palette": {
+        "dress": "#3E7FE0",
+        "dressShade": "#2C5DAA",
+        "skin": "#F9BFD2",
+        "skinShade": "#F0A5BD"
+      }
+    }
+  ],
+  "props": [
+    {
+      "id": "ball",
+      "x": 905,
+      "y": 866,
+      "art": "<circle r=\"34\" fill=\"#F5D33F\" stroke=\"#C99A12\" stroke-width=\"4\"/><path d=\"M-34 0 Q0 -18 34 0 M-34 0 Q0 18 34 0\" stroke=\"#E2463B\" stroke-width=\"7\" fill=\"none\"/>",
+      "body": {
+        "type": "dynamic",
+        "shape": {
+          "circle": 34
+        },
+        "restitution": 0.62,
+        "friction": 0.6,
+        "density": 1
+      }
+    }
+  ],
+  "script": [
+    {
+      "at": 0,
+      "actor": "pip",
+      "action": "play",
+      "clip": "idle",
+      "loop": true,
+      "layer": -1,
+      "fadeIn": 0
+    },
+    {
+      "at": 0,
+      "actor": "bia",
+      "action": "play",
+      "clip": "idle",
+      "loop": true,
+      "layer": -1,
+      "fadeIn": 0
+    },
+    {
+      "at": 0,
+      "actor": "bia",
+      "action": "lookAt",
+      "target": "pip"
+    },
+    {
+      "at": 0.3,
+      "actor": "pip",
+      "action": "walkTo",
+      "x": 740,
+      "duration": 2.1
+    },
+    {
+      "at": 1.2,
+      "actor": "pip",
+      "action": "lookAt",
+      "target": "bia"
+    },
+    {
+      "at": 2.7,
+      "actor": "pip",
+      "action": "say",
+      "audio": "l1",
+      "lipsync": "l1"
+    },
+    {
+      "at": 2.7,
+      "actor": "pip",
+      "action": "play",
+      "clip": "wave",
+      "duration": 3.3584126984126983,
+      "fadeIn": 0.3,
+      "fadeOut": 0.4
+    },
+    {
+      "at": 5.808412698412698,
+      "actor": "bia",
+      "action": "pose",
+      "control": "emotion",
+      "value": "happy",
+      "duration": 0.35
+    },
+    {
+      "at": 6.008412698412698,
+      "actor": "bia",
+      "action": "say",
+      "audio": "l2",
+      "lipsync": "l2"
+    },
+    {
+      "at": 8.036961451247166,
+      "actor": "pip",
+      "action": "lookAt",
+      "target": "ball"
+    },
+    {
+      "at": 8.336961451247166,
+      "actor": "pip",
+      "action": "play",
+      "clip": "kick",
+      "fadeIn": 0.1,
+      "fadeOut": 0.15
+    },
+    {
+      "at": 8.656961451247167,
+      "prop": "ball",
+      "action": "impulse",
+      "vector": [
+        1150,
+        -1050
+      ]
+    },
+    {
+      "at": 8.706961451247167,
+      "actor": "bia",
+      "action": "lookAt",
+      "target": "ball"
+    },
+    {
+      "at": 8.756961451247166,
+      "action": "camera",
+      "x": 1080,
+      "y": 600,
+      "zoom": 1.12,
+      "duration": 1.4
+    },
+    {
+      "at": 9.936961451247166,
+      "actor": "bia",
+      "action": "play",
+      "clip": "jump",
+      "fadeIn": 0.05,
+      "fadeOut": 0.1
+    },
+    {
+      "at": 10.136961451247165,
+      "actor": "pip",
+      "action": "pose",
+      "control": "emotion",
+      "value": "happy",
+      "duration": 0.35
+    },
+    {
+      "at": 10.836961451247166,
+      "action": "shake",
+      "duration": 0.35,
+      "amount": 6
+    },
+    {
+      "at": 10.936961451247166,
+      "actor": "bia",
+      "action": "lookAt",
+      "target": "pip"
+    },
+    {
+      "at": 10.936961451247166,
+      "actor": "pip",
+      "action": "lookAt",
+      "target": "bia"
+    },
+    {
+      "at": 11.236961451247167,
+      "actor": "bia",
+      "action": "say",
+      "audio": "l3",
+      "lipsync": "l3"
+    },
+    {
+      "at": 13.749750566893425,
+      "action": "camera",
+      "x": 960,
+      "y": 540,
+      "zoom": 1,
+      "duration": 1.2
+    }
+  ]
+}

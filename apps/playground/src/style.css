@@ -1,0 +1,147 @@
+:root {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --ink: #23212b;
+  --muted: #6b6878;
+  --line: #e2e1ea;
+  --accent: #e4473b;
+  --error: #c62828;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17161c;
+    --panel: #211f28;
+    --ink: #ecebf2;
+    --muted: #a19eb0;
+    --line: #34313f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 100vh;
+}
+
+.side {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+.side h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.side label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.side select,
+.side input[type="text"],
+.side textarea,
+.side button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.side button {
+  cursor: pointer;
+}
+
+.side button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.issues {
+  font-size: 12px;
+  color: var(--error);
+  white-space: pre-wrap;
+}
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.viewport {
+  position: relative;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  cursor: crosshair;
+}
+
+.viewport svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.transport {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.transport input[type="range"] {
+  flex: 1;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}

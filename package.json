@@ -1,0 +1,23 @@
+{
+  "name": "animestudio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "schemas": "tsx packages/cli/src/bin.ts schema --out schemas",
+    "examples": "tsx examples/build.ts"
+  },
+  "devDependencies": {
+    "@animestudio/core": "workspace:*",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3",
+    "@types/react": "^19.3.0",
+    "react": "19.3.0",
+    "@animestudio/lipsync": "workspace:*",
+    "@animestudio/rigid": "workspace:*"
+  },
+  "packageManager": "pnpm@9.8.0"
+}

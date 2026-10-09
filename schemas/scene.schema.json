@@ -1,0 +1,2137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string",
+      "const": "toon-scene"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "width": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "height": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "fps": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "duration": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "background": {
+      "type": "string"
+    },
+    "characters": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Character id → path/URL of a .toon.json"
+    },
+    "audio": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "lipsync": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "world": {
+      "type": "object",
+      "properties": {
+        "gravity": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[x, y]"
+        },
+        "ground": {
+          "type": "number"
+        },
+        "walls": {
+          "type": "boolean"
+        },
+        "rate": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "surfaces": {
+          "description": "Walkable ground lines (branches, hills, floors)",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string",
+                "description": "SVG path of the walkable top edge in scene space, drawn left to right"
+              }
+            },
+            "required": [
+              "id",
+              "path"
+            ],
+            "additionalProperties": false,
+            "description": "A ground line: actors/props with `ground` stand on it; rigid bodies collide with it"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "zoom": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rotation": {
+          "type": "number"
+        },
+        "handheld": {
+          "type": "number",
+          "minimum": 0
+        },
+        "dolly": {
+          "type": "number"
+        },
+        "focus": {
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "blur": {
+          "type": "number",
+          "minimum": 0
+        },
+        "focusRange": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "motionBlur": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bounds": {
+          "description": "[minX, minY, maxX, maxY]: the view never shows outside this scene area",
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "ambient": {
+          "description": "Darkness laid over the whole scene (multiply); point lights cut through it",
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "lights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "point",
+                  "directional"
+                ]
+              },
+              "x": {
+                "description": "point: scene x",
+                "type": "number"
+              },
+              "y": {
+                "description": "point: scene y",
+                "type": "number"
+              },
+              "angle": {
+                "description": "directional: direction the light travels, degrees (90 = from above)",
+                "type": "number"
+              },
+              "color": {
+                "type": "string",
+                "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+              },
+              "intensity": {
+                "type": "number",
+                "minimum": 0
+              },
+              "radius": {
+                "description": "point: reach of the light in px",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "glow": {
+                "description": "point: strength of the visible additive glow (0 = invisible light)",
+                "type": "number",
+                "minimum": 0
+              },
+              "parallax": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "id",
+              "type"
+            ],
+            "additionalProperties": false,
+            "description": "A light. Point lights glow and open the ambient darkness; the key light shades characters"
+          }
+        },
+        "shading": {
+          "description": "Automatic cel shading on actors: shadow on the side away from the key light, rim light on the lit side",
+          "type": "object",
+          "properties": {
+            "light": {
+              "description": "Key light id (default: first light)",
+              "type": "string"
+            },
+            "color": {
+              "type": "string",
+              "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "rim": {
+              "type": "string",
+              "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+            },
+            "rimOpacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "offset": {
+              "description": "Size of the shadow/rim crescents in scene px",
+              "type": "number",
+              "minimum": 0
+            },
+            "inset": {
+              "description": "Keep shading this many scene px inside the silhouette edge, so outlines stay crisp (default 3.5)",
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "grade": {
+          "description": "Full-frame color grading",
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "blend": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "multiply",
+                "screen",
+                "overlay",
+                "soft-light",
+                "color",
+                "color-dodge"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "vignette": {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "CSS color; hex colors (#rgb / #rrggbb) interpolate smoothly when animated"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "Scene lighting: lights, ambient darkness, character cel shading, grading and vignette"
+    },
+    "layers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "art": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "rotation": {
+            "type": "number"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              }
+            ]
+          },
+          "z": {
+            "type": "number"
+          },
+          "parallax": {
+            "type": "number"
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "art"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "actors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "character": {
+            "type": "string"
+          },
+          "shading": {
+            "description": "Receive automatic cel shading from scene lighting (default true)",
+            "type": "boolean"
+          },
+          "ground": {
+            "type": "object",
+            "properties": {
+              "surface": {
+                "type": "string"
+              },
+              "offset": {
+                "description": "How far the feet sink into the surface (px, default 0)",
+                "type": "number"
+              },
+              "feet": {
+                "description": "IK chain ids of the feet, adapted to the slope",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "surface"
+            ],
+            "additionalProperties": false,
+            "description": "Stand on a surface: y follows the ground at the current x"
+          },
+          "flip": {
+            "type": "boolean"
+          },
+          "palette": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "seed": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "rotation": {
+            "type": "number"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              }
+            ]
+          },
+          "z": {
+            "type": "number"
+          },
+          "parallax": {
+            "type": "number"
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "character"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "props": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "art": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dynamic",
+                  "static",
+                  "kinematic"
+                ]
+              },
+              "shape": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "circle": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "circle"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "box": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "[x, y]"
+                      }
+                    },
+                    "required": [
+                      "box"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "restitution": {
+                "type": "number"
+              },
+              "friction": {
+                "type": "number"
+              },
+              "density": {
+                "type": "number"
+              },
+              "velocity": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              },
+              "angularVelocity": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "type",
+              "shape"
+            ],
+            "additionalProperties": false
+          },
+          "ground": {
+            "type": "object",
+            "properties": {
+              "surface": {
+                "type": "string"
+              },
+              "offset": {
+                "description": "How far the feet sink into the surface (px, default 0)",
+                "type": "number"
+              },
+              "feet": {
+                "description": "IK chain ids of the feet, adapted to the slope",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "surface"
+            ],
+            "additionalProperties": false,
+            "description": "Stand on a surface: y follows the ground at the current x"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "rotation": {
+            "type": "number"
+          },
+          "scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              }
+            ]
+          },
+          "z": {
+            "type": "number"
+          },
+          "parallax": {
+            "type": "number"
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "art"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tracks": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "anyOf": [
+            {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "[x, y]"
+                    },
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "number"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "[x, y]"
+                    },
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "number"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "linear",
+                        "step",
+                        "easeIn",
+                        "easeOut",
+                        "easeInOut",
+                        "sineIn",
+                        "sineOut",
+                        "sineInOut",
+                        "backIn",
+                        "backOut",
+                        "backInOut",
+                        "elasticOut",
+                        "bounceOut"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  ],
+                  "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            {
+              "type": "object",
+              "properties": {
+                "t": {
+                  "type": "number"
+                },
+                "v": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "[x, y]"
+                    },
+                    {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {
+                        "type": "number"
+                      }
+                    }
+                  ]
+                },
+                "ease": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "linear",
+                        "step",
+                        "easeIn",
+                        "easeOut",
+                        "easeInOut",
+                        "sineIn",
+                        "sineOut",
+                        "sineInOut",
+                        "backIn",
+                        "backOut",
+                        "backInOut",
+                        "elasticOut",
+                        "bounceOut"
+                      ]
+                    },
+                    {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  ],
+                  "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+                }
+              },
+              "required": [
+                "t",
+                "v"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "[time, value] | [time, value, ease] | { t, v, ease }"
+        }
+      },
+      "description": "Channel path → keyframes sorted by time"
+    },
+    "script": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "play"
+              },
+              "clip": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "loop": {
+                "type": "boolean"
+              },
+              "speed": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "fadeIn": {
+                "type": "number",
+                "minimum": 0
+              },
+              "fadeOut": {
+                "type": "number",
+                "minimum": 0
+              },
+              "layer": {
+                "type": "number"
+              },
+              "blend": {
+                "type": "string",
+                "enum": [
+                  "override",
+                  "additive"
+                ]
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "clip"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "set"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  },
+                  {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  }
+                ]
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "ease": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "linear",
+                      "step",
+                      "easeIn",
+                      "easeOut",
+                      "easeInOut",
+                      "sineIn",
+                      "sineOut",
+                      "sineInOut",
+                      "backIn",
+                      "backOut",
+                      "backInOut",
+                      "elasticOut",
+                      "bounceOut"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                ],
+                "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "channel",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "pose"
+              },
+              "control": {
+                "type": "string"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  }
+                ]
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "ease": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "linear",
+                      "step",
+                      "easeIn",
+                      "easeOut",
+                      "easeInOut",
+                      "sineIn",
+                      "sineOut",
+                      "sineInOut",
+                      "backIn",
+                      "backOut",
+                      "backInOut",
+                      "elasticOut",
+                      "bounceOut"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                ],
+                "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "control",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "walkTo"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "speed": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "clip": {
+                "type": "string"
+              },
+              "ease": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "linear",
+                      "step",
+                      "easeIn",
+                      "easeOut",
+                      "easeInOut",
+                      "sineIn",
+                      "sineOut",
+                      "sineInOut",
+                      "backIn",
+                      "backOut",
+                      "backInOut",
+                      "elasticOut",
+                      "bounceOut"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                ],
+                "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "x"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "face"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right"
+                ]
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "direction"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "lookAt"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "control": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "target"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "say"
+              },
+              "audio": {
+                "type": "string"
+              },
+              "lipsync": {
+                "type": "string"
+              },
+              "cues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "number"
+                    },
+                    "end": {
+                      "type": "number"
+                    },
+                    "value": {
+                      "type": "string",
+                      "enum": [
+                        "A",
+                        "B",
+                        "C",
+                        "D",
+                        "E",
+                        "F",
+                        "G",
+                        "H",
+                        "X"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "text": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "control": {
+                "type": "string"
+              },
+              "volume": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "grab"
+              },
+              "prop": {
+                "type": "string"
+              },
+              "anchor": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "prop",
+              "anchor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "release"
+              },
+              "prop": {
+                "type": "string"
+              },
+              "velocity": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "prop"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "impulse"
+              },
+              "prop": {
+                "type": "string"
+              },
+              "vector": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              }
+            },
+            "required": [
+              "at",
+              "action",
+              "prop",
+              "vector"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "camera"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "zoom": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "rotation": {
+                "type": "number"
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "ease": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "linear",
+                      "step",
+                      "easeIn",
+                      "easeOut",
+                      "easeInOut",
+                      "sineIn",
+                      "sineOut",
+                      "sineInOut",
+                      "backIn",
+                      "backOut",
+                      "backInOut",
+                      "elasticOut",
+                      "bounceOut"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                ],
+                "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+              },
+              "follow": {
+                "description": "Actor id to follow from `at` (for `duration`, or until the next follow/frame); null stops",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "offset": {
+                "description": "follow: framing offset from the actor's position (scene px)",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "lag": {
+                "description": "follow: smoothing lag in seconds (default 0.3)",
+                "type": "number",
+                "minimum": 0
+              },
+              "axes": {
+                "description": "follow: track only x (default) or x and y",
+                "type": "string",
+                "enum": [
+                  "x",
+                  "xy"
+                ]
+              },
+              "deadZone": {
+                "description": "follow: half size of the zone the actor can move in without moving the camera",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "lookAhead": {
+                "description": "follow: lead the camera by this many seconds of the actor's velocity",
+                "type": "number",
+                "minimum": 0
+              },
+              "frame": {
+                "description": "Keep these actors/props framed (auto position + zoom) from `at`; null stops",
+                "anyOf": [
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "padding": {
+                "description": "frame: margin around the targets in scene px (default 80)",
+                "type": "number",
+                "minimum": 0
+              },
+              "minZoom": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "maxZoom": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "blend": {
+                "description": "follow/frame: transition time in and out (default 0.6 s)",
+                "type": "number",
+                "minimum": 0
+              },
+              "path": {
+                "description": "Move through these scene points along a smooth curve",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "description": "[x, y]"
+                }
+              },
+              "punch": {
+                "description": "Punch-in zoom: quick zoom multiplier pulse (e.g. 0.15)",
+                "type": "number"
+              },
+              "handheld": {
+                "description": "Handheld drift amplitude in px (0 = locked off)",
+                "type": "number",
+                "minimum": 0
+              },
+              "dolly": {
+                "description": "Vertigo/dolly zoom: background scale vs subject (0 = none)",
+                "type": "number"
+              },
+              "focus": {
+                "description": "Depth in focus: a parallax value or an actor/prop/layer id",
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "blur": {
+                "description": "Depth-of-field strength: max blur in screen px (0 = off)",
+                "type": "number",
+                "minimum": 0
+              },
+              "focusRange": {
+                "description": "Depth distance at which blur reaches `blur` (default 0.5)",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "motionBlur": {
+                "description": "Motion blur shutter (0 = off, 0.5 = typical)",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "at",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "transition"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "fade",
+                  "iris",
+                  "wipe",
+                  "flash"
+                ]
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "mode": {
+                "description": "out = cover, in = uncover, outIn = cover then uncover (default)",
+                "type": "string",
+                "enum": [
+                  "out",
+                  "in",
+                  "outIn"
+                ]
+              },
+              "color": {
+                "type": "string"
+              },
+              "direction": {
+                "description": "wipe direction (default right)",
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right",
+                  "up",
+                  "down"
+                ]
+              },
+              "target": {
+                "description": "iris center: actor/prop id or scene point (default screen center)",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "at",
+              "action",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "fx"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "surprise",
+                  "exclaim",
+                  "question",
+                  "sweat",
+                  "sparkle",
+                  "dust",
+                  "hearts",
+                  "zzz",
+                  "anger",
+                  "impact",
+                  "gloom"
+                ],
+                "description": "Cartoon effect"
+              },
+              "actor": {
+                "description": "Attach to this actor (follows it, flips and scales with it)",
+                "type": "string"
+              },
+              "anchor": {
+                "description": "Actor anchor (default \"head\" if present); \"origin\" = between the feet",
+                "type": "string"
+              },
+              "offset": {
+                "description": "Offset from the anchor in the character's setup space",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "x": {
+                "description": "Scene x when not attached to an actor",
+                "type": "number"
+              },
+              "y": {
+                "description": "Scene y when not attached to an actor",
+                "type": "number"
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "scale": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "color": {
+                "description": "Ink color (default #1D2833)",
+                "type": "string"
+              },
+              "fill": {
+                "description": "Secondary color (drops, hearts, sparkles…)",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "action",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "shake"
+              },
+              "duration": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "amount": {
+                "type": "number"
+              },
+              "frequency": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "at",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "sound"
+              },
+              "audio": {
+                "type": "string"
+              },
+              "volume": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "at",
+              "action",
+              "audio"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "action": {
+                "type": "string",
+                "const": "light"
+              },
+              "channel": {
+                "type": "string",
+                "description": "Lighting channel, e.g. lights.sun.intensity, lighting.ambient.opacity"
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  },
+                  {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "number"
+                    }
+                  }
+                ]
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "ease": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "linear",
+                      "step",
+                      "easeIn",
+                      "easeOut",
+                      "easeInOut",
+                      "sineIn",
+                      "sineOut",
+                      "sineInOut",
+                      "backIn",
+                      "backOut",
+                      "backInOut",
+                      "elasticOut",
+                      "bounceOut"
+                    ]
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 4,
+                    "maxItems": 4
+                  }
+                ],
+                "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+              }
+            },
+            "required": [
+              "at",
+              "action",
+              "channel",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "width",
+    "height",
+    "fps",
+    "duration",
+    "characters"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,1272 @@
+{
+  "$schema": "../../schemas/toon.schema.json",
+  "format": "toon",
+  "version": 1,
+  "name": "pip",
+  "meta": {
+    "description": "Original pig character, flat cut-out style, facing right."
+  },
+  "palette": {
+    "skin": "#F7B2C8",
+    "skinShade": "#EE9AB6",
+    "outline": "#D2668C",
+    "cheek": "#F27BA3",
+    "dress": "#E4473B",
+    "dressShade": "#B8332B",
+    "shoe": "#2E2B36",
+    "ink": "#2E2B36",
+    "mouth": "#8C2346",
+    "white": "#FFFFFF"
+  },
+  "art": {
+    "head": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"6\" stroke-linejoin=\"round\"><ellipse cx=\"12\" cy=\"-262\" rx=\"64\" ry=\"56\"/><path d=\"M40 -290 L92 -290 L92 -236 L40 -232 Z\"/><ellipse cx=\"94\" cy=\"-263\" rx=\"18\" ry=\"27\"/></g><g fill=\"palette(skin)\"><ellipse cx=\"12\" cy=\"-262\" rx=\"64\" ry=\"56\"/><path d=\"M40 -290 L92 -290 L92 -236 L40 -232 Z\"/><ellipse cx=\"94\" cy=\"-263\" rx=\"18\" ry=\"27\"/></g><ellipse cx=\"88\" cy=\"-270\" rx=\"3.2\" ry=\"4.5\" fill=\"palette(outline)\"/><ellipse cx=\"100\" cy=\"-256\" rx=\"3.2\" ry=\"4.5\" fill=\"palette(outline)\"/>",
+    "cheek": "<circle cx=\"2\" cy=\"-240\" r=\"13\" fill=\"palette(cheek)\" opacity=\"0.75\"/>",
+    "eyesOpen": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"4\" stroke-linejoin=\"round\"><circle cx=\"24\" cy=\"-286\" r=\"12\"/><circle cx=\"54\" cy=\"-280\" r=\"12\"/></g><g fill=\"palette(white)\"><circle cx=\"24\" cy=\"-286\" r=\"12\"/><circle cx=\"54\" cy=\"-280\" r=\"12\"/></g>",
+    "eyesClosed": "<g fill=\"none\" stroke=\"palette(ink)\" stroke-width=\"3.5\" stroke-linecap=\"round\"><path d=\"M13 -284 Q24 -278 35 -284\"/><path d=\"M43 -278 Q54 -272 65 -278\"/></g>",
+    "eyesHappy": "<g fill=\"none\" stroke=\"palette(ink)\" stroke-width=\"3.5\" stroke-linecap=\"round\"><path d=\"M13 -282 Q24 -294 35 -282\"/><path d=\"M43 -276 Q54 -288 65 -276\"/></g>",
+    "eyesSad": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"4\" stroke-linejoin=\"round\"><circle cx=\"24\" cy=\"-286\" r=\"12\"/><circle cx=\"54\" cy=\"-280\" r=\"12\"/></g><g fill=\"palette(white)\"><circle cx=\"24\" cy=\"-286\" r=\"12\"/><circle cx=\"54\" cy=\"-280\" r=\"12\"/></g><g fill=\"none\" stroke=\"palette(ink)\" stroke-width=\"3\" stroke-linecap=\"round\"><path d=\"M12 -303 L32 -308\"/><path d=\"M47 -304 L66 -296\"/></g>",
+    "pupils": "<g fill=\"palette(ink)\"><circle cx=\"26\" cy=\"-286\" r=\"5\"/><circle cx=\"56\" cy=\"-280\" r=\"5\"/></g>",
+    "earFar": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"5\" stroke-linejoin=\"round\"><path d=\"M-3.56 -309.48 Q-16.61 -345.13 -26 -342 Q-35.39 -338.87 -24.44 -302.52 Z\"/></g><g fill=\"palette(skinShade)\"><path d=\"M-3.56 -309.48 Q-16.61 -345.13 -26 -342 Q-35.39 -338.87 -24.44 -302.52 Z\"/></g>",
+    "earNear": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"5\" stroke-linejoin=\"round\"><path d=\"M23.99 -310.6 Q20.79 -350.54 10 -350 Q-0.79 -349.46 0.01 -309.4 Z\"/></g><g fill=\"palette(skin)\"><path d=\"M23.99 -310.6 Q20.79 -350.54 10 -350 Q-0.79 -349.46 0.01 -309.4 Z\"/></g>",
+    "dress": "<path d=\"M-30 -194 Q0 -202 30 -194 L74 -88 Q78 -76 64 -74 L-64 -74 Q-78 -76 -74 -88 Z\" fill=\"palette(dress)\" stroke=\"palette(dressShade)\" stroke-width=\"3\" stroke-linejoin=\"round\"/><path d=\"M-66 -86 L66 -86\" stroke=\"palette(dressShade)\" stroke-width=\"3\" opacity=\"0.5\"/>",
+    "handNear": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"5\" stroke-linejoin=\"round\"><circle cx=\"62\" cy=\"-92\" r=\"8\"/></g><g fill=\"palette(skin)\"><circle cx=\"62\" cy=\"-92\" r=\"8\"/></g>",
+    "handFar": "<g fill=\"palette(outline)\" stroke=\"palette(outline)\" stroke-width=\"5\" stroke-linejoin=\"round\"><circle cx=\"-76\" cy=\"-112\" r=\"8\"/></g><g fill=\"palette(skinShade)\"><circle cx=\"-76\" cy=\"-112\" r=\"8\"/></g>",
+    "shoeNear": "<path d=\"M8 -2 Q8 -16 26 -15 Q44 -14 44 -4 Q44 2 26 2 Q8 2 8 -2 Z\" fill=\"palette(shoe)\"/>",
+    "shoeFar": "<path d=\"M-32 -2 Q-32 -16 -14 -15 Q4 -14 4 -4 Q4 2 -14 2 Q-32 2 -32 -2 Z\" fill=\"palette(shoe)\" opacity=\"0.85\"/>"
+  },
+  "skeleton": [
+    {
+      "id": "root"
+    },
+    {
+      "id": "hips",
+      "parent": "root",
+      "from": [
+        0,
+        -86
+      ],
+      "to": [
+        0,
+        -96
+      ],
+      "mass": 3
+    },
+    {
+      "id": "body",
+      "parent": "hips",
+      "from": [
+        0,
+        -86
+      ],
+      "to": [
+        0,
+        -196
+      ],
+      "mass": 3
+    },
+    {
+      "id": "head",
+      "parent": "body",
+      "from": [
+        0,
+        -196
+      ],
+      "to": [
+        0,
+        -250
+      ],
+      "mass": 2,
+      "limits": {
+        "rotation": [
+          -35,
+          35
+        ]
+      }
+    },
+    {
+      "id": "pupils",
+      "parent": "head",
+      "from": [
+        40,
+        -283
+      ]
+    },
+    {
+      "id": "earFar",
+      "parent": "head",
+      "from": [
+        -14,
+        -306
+      ],
+      "to": [
+        -26,
+        -342
+      ],
+      "mass": 0.4
+    },
+    {
+      "id": "earNear",
+      "parent": "head",
+      "from": [
+        12,
+        -310
+      ],
+      "to": [
+        10,
+        -350
+      ],
+      "mass": 0.4
+    },
+    {
+      "id": "armNear1",
+      "parent": "body",
+      "from": [
+        16,
+        -172
+      ],
+      "to": [
+        44,
+        -132
+      ],
+      "mass": 0.6
+    },
+    {
+      "id": "armNear2",
+      "parent": "armNear1",
+      "from": [
+        44,
+        -132
+      ],
+      "to": [
+        62,
+        -92
+      ],
+      "mass": 0.4
+    },
+    {
+      "id": "armFar1",
+      "parent": "body",
+      "from": [
+        -16,
+        -172
+      ],
+      "to": [
+        -46,
+        -140
+      ],
+      "mass": 0.6
+    },
+    {
+      "id": "armFar2",
+      "parent": "armFar1",
+      "from": [
+        -46,
+        -140
+      ],
+      "to": [
+        -76,
+        -112
+      ],
+      "mass": 0.4
+    },
+    {
+      "id": "legNear1",
+      "parent": "hips",
+      "from": [
+        16,
+        -84
+      ],
+      "to": [
+        27,
+        -46
+      ],
+      "mass": 1
+    },
+    {
+      "id": "legNear2",
+      "parent": "legNear1",
+      "from": [
+        27,
+        -46
+      ],
+      "to": [
+        20,
+        -6
+      ],
+      "mass": 0.8
+    },
+    {
+      "id": "legFar1",
+      "parent": "hips",
+      "from": [
+        -16,
+        -84
+      ],
+      "to": [
+        -9,
+        -46
+      ],
+      "mass": 1
+    },
+    {
+      "id": "legFar2",
+      "parent": "legFar1",
+      "from": [
+        -9,
+        -46
+      ],
+      "to": [
+        -20,
+        -6
+      ],
+      "mass": 0.8
+    },
+    {
+      "id": "toeNear",
+      "parent": "legNear2",
+      "from": [
+        20,
+        -6
+      ],
+      "to": [
+        40,
+        -6
+      ],
+      "inheritRotation": false
+    },
+    {
+      "id": "toeFar",
+      "parent": "legFar2",
+      "from": [
+        -20,
+        -6
+      ],
+      "to": [
+        0,
+        -6
+      ],
+      "inheritRotation": false
+    },
+    {
+      "id": "tail1",
+      "parent": "body",
+      "from": [
+        -68,
+        -112
+      ],
+      "to": [
+        -82,
+        -120
+      ],
+      "mass": 0.2
+    },
+    {
+      "id": "tail2",
+      "parent": "tail1",
+      "from": [
+        -82,
+        -120
+      ],
+      "to": [
+        -92,
+        -110
+      ],
+      "mass": 0.2
+    },
+    {
+      "id": "tail3",
+      "parent": "tail2",
+      "from": [
+        -92,
+        -110
+      ],
+      "to": [
+        -84,
+        -102
+      ],
+      "mass": 0.2
+    }
+  ],
+  "parts": [
+    {
+      "id": "earFar",
+      "type": "rigid",
+      "bone": "earFar",
+      "art": "earFar"
+    },
+    {
+      "id": "armFar",
+      "fill": "palette(skinShade)",
+      "stroke": "palette(outline)",
+      "strokeWidth": 2.5,
+      "type": "hose",
+      "bones": [
+        "armFar1",
+        "armFar2"
+      ],
+      "width": [
+        11,
+        9
+      ]
+    },
+    {
+      "id": "handFar",
+      "type": "rigid",
+      "bone": "armFar2",
+      "art": "handFar"
+    },
+    {
+      "id": "legFar",
+      "fill": "palette(skinShade)",
+      "stroke": "palette(outline)",
+      "strokeWidth": 2.5,
+      "type": "hose",
+      "bones": [
+        "legFar1",
+        "legFar2"
+      ],
+      "width": [
+        13,
+        11
+      ]
+    },
+    {
+      "id": "shoeFar",
+      "type": "rigid",
+      "bone": "toeFar",
+      "art": "shoeFar"
+    },
+    {
+      "id": "legNear",
+      "fill": "palette(skin)",
+      "stroke": "palette(outline)",
+      "strokeWidth": 2.5,
+      "type": "hose",
+      "bones": [
+        "legNear1",
+        "legNear2"
+      ],
+      "width": [
+        13,
+        11
+      ]
+    },
+    {
+      "id": "shoeNear",
+      "type": "rigid",
+      "bone": "toeNear",
+      "art": "shoeNear"
+    },
+    {
+      "id": "tail",
+      "fill": "palette(skin)",
+      "stroke": "palette(outline)",
+      "strokeWidth": 2,
+      "type": "hose",
+      "bones": [
+        "tail1",
+        "tail2",
+        "tail3"
+      ],
+      "width": [
+        7,
+        4
+      ]
+    },
+    {
+      "id": "dress",
+      "type": "rigid",
+      "bone": "body",
+      "art": "dress"
+    },
+    {
+      "id": "earNear",
+      "type": "rigid",
+      "bone": "earNear",
+      "art": "earNear"
+    },
+    {
+      "id": "head",
+      "type": "rigid",
+      "bone": "head",
+      "art": "head"
+    },
+    {
+      "id": "cheek",
+      "type": "rigid",
+      "bone": "head",
+      "art": "cheek"
+    },
+    {
+      "id": "eyes",
+      "type": "switch",
+      "bone": "head",
+      "variants": {
+        "open": "eyesOpen",
+        "closed": "eyesClosed",
+        "happy": "eyesHappy",
+        "sad": "eyesSad"
+      },
+      "default": "open"
+    },
+    {
+      "id": "pupils",
+      "visibleWhen": {
+        "part": "eyes",
+        "variant": [
+          "open",
+          "sad"
+        ]
+      },
+      "type": "rigid",
+      "bone": "pupils",
+      "art": "pupils"
+    },
+    {
+      "id": "mouth",
+      "fill": "palette(mouth)",
+      "type": "morph",
+      "bone": "head",
+      "base": "M23.75 -244C23.75 -242.31 31.85 -235.47 44 -235.47C56.15 -235.47 64.25 -242.31 64.25 -244C60.2 -244.51 54.13 -238.84 44 -238.84C33.88 -238.84 27.8 -244.51 23.75 -244Z",
+      "shapes": {
+        "A": "M26.45 -241.6C26.45 -240.92 33.47 -236.99 44 -236.99C54.53 -236.99 61.55 -240.92 61.55 -241.6C58.04 -241.8 52.78 -238.34 44 -238.34C35.23 -238.34 29.96 -241.8 26.45 -241.6Z",
+        "B": "M25.1 -241.6C25.1 -236.87 32.66 -230.91 44 -230.91C55.34 -230.91 62.9 -236.87 62.9 -241.6C59.12 -243.02 53.45 -240.36 44 -240.36C34.55 -240.36 28.88 -243.02 25.1 -241.6Z",
+        "C": "M23.75 -240.4C23.75 -231.62 31.85 -224.84 44 -224.84C56.15 -224.84 64.25 -231.62 64.25 -240.4C60.2 -243.03 54.13 -242.39 44 -242.39C33.88 -242.39 27.8 -243.03 23.75 -240.4Z",
+        "D": "M21.05 -239.2C21.05 -225.02 30.23 -216.74 44 -216.74C57.77 -216.74 66.95 -225.02 66.95 -239.2C62.36 -243.45 55.48 -245.09 44 -245.09C32.53 -245.09 25.64 -243.45 21.05 -239.2Z",
+        "E": "M29.15 -238C29.15 -227.87 35.09 -222.81 44 -222.81C52.91 -222.81 58.85 -227.87 58.85 -238C55.88 -241.04 51.43 -243.06 44 -243.06C36.58 -243.06 32.12 -241.04 29.15 -238Z",
+        "F": "M34.55 -238C34.55 -231.92 38.33 -228.89 44 -228.89C49.67 -228.89 53.45 -231.92 53.45 -238C51.56 -239.82 48.73 -241.04 44 -241.04C39.28 -241.04 36.44 -239.82 34.55 -238Z",
+        "G": "M26.45 -240.4C26.45 -237.02 33.47 -232.94 44 -232.94C54.53 -232.94 61.55 -237.02 61.55 -240.4C58.04 -241.41 52.78 -239.69 44 -239.69C35.23 -239.69 29.96 -241.41 26.45 -240.4Z",
+        "H": "M25.1 -240.4C25.1 -232.3 32.66 -225.85 44 -225.85C55.34 -225.85 62.9 -232.3 62.9 -240.4C59.12 -242.83 53.45 -242.05 44 -242.05C34.55 -242.05 28.88 -242.83 25.1 -240.4Z",
+        "smile": "M18.35 -248.8C18.35 -242.73 28.61 -228.89 44 -228.89C59.39 -228.89 69.65 -242.73 69.65 -248.8C64.52 -250.62 56.83 -241.04 44 -241.04C31.17 -241.04 23.48 -250.62 18.35 -248.8Z",
+        "frown": "M26.45 -230.8C26.45 -228.77 33.47 -234.96 44 -234.96C54.53 -234.96 61.55 -228.77 61.55 -230.8C58.04 -231.41 52.78 -239.01 44 -239.01C35.23 -239.01 29.96 -231.41 26.45 -230.8Z"
+      }
+    },
+    {
+      "id": "armNear",
+      "fill": "palette(skin)",
+      "stroke": "palette(outline)",
+      "strokeWidth": 2.5,
+      "type": "hose",
+      "bones": [
+        "armNear1",
+        "armNear2"
+      ],
+      "width": [
+        11,
+        9
+      ]
+    },
+    {
+      "id": "handNear",
+      "type": "rigid",
+      "bone": "armNear2",
+      "art": "handNear"
+    }
+  ],
+  "anchors": {
+    "head": {
+      "bone": "head",
+      "at": [
+        40,
+        -262
+      ]
+    },
+    "handNear": {
+      "bone": "armNear2",
+      "at": [
+        62,
+        -92
+      ]
+    },
+    "handFar": {
+      "bone": "armFar2",
+      "at": [
+        -76,
+        -112
+      ]
+    }
+  },
+  "ik": [
+    {
+      "id": "footNear",
+      "bones": [
+        "legNear1",
+        "legNear2"
+      ],
+      "bend": 1
+    },
+    {
+      "id": "footFar",
+      "bones": [
+        "legFar1",
+        "legFar2"
+      ],
+      "bend": 1
+    }
+  ],
+  "physics": [
+    {
+      "type": "spring",
+      "bones": [
+        "earNear"
+      ],
+      "stiffness": 0.42,
+      "damping": 0.22,
+      "gravity": [
+        0,
+        300
+      ]
+    },
+    {
+      "type": "spring",
+      "bones": [
+        "earFar"
+      ],
+      "stiffness": 0.4,
+      "damping": 0.22,
+      "gravity": [
+        0,
+        300
+      ]
+    },
+    {
+      "type": "spring",
+      "bones": [
+        "tail1",
+        "tail2",
+        "tail3"
+      ],
+      "stiffness": 0.35,
+      "damping": 0.18
+    }
+  ],
+  "colliders": [
+    {
+      "bone": "body",
+      "radius": 46
+    },
+    {
+      "bone": "head",
+      "radius": 50
+    },
+    {
+      "bone": "legNear2",
+      "radius": 9
+    },
+    {
+      "bone": "legFar2",
+      "radius": 9
+    }
+  ],
+  "controls": {
+    "mouth": {
+      "type": "viseme",
+      "part": "mouth"
+    },
+    "look": {
+      "type": "aim",
+      "targets": [
+        {
+          "bone": "head",
+          "weight": 0.45,
+          "forward": 90,
+          "maxAngle": 18
+        },
+        {
+          "bone": "pupils",
+          "mode": "translate",
+          "radius": 4.5
+        }
+      ]
+    },
+    "emotion": {
+      "type": "pose",
+      "poses": {
+        "happy": {
+          "parts.eyes.variant": "happy",
+          "parts.mouth.morph.smile": 0.9,
+          "bones.head.rotation": -4,
+          "bones.earNear.rotation": -6
+        },
+        "sad": {
+          "parts.eyes.variant": "sad",
+          "parts.mouth.morph.frown": 1,
+          "bones.head.rotation": 9,
+          "bones.earNear.rotation": 22,
+          "bones.earFar.rotation": 18,
+          "bones.body.rotation": 3
+        },
+        "surprised": {
+          "parts.mouth.morph.E": 0.8,
+          "bones.head.rotation": -6,
+          "bones.earNear.rotation": -12,
+          "bones.earFar.rotation": -10
+        }
+      }
+    }
+  },
+  "behaviors": [
+    {
+      "type": "blink",
+      "id": "blink",
+      "part": "eyes",
+      "open": "open",
+      "closed": "closed",
+      "interval": [
+        2.2,
+        5
+      ],
+      "duration": 0.14
+    },
+    {
+      "type": "breathe",
+      "id": "breathe",
+      "bone": "body",
+      "amount": 0.012,
+      "period": 3.2
+    },
+    {
+      "type": "sway",
+      "id": "sway",
+      "bone": "head",
+      "angle": 1.5,
+      "period": 4.5
+    }
+  ],
+  "clips": {
+    "idle": {
+      "duration": 3,
+      "loop": true,
+      "tracks": {
+        "bones.armNear1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            1.5,
+            4
+          ],
+          [
+            3,
+            0
+          ]
+        ],
+        "bones.armFar1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            1.5,
+            -3
+          ],
+          [
+            3,
+            0
+          ]
+        ],
+        "bones.body.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            1.5,
+            1
+          ],
+          [
+            3,
+            0
+          ]
+        ]
+      }
+    },
+    "wave": {
+      "duration": 1.2,
+      "loop": true,
+      "tracks": {
+        "bones.armNear1.rotation": [
+          [
+            0,
+            -60
+          ],
+          [
+            0.6,
+            -66
+          ],
+          [
+            1.2,
+            -60
+          ]
+        ],
+        "bones.armNear2.rotation": [
+          [
+            0,
+            -85
+          ],
+          [
+            0.3,
+            -45
+          ],
+          [
+            0.6,
+            -85
+          ],
+          [
+            0.9,
+            -45
+          ],
+          [
+            1.2,
+            -85
+          ]
+        ],
+        "bones.head.rotation": [
+          [
+            0,
+            -3
+          ],
+          [
+            0.6,
+            -5
+          ],
+          [
+            1.2,
+            -3
+          ]
+        ],
+        "bones.body.rotation": [
+          [
+            0,
+            -2
+          ],
+          [
+            0.6,
+            -3
+          ],
+          [
+            1.2,
+            -2
+          ]
+        ]
+      }
+    },
+    "walk": {
+      "duration": 0.8,
+      "loop": true,
+      "stride": 112,
+      "tracks": {
+        "ik.footNear.x": [
+          [
+            0,
+            28
+          ],
+          [
+            0.4,
+            -28,
+            "linear"
+          ],
+          [
+            0.6,
+            0
+          ],
+          [
+            0.8,
+            28
+          ]
+        ],
+        "ik.footNear.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.4,
+            0,
+            "linear"
+          ],
+          [
+            0.6,
+            -20
+          ],
+          [
+            0.8,
+            0
+          ]
+        ],
+        "ik.footFar.x": [
+          [
+            0,
+            -28
+          ],
+          [
+            0.2,
+            0
+          ],
+          [
+            0.4,
+            28
+          ],
+          [
+            0.8,
+            -28,
+            "linear"
+          ]
+        ],
+        "ik.footFar.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            -20
+          ],
+          [
+            0.4,
+            0
+          ],
+          [
+            0.8,
+            0,
+            "linear"
+          ]
+        ],
+        "bones.hips.y": [
+          [
+            0,
+            9
+          ],
+          [
+            0.2,
+            2
+          ],
+          [
+            0.4,
+            9
+          ],
+          [
+            0.6,
+            2
+          ],
+          [
+            0.8,
+            9
+          ]
+        ],
+        "bones.armNear1.rotation": [
+          [
+            0,
+            -22
+          ],
+          [
+            0.4,
+            22
+          ],
+          [
+            0.8,
+            -22
+          ]
+        ],
+        "bones.armFar1.rotation": [
+          [
+            0,
+            22
+          ],
+          [
+            0.4,
+            -22
+          ],
+          [
+            0.8,
+            22
+          ]
+        ],
+        "bones.body.rotation": [
+          [
+            0,
+            3
+          ],
+          [
+            0.2,
+            4
+          ],
+          [
+            0.4,
+            3
+          ],
+          [
+            0.6,
+            4
+          ],
+          [
+            0.8,
+            3
+          ]
+        ],
+        "bones.head.rotation": [
+          [
+            0,
+            -2
+          ],
+          [
+            0.2,
+            0
+          ],
+          [
+            0.4,
+            -2
+          ],
+          [
+            0.6,
+            0
+          ],
+          [
+            0.8,
+            -2
+          ]
+        ]
+      }
+    },
+    "kick": {
+      "duration": 0.75,
+      "tracks": {
+        "ik.footNear.x": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            -28,
+            "easeOut"
+          ],
+          [
+            0.32,
+            72,
+            "easeIn"
+          ],
+          [
+            0.45,
+            64
+          ],
+          [
+            0.75,
+            0
+          ]
+        ],
+        "ik.footNear.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            -10
+          ],
+          [
+            0.32,
+            -38
+          ],
+          [
+            0.45,
+            -32
+          ],
+          [
+            0.75,
+            0
+          ]
+        ],
+        "bones.hips.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            4
+          ],
+          [
+            0.32,
+            -2
+          ],
+          [
+            0.75,
+            0
+          ]
+        ],
+        "bones.body.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            5
+          ],
+          [
+            0.32,
+            -7,
+            "easeIn"
+          ],
+          [
+            0.75,
+            0
+          ]
+        ],
+        "bones.armNear1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            25
+          ],
+          [
+            0.32,
+            -45,
+            "easeIn"
+          ],
+          [
+            0.75,
+            0
+          ]
+        ],
+        "bones.armFar1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.2,
+            -15
+          ],
+          [
+            0.32,
+            45,
+            "easeIn"
+          ],
+          [
+            0.75,
+            0
+          ]
+        ]
+      }
+    },
+    "jump": {
+      "duration": 1.1,
+      "tracks": {
+        "bones.root.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.55,
+            -110,
+            "sineOut"
+          ],
+          [
+            0.85,
+            0,
+            "sineIn"
+          ],
+          [
+            1.1,
+            0
+          ]
+        ],
+        "ik.footNear.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.55,
+            -110,
+            "sineOut"
+          ],
+          [
+            0.85,
+            0,
+            "sineIn"
+          ],
+          [
+            1.1,
+            0
+          ]
+        ],
+        "ik.footFar.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            0
+          ],
+          [
+            0.55,
+            -110,
+            "sineOut"
+          ],
+          [
+            0.85,
+            0,
+            "sineIn"
+          ],
+          [
+            1.1,
+            0
+          ]
+        ],
+        "bones.hips.y": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            14,
+            "easeOut"
+          ],
+          [
+            0.35,
+            -6,
+            "easeOut"
+          ],
+          [
+            0.55,
+            -14
+          ],
+          [
+            0.85,
+            0
+          ],
+          [
+            0.92,
+            12,
+            "easeOut"
+          ],
+          [
+            1.1,
+            0,
+            "backOut"
+          ]
+        ],
+        "bones.body.squash": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            -0.12,
+            "easeOut"
+          ],
+          [
+            0.35,
+            0.1,
+            "easeOut"
+          ],
+          [
+            0.6,
+            0
+          ],
+          [
+            0.85,
+            0
+          ],
+          [
+            0.92,
+            -0.1,
+            "easeOut"
+          ],
+          [
+            1.1,
+            0,
+            "backOut"
+          ]
+        ],
+        "bones.armNear1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            25
+          ],
+          [
+            0.4,
+            -62,
+            "backOut"
+          ],
+          [
+            0.85,
+            -50
+          ],
+          [
+            1.1,
+            0
+          ]
+        ],
+        "bones.armFar1.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            -20
+          ],
+          [
+            0.4,
+            80,
+            "backOut"
+          ],
+          [
+            0.85,
+            60
+          ],
+          [
+            1.1,
+            0
+          ]
+        ],
+        "bones.armNear2.rotation": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25,
+            10
+          ],
+          [
+            0.4,
+            15
+          ],
+          [
+            0.85,
+            10
+          ],
+          [
+            1.1,
+            0
+          ]
+        ]
+      }
+    }
+  }
+}

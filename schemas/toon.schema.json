@@ -1,0 +1,1388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string",
+      "const": "toon"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "meta": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "palette": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "defs": {
+      "type": "string"
+    },
+    "art": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "skeleton": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parent": {
+            "type": "string"
+          },
+          "from": {
+            "description": "Setup form: joint position in setup space",
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "to": {
+            "description": "Setup form: tip position in setup space",
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "x": {
+            "description": "Local form: x in parent space",
+            "type": "number"
+          },
+          "y": {
+            "description": "Local form: y in parent space",
+            "type": "number"
+          },
+          "rotation": {
+            "description": "Local form: rotation in degrees relative to parent",
+            "type": "number"
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0
+          },
+          "scaleX": {
+            "type": "number"
+          },
+          "scaleY": {
+            "type": "number"
+          },
+          "mass": {
+            "description": "Physics mass (default 1)",
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "rotation": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "additionalProperties": false
+          },
+          "inheritRotation": {
+            "type": "boolean"
+          },
+          "inheritScale": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "description": "A bone, in setup form (from/to) or local form (x/y/rotation/length)"
+      }
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "type": {
+                "type": "string",
+                "const": "rigid"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "art": {
+                "type": "string",
+                "description": "Art id from `art`, or inline SVG markup (a string starting with '<')"
+              },
+              "space": {
+                "type": "string",
+                "enum": [
+                  "setup",
+                  "bone"
+                ],
+                "description": "Coordinate space of the art (default: setup)"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "bone",
+              "art"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "type": {
+                "type": "string",
+                "const": "switch"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "variants": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "description": "Art id from `art`, or inline SVG markup (a string starting with '<')"
+                },
+                "description": "Variant name → art (use '' for an empty variant)"
+              },
+              "default": {
+                "type": "string"
+              },
+              "space": {
+                "type": "string",
+                "enum": [
+                  "setup",
+                  "bone"
+                ],
+                "description": "Coordinate space of the art (default: setup)"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "bone",
+              "variants",
+              "default"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "fill": {
+                "type": "string"
+              },
+              "stroke": {
+                "type": "string"
+              },
+              "strokeWidth": {
+                "type": "number"
+              },
+              "attrs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "type": {
+                "type": "string",
+                "const": "skinned"
+              },
+              "path": {
+                "type": "string",
+                "description": "SVG path data in setup space"
+              },
+              "bones": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "weights": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "falloff": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "path",
+              "bones"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "fill": {
+                "type": "string"
+              },
+              "stroke": {
+                "type": "string"
+              },
+              "strokeWidth": {
+                "type": "number"
+              },
+              "attrs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "type": {
+                "type": "string",
+                "const": "hose"
+              },
+              "bones": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                ]
+              },
+              "cap": {
+                "type": "string",
+                "enum": [
+                  "round",
+                  "butt"
+                ]
+              },
+              "smooth": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "bones",
+              "width"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "fill": {
+                "type": "string"
+              },
+              "stroke": {
+                "type": "string"
+              },
+              "strokeWidth": {
+                "type": "number"
+              },
+              "attrs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "type": {
+                "type": "string",
+                "const": "morph"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "base": {
+                "type": "string"
+              },
+              "shapes": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "space": {
+                "type": "string",
+                "enum": [
+                  "setup",
+                  "bone"
+                ],
+                "description": "Coordinate space of the art (default: setup)"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "bone",
+              "base",
+              "shapes"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "anchors": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "bone": {
+            "type": "string"
+          },
+          "at": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "Setup space"
+          }
+        },
+        "required": [
+          "bone",
+          "at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "ik": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "bones": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bend": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 1
+              },
+              {
+                "type": "number",
+                "const": -1
+              }
+            ]
+          },
+          "mix": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "id",
+          "bones"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "physics": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "spring"
+              },
+              "bones": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "stiffness": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "damping": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "gravity": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[x, y]"
+              },
+              "inertia": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "mix": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "type",
+              "bones"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "jiggle"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "stiffness": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "damping": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "translate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "squash": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "mix": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "type",
+              "bone"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "colliders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "bone": {
+            "type": "string"
+          },
+          "radius": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "bone",
+          "radius"
+        ],
+        "additionalProperties": false,
+        "description": "Capsule along the bone (a circle for zero-length bones) that rigid bodies collide with"
+      }
+    },
+    "controls": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "viseme"
+              },
+              "part": {
+                "type": "string",
+                "description": "Switch part (mouth variants) or morph part (mouth shapes, smooth blending)"
+              },
+              "map": {
+                "description": "Viseme → variant name",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "part"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "aim"
+              },
+              "targets": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bone": {
+                      "type": "string"
+                    },
+                    "weight": {
+                      "type": "number"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "rotate",
+                        "translate"
+                      ]
+                    },
+                    "forward": {
+                      "type": "number"
+                    },
+                    "maxAngle": {
+                      "type": "number"
+                    },
+                    "radius": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "bone"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "type",
+              "targets"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "pose"
+              },
+              "poses": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "[x, y]"
+                      },
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "number"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "required": [
+              "type",
+              "poses"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "behaviors": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "blink"
+              },
+              "id": {
+                "type": "string"
+              },
+              "part": {
+                "type": "string"
+              },
+              "open": {
+                "type": "string"
+              },
+              "closed": {
+                "type": "string"
+              },
+              "interval": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "duration": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "part",
+              "open",
+              "closed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "breathe"
+              },
+              "id": {
+                "type": "string"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              },
+              "period": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "bone"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "sway"
+              },
+              "id": {
+                "type": "string"
+              },
+              "bone": {
+                "type": "string"
+              },
+              "angle": {
+                "type": "number"
+              },
+              "period": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "bone"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "clips": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "loop": {
+            "type": "boolean"
+          },
+          "stride": {
+            "description": "Travel distance per cycle for locomotion clips",
+            "type": "number",
+            "minimum": 0
+          },
+          "tracks": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "description": "[x, y]"
+                          },
+                          {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "number"
+                            }
+                          }
+                        ]
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "description": "[x, y]"
+                          },
+                          {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "number"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "linear",
+                              "step",
+                              "easeIn",
+                              "easeOut",
+                              "easeInOut",
+                              "sineIn",
+                              "sineOut",
+                              "sineInOut",
+                              "backIn",
+                              "backOut",
+                              "backInOut",
+                              "elasticOut",
+                              "bounceOut"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 4,
+                            "maxItems": 4
+                          }
+                        ],
+                        "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "t": {
+                        "type": "number"
+                      },
+                      "v": {
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "description": "[x, y]"
+                          },
+                          {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {
+                              "type": "number"
+                            }
+                          }
+                        ]
+                      },
+                      "ease": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "linear",
+                              "step",
+                              "easeIn",
+                              "easeOut",
+                              "easeInOut",
+                              "sineIn",
+                              "sineOut",
+                              "sineInOut",
+                              "backIn",
+                              "backOut",
+                              "backInOut",
+                              "elasticOut",
+                              "bounceOut"
+                            ]
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 4,
+                            "maxItems": 4
+                          }
+                        ],
+                        "description": "Easing name or cubic-bezier [x1, y1, x2, y2]. Shapes the segment arriving at this key."
+                      }
+                    },
+                    "required": [
+                      "t",
+                      "v"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "[time, value] | [time, value, ease] | { t, v, ease }"
+              }
+            },
+            "description": "Channel path → keyframes sorted by time"
+          }
+        },
+        "required": [
+          "duration",
+          "tracks"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "name",
+    "skeleton",
+    "parts"
+  ],
+  "additionalProperties": false
+}

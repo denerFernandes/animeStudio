@@ -1,0 +1,9 @@
+node_modules
+dist
+out
+.DS_Store
+*.log
+# Secrets
+.env*
+# Local experiments (never committed)
+apps/video/sandbox/

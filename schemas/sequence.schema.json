@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "type": "string",
+      "const": "toon-sequence"
+    },
+    "version": {
+      "type": "number",
+      "const": 1
+    },
+    "width": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "height": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "fps": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "scenes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Scene id → path/URL of a .scene.json"
+    },
+    "shots": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene": {
+            "type": "string"
+          },
+          "from": {
+            "description": "Start time inside the scene (default 0)",
+            "type": "number",
+            "minimum": 0
+          },
+          "duration": {
+            "description": "Shot length (default: rest of the scene)",
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "transition": {
+            "description": "Transition from the previous shot into this one",
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cut",
+                  "crossfade",
+                  "fade",
+                  "iris",
+                  "wipe",
+                  "flash"
+                ]
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "color": {
+                "type": "string"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right",
+                  "up",
+                  "down"
+                ]
+              },
+              "target": {
+                "description": "iris center: actor id or screen point",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "scene"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "width",
+    "height",
+    "fps",
+    "scenes",
+    "shots"
+  ],
+  "additionalProperties": false
+}

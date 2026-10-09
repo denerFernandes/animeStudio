@@ -1,0 +1,22 @@
+{
+  "name": "@animestudio/video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render"
+  },
+  "dependencies": {
+    "@animestudio/core": "workspace:*",
+    "@animestudio/remotion": "workspace:*",
+    "@remotion/cli": "4.0.534",
+    "@remotion/media": "4.0.534",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.534",
+    "@animestudio/react": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@animestudio/remotion",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "dependencies": {
+    "@animestudio/core": "workspace:*",
+    "@animestudio/react": "workspace:*",
+    "@animestudio/rigid": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "remotion": ">=4",
+    "@remotion/media": ">=4"
+  },
+  "devDependencies": {
+    "react": "19.3.0",
+    "@types/react": "^19.3.0",
+    "remotion": "4.0.534",
+    "@remotion/media": "4.0.534"
+  }
+}

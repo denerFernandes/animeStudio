@@ -1,0 +1,20 @@
+{
+  "name": "@animestudio/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@animestudio/core": "workspace:*",
+    "@animestudio/lipsync": "workspace:*",
+    "@animestudio/import-svg": "workspace:*",
+    "tsx": "^4.23.15"
+  },
+  "peerDependencies": {},
+  "bin": {
+    "toon": "./src/bin.ts"
+  }
+}
