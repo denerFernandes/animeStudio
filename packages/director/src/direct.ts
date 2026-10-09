@@ -117,7 +117,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly"];
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
 
@@ -180,6 +180,10 @@ class BlockScene {
     this.script.push(a);
   }
   mark(name: string) {
+    if (typeof name !== "string") {
+      this.issue("error", `expected a mark name, got ${JSON.stringify(name)} (cast "at" takes a mark; use "offset" to move along)`);
+      return { x: (this.kit.width ?? 1920) / 2 };
+    }
     const m = this.setDef.marks[name];
     if (m) return m;
     if (name === "center") return { x: (this.kit.width ?? 1920) / 2 };
@@ -257,12 +261,14 @@ class BlockScene {
       const x = xs.get(c.id)!;
       // An "enter" beat is the same as an `enter` on the cast entry.
       const eb = (this.block.beats ?? []).find((b) => b.do === "enter" && (b.who === c.id || (Array.isArray(b.who) && b.who.includes(c.id))));
-      const enter = c.enter ?? (eb ? { line: eb.line, word: eb.word, from: (eb.from as "left" | "right") ?? "left", run: !!eb.run } : undefined);
-      const startX = enter ? (enter.from === "left" ? -400 : (this.kit.width ?? 1920) + 400) : x;
+      const enter = c.enter ?? (eb ? { line: eb.line, word: eb.word, from: (eb.from as "left" | "right" | "top") ?? "left", run: !!eb.run, fly: !!eb.fly } : undefined);
+      const startX = enter ? (enter.from === "left" ? -400 : enter.from === "right" ? (this.kit.width ?? 1920) + 400 : x + (x > (this.kit.width ?? 1920) / 2 ? 650 : -650)) : x;
       const flip = c.facing ? c.facing === "left" : enter ? enter.from === "right" : x > this.mark("center").x + 120;
       this.addActor(c.id, startX, { flip, emotion: c.emotion });
       if (c.wear) this.wear(c.id, c.wear, this.t0);
-      if (enter) {
+      if (enter?.fly) {
+        this.flyIn(c.id, x, this.time.at(enter), enter.from);
+      } else if (enter) {
         const at = this.time.at(enter);
         this.walk(c.id, x, at, Math.abs(x - startX) / ((this.member(c.id)?.speed?.[enter.run ? "run" : "walk"] ?? (enter.run ? 380 : 170)) * this.scaleOf(c.id)), { clip: enter.run ? "run" : "walk" });
       }
@@ -519,6 +525,9 @@ class BlockScene {
         break;
       case "getUp":
         for (const w of who) this.getUp(w, at);
+        break;
+      case "fly":
+        for (const w of who) this.fly(w, b.to as Place | "offLeft" | "offRight" | "up", at, until);
         break;
       case "wear": {
         // { wear: { control: pose } } or the shorthand { control, value }.
@@ -1004,6 +1013,108 @@ class BlockScene {
     if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
     this.push({ at: this.t(at + dur + 0.05), action: "fx", type: "stars", actor });
   }
+  // -------------------------------------------------- flying
+  /** Characters that fly: `meta.canFly` on the rig, or a `fly` clip. Wings beat with `fly`, else `flap`. */
+  canFly(actor: string) {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { meta?: { canFly?: boolean }; clips?: Record<string, unknown> } | undefined;
+    return !!doc?.meta?.canFly || !!doc?.clips?.fly;
+  }
+  private groundOf(actor: string) {
+    return !!(this.kit.characters[this.characterOf(actor)]?.skeleton as { id: string }[] | undefined)?.some((b) => b.id === "ground");
+  }
+  private wings(actor: string) {
+    return this.hasClip(actor, "fly") ? "fly" : this.hasClip(actor, "flap") ? "flap" : undefined;
+  }
+  /**
+   * One smooth flight along a cubic Bézier path (scene points), sampled finely so speed and height
+   * change continuously (no stop in mid-air): `ease` spreads the progress (slow start and landing).
+   * The body pitches with the direction of travel, the wings beat, and the ground shadow stays on
+   * the floor, smaller and fainter the higher they are.
+   */
+  private flight(actor: string, path: [number, number][], at: number, dur: number, ease: (u: number) => number, lands: boolean) {
+    const s = this.scaleOf(actor);
+    const floor = this.groundY(actor, at);
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton?: { id: string }[]; parts?: { id: string }[] };
+    const ground = doc.skeleton?.some((b) => b.id === "ground"), shadow = doc.parts?.some((p) => p.id === "shadow");
+    const [p0, c1, c2, p3] = path;
+    const bez = (u: number): [number, number] => {
+      const a = (1 - u) ** 3, b = 3 * (1 - u) ** 2 * u, c = 3 * (1 - u) * u * u, d = u ** 3;
+      return [a * p0[0] + b * c1[0] + c * c2[0] + d * p3[0], a * p0[1] + b * c1[1] + c * c2[1] + d * p3[1]];
+    };
+    const dirX = p3[0] >= p0[0] ? 1 : -1;
+    this.face(actor, dirX > 0 ? "right" : "left", at);
+    this.walks.push({ actor, t0: at, t1: at + dur, x0: p0[0], x1: p3[0] });
+    const n = Math.max(6, Math.ceil(dur * 12));
+    let prev = bez(0);
+    for (let k = 1; k <= n; k++) {
+      const t = at + ((k - 1) / n) * dur, d = dur / n;
+      const p = bez(ease(k / n));
+      const alt = Math.max(0, floor - p[1]);
+      this.set(actor, "x", Math.round(p[0]), t, d, "linear");
+      this.set(actor, "y", Math.round(p[1]), t, d, "linear");
+      // Nose up when climbing, down when descending (gently), level at the end of a landing.
+      const pitch = lands && k === n ? 0 : Math.max(-14, Math.min(14, (Math.atan2(p[1] - prev[1], Math.abs(p[0] - prev[0]) + 1e-3) * 180) / Math.PI * 0.35));
+      this.set(actor, "rotation", r3(pitch * dirX), t, d, "linear");
+      if (ground) this.set(actor, "bones.ground.y", r3(alt / s), t, d, "linear");
+      if (shadow) this.set(actor, "parts.shadow.opacity", r3(Math.max(0.15, 1 - alt / 600)), t, d, "linear");
+      prev = p;
+    }
+    const clip = this.wings(actor);
+    if (clip) this.push({ at: this.t(at), actor, action: "play", clip, loop: true, duration: r3(dur), fadeIn: 0.15, fadeOut: 0.25 });
+  }
+  /** A little squash on touching down. */
+  private touchDown(actor: string, at: number) {
+    const s = this.scaleOf(actor);
+    this.set(actor, "scale", [r3(s * 1.1), r3(s * 0.88)], at, 0.08, "easeOut");
+    this.set(actor, "scale", s, at + 0.08, 0.22, "backOut");
+  }
+  /** Comes in through the air (from a side, high, or from the top), glides down and lands at x. */
+  private flyIn(actor: string, x: number, at: number, from: "left" | "right" | "top") {
+    if (!this.canFly(actor)) this.issue("error", `${actor} cannot fly (no "fly" clip nor meta.canFly on the rig)`);
+    const s = this.scaleOf(actor);
+    const floor = this.groundY(actor, at);
+    // From above the frame (and off the side it comes from).
+    const y0 = Math.min(floor - 700, -250);
+    const x0 = this.xAt(actor, at);
+    const dir = x >= x0 ? 1 : -1;
+    const dur = Math.max(2.6, (Math.hypot(x - x0, floor - y0) * 1.3) / ((this.member(actor)?.speed?.fly ?? 360) * s));
+    this.set(actor, "y", Math.round(y0), this.t0, 0);
+    if (this.groundOf(actor)) this.set(actor, "bones.ground.y", r3((floor - y0) / s), this.t0, 0);
+    // Placed up there first; the flight starts a moment later (keys at the same instant would merge).
+    const t = Math.max(at, this.t0 + 0.05);
+    // A swoop: down steeply at first, then gliding in nearly level to touch down.
+    const path: [number, number][] = [[x0, y0], [x0 + (x - x0) * 0.35, y0 + (floor - y0) * 0.65], [x - dir * 220 * s, floor - 90 * s], [x, floor]];
+    this.flight(actor, path, t, dur, (u) => Math.sin((u * Math.PI) / 2), true);
+    this.touchDown(actor, t + dur);
+  }
+  /** Flies to a place (crouches, takes off, glides, lands) or away out of the frame ("offLeft", "offRight", "up"). */
+  fly(actor: string, to: Place | "offLeft" | "offRight" | "up", at: number, until?: number) {
+    if (!this.canFly(actor)) return this.issue("error", `${actor} cannot fly (no "fly" clip nor meta.canFly on the rig)`);
+    if (this.restAt(actor, at)) this.getUp(actor, at - 0.6);
+    const s = this.scaleOf(actor);
+    const floor = this.groundY(actor, at);
+    const x0 = this.xAt(actor, at);
+    const speed = (this.member(actor)?.speed?.fly ?? 360) * s;
+    // Crouch before the jump into the air.
+    this.set(actor, "scale", [r3(s * 1.08), r3(s * 0.9)], at - 0.18, 0.15, "easeOut");
+    this.set(actor, "scale", s, at, 0.2, "easeOut");
+    if (to === "offLeft" || to === "offRight" || to === "up") {
+      const x1 = to === "offLeft" ? -500 : to === "offRight" ? (this.kit.width ?? 1920) + 500 : x0 + (this.facing(actor, at) ? 300 : -300);
+      const y1 = Math.min(floor - 900, -300);
+      const dur = until !== undefined ? until - at : Math.max(1.6, Math.hypot(x1 - x0, floor - y1) / speed);
+      // Up and away, speeding up.
+      this.flight(actor, [[x0, floor], [x0 + (x1 - x0) * 0.15, floor - 220 * s], [x0 + (x1 - x0) * 0.6, y1 + 200], [x1, y1]], at, dur, (u) => u * u * (2 - u) * 0.5 + u * u * 0.5, false);
+      return;
+    }
+    const x1 = this.placeX(to, at, actor);
+    const dur = until !== undefined ? until - at : Math.max(1.3, Math.abs(x1 - x0) / speed + 0.7);
+    const top = Math.min(280, 100 + Math.abs(x1 - x0) * 0.3) * s;
+    // A hop through the air: up steeply, a long arc, a soft landing.
+    this.flight(actor, [[x0, floor], [x0 + (x1 - x0) * 0.2, floor - top * 1.35], [x1 - (x1 - x0) * 0.2, floor - top * 1.35], [x1, floor]], at, dur, (u) => (1 - Math.cos(u * Math.PI)) / 2, true);
+    this.touchDown(actor, at + dur);
+  }
+
+
   // -------------------------------------------------- sitting and lying (furniture, set seats, the ground)
   /** Furniture standing in the block. */
   placeFurniture() {
@@ -1270,7 +1381,12 @@ class BlockScene {
   private snores() {
     for (const r of this.rests.filter((x) => x.sleep)) {
       const end = Math.min(r.t1, this.t1);
-      for (let t = r.t0 + 0.9; t + 0.5 < end; t += 2.6) this.push({ at: this.t(t), action: "fx", type: "zzz", actor: r.actor });
+      // Tucked in: from the rig's `tuck` anchor, else just above the tucked body.
+      const tuckAnchor = r.tuck && ((this.kit.characters[this.characterOf(r.actor)]?.anchors ?? {}) as Record<string, unknown>).tuck;
+      for (let t = r.t0 + 0.9; t + 0.5 < end; t += 2.6) {
+        if (!r.tuck || tuckAnchor) this.push({ at: this.t(t), action: "fx", type: "zzz", actor: r.actor, ...(tuckAnchor ? { anchor: "tuck" } : {}) });
+        else this.push({ at: this.t(t), action: "fx", type: "zzz", x: Math.round(this.xAt(r.actor, t)), y: Math.round(this.groundY(r.actor, t) - (this.member(r.actor)?.rig.height ?? 200) * 0.35 * this.scaleOf(r.actor)) });
+      }
     }
   }
   /** Trips and falls (standing), or falls off what they ride. */
@@ -1386,8 +1502,20 @@ class BlockScene {
       case "group":
       case "wide":
       default:
-        this.push({ at: abs, action: "camera", frame: who.length ? who : this.present, padding: c.type === "wide" ? 260 : 220, minZoom: 1, maxZoom: 1.15, blend: 1.2 });
+        this.push({ at: abs, action: "camera", frame: who.length ? who : this.present, padding: c.type === "wide" ? 260 : 220, minZoom: 1, maxZoom: 1.15, blend: 1.2, ...this.band(who.length ? who : this.present, at) });
     }
+  }
+
+  /**
+   * Vertical extent of a group shot: from the tallest head to the ground. Framing follows the cast
+   * sideways only, so a jump or a flight never moves the whole set up and down.
+   */
+  private band(who: string[], at: number): { band?: [number, number] } {
+    const cast = who.filter((w) => this.kit.cast[w]);
+    if (!cast.length || cast.some((w) => this.crossed.has(w))) return {};
+    const ground = this.setDef.ground.near;
+    const top = Math.min(...cast.map((w) => ground - (this.member(w)?.rig.height ?? 300) * this.scaleOf(w)));
+    return { band: [Math.round(top), ground + 30] };
   }
 
   // -------------------------------------------------- continuity checks

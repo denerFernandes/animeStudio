@@ -19,6 +19,7 @@ export function describeKit(kit: Kit) {
             clips: Object.keys(d?.clips ?? {}).filter((k) => !["idle", "turn", "walkDepth"].includes(k)),
             emotions: Object.keys(d?.controls?.emotion?.poses ?? {}),
             views: Object.keys(d?.controls?.view?.poses ?? { profile: 1 }),
+            canFly: !!(d as { meta?: { canFly?: boolean } } | undefined)?.meta?.canFly || !!d?.clips?.fly,
             wear: wardrobeOf(d),
           },
         ];

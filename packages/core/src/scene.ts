@@ -749,6 +749,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
               minZoom: a.minZoom ?? 0.3,
               maxZoom: a.maxZoom ?? 4,
               lag: a.lag ?? 0.4,
+              ...(a.band ? { band: a.band as [number, number] } : {}),
             };
             cameraSegments.push({ kind: "frame", start: a.at, frame });
             if (a.duration !== undefined) cameraSegments.push({ kind: "hold", start: a.at + a.duration });
@@ -1147,7 +1148,8 @@ function segmentPose(scene: CompiledScene, k: number, t: number, base: CameraPos
       const fr = seg.frame;
       const w = rigWeight(fr.start, Infinity, fr.blend, t);
       fr.samples ??= bakeFrame(fr, scene.duration, (tt) => {
-        const box = targetsBox(scene, fr.targets, tt);
+        const raw = targetsBox(scene, fr.targets, tt);
+        const box: typeof raw = fr.band ? [raw[0], fr.band[0], raw[2], fr.band[1]] : raw;
         return Number.isFinite(box[0]) ? fitBox(box, scene.width, scene.height, fr.padding, fr.minZoom, fr.maxZoom) : null;
       });
       const prev = prevAt(t);

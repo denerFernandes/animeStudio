@@ -34,7 +34,7 @@ its usual trailing silence (0.22 s), because aligners tend to end drawn-out last
 ```ts
 interface Kit {
   characters: Record<string, ToonDoc>;        // every rig: cast, vehicles, fixtures…
-  cast: Record<string, { name; aliases?; scale; rig: RigInfo; speed? }>;
+  cast: Record<string, { name; aliases?; scale; rig: RigInfo; speed?: { walk; run; fly? } }>;
   narrators?: string[];
   sets: Record<string, SetDef>;               // layers, ground {near, far?}, depthScale, marks, fixtures, bounds, lighting
   props: Record<string, { art(o: { color? }): string; radius: number }>;
@@ -91,7 +91,7 @@ never coordinates.
 | Action | Fields | Effect |
 |---|---|---|
 | `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
-| `enter` | `who`, `from`, `run?` | Same as `enter` on the cast entry: comes in from off screen |
+| `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?` | Same as `enter` on the cast entry: comes in from off screen; `fly: true` comes through the air from above the frame and lands |
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame |
 | `face` | `who`, `direction` | Turns around |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
@@ -116,6 +116,7 @@ never coordinates.
 | `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`), `view?` (`"front"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground. `view: "front"` sits facing the audience (sofa in front of the TV, school desk): thighs foreshortened towards the camera, shins hanging. The next one on the same furniture takes `seat2`, `seat3`…; on a set seat they sit side by side |
 | `lie` | `who`, `on?` (furniture id, set mark with `seat` and `lie`, or `"ground"`) | Lies face up, head towards the back of the furniture (on its `pillow`); the ground shadow hides |
 | `sleep` | `who`, `on?` (as `lie`) | Lies down (or tucks in) with the eyes closed (`sleep` emotion) and Zzz floating up until `getUp` |
+| `fly` | `who`, `to` (a place, `"offLeft"`, `"offRight"` or `"up"`), `until?` | Crouches, takes off and flies one smooth arc (speed and height change continuously, the body pitching with the climb and the descent) with the wings beating (`fly` clip, else `flap`), lands softly with a little squash; flying away speeds up out of the frame. The shadow stays on the ground, smaller and fainter the higher they are. Only rigs with `meta.canFly` or a `fly` clip |
 | `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
 
 ### Riding, sitting, lying
@@ -152,7 +153,8 @@ background art), plus `"lie": true` for places to lie on (grass bank).
 Lying keeps the spine (hip joint → head) flat whatever the posture: the neck bends back first (a
 hunched character's head lines up with its body), the body turns for the rest. A rig with a `tuck`
 pose control (poses `out` / `in`: head and limbs into a shell, a hedgehog curling up) **tucks in**
-instead of lying down for `lie` and `sleep`, where it is (on the bed's `bed` / `seat` anchor).
+instead of lying down for `lie` and `sleep`, where it is (on the bed's `bed` / `seat` anchor); its
+Zzz rise from a `tuck` anchor (else just above the tucked body).
 
 Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `RigInfo.hip` /
 `legLength` (from `rigInfo`). Lying and falls rest the body on `RigInfo.depth` — half the torso's
@@ -162,7 +164,8 @@ reach (`extent` includes tails, backpacks, snouts); without it a small default i
 
 ### Automatic (never written in a staging)
 
-Idle loops, lip sync per word, talking/singing gestures, listeners turning towards the speaker
+Group and wide shots framed sideways only (from the tallest head to the ground: jumps and flights
+never move the set up and down), idle loops, lip sync per word, talking/singing gestures, listeners turning towards the speaker
 and looking at them (whoever is addressed by name or alias first), the speaker turning to the
 one addressed, spacing by head extents, `profile` as the initial view, the gaze cleared in front
 views, vehicles hidden outside their drive, the dribble synchronised with the hand, replays with

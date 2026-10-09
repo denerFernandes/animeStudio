@@ -515,6 +515,10 @@ export const ActionSchema = z.discriminatedUnion("action", [
     padding: z.number().min(0).optional().describe("frame: margin around the targets in scene px (default 80)"),
     minZoom: z.number().positive().optional(),
     maxZoom: z.number().positive().optional(),
+    band: z
+      .tuple([z.number(), z.number()])
+      .optional()
+      .describe("frame: fixed vertical extent [top, bottom] (scene y): the targets are framed horizontally only, so a jump or a flight does not move the camera up and down"),
     blend: z.number().min(0).optional().describe("follow/frame: transition time in and out (default 0.6 s)"),
     path: z.array(Vec2Schema).min(1).optional().describe("Move through these scene points along a smooth curve"),
     punch: z.number().optional().describe("Punch-in zoom: quick zoom multiplier pulse (e.g. 0.15)"),

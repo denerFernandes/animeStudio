@@ -166,6 +166,25 @@ describe("director", () => {
     expect(script.filter((x) => x.action === "fx" && x.type === "zzz").length).toBeGreaterThan(2);
   });
 
+  it("flies in, flies to a place and away; only rigs that fly", () => {
+    const bird = { ...stick, meta: { canFly: true } } as unknown as typeof stick;
+    const k: Kit = { ...kit, characters: { a: bird, b: stick } };
+    const s: Staging = {
+      blocks: [{
+        id: "x", set: "room", from: 0, to: 4,
+        cast: [{ id: "a", enter: { line: 0, from: "top", fly: true } }, { id: "b" }],
+        beats: [{ line: 2, do: "fly", who: "a", to: "door" }, { line: 3, do: "fly", who: "a", to: "offRight" }, { line: 3, do: "fly", who: "b", to: "up" }],
+      }],
+    };
+    const out = direct(s, lines, k);
+    expect(out.issues.map((i) => i.message)).toContain('b cannot fly (no "fly" clip nor meta.canFly on the rig)');
+    const script = out.scenes.x.script as { action: string; actor?: string; channel?: string; value?: unknown }[];
+    const ys = script.filter((x) => x.actor === "a" && x.channel === "y").map((x) => x.value as number);
+    expect(Math.min(...ys)).toBeLessThan(0); // comes from above the frame
+    expect(ys).toContain(900); // lands on the ground
+    expect(describeKit(k).cast.a.canFly).toBe(true);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

@@ -348,7 +348,7 @@ See [DIRECTOR.md](DIRECTOR.md).
 |---|---|
 | `direct(staging, lines, kit)` | `{ sequence, scenes, overlays, issues }`: one continuous scene per block, cuts/replays, texts |
 | `check(staging, lines, kit)` | Issues from directing, the continuity checklist and scene/sequence validation |
-| `describeKit(kit)` | Catalogue of cast (clips, emotions, views, wardrobe `wear: { control: [poses] }`), sets (marks, depth, fixture values, `seats`, set `furniture`), props, vehicles, `rides` (rideable vehicles and their wardrobe), `furniture` (sit / lie), fx, cameras, actions, light moods |
+| `describeKit(kit)` | Catalogue of cast (clips, emotions, views, `canFly`, wardrobe `wear: { control: [poses] }`), sets (marks, depth, fixture values, `seats`, set `furniture`), props, vehicles, `rides` (rideable vehicles and their wardrobe), `furniture` (sit / lie), fx, cameras, actions, light moods |
 | `lineCues(line)` | Mouth cues from a line's word timings |
 | `Timeline` | Line/word → seconds |
 | `closest(word, options)` | "did you mean" helper used in messages |

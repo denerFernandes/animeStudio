@@ -45,7 +45,7 @@ export interface CastEntry {
    */
   wear?: Record<string, string>;
   /** They enter later instead of being there from the start. */
-  enter?: { line: number; word?: string; from: "left" | "right"; run?: boolean };
+  enter?: { line: number; word?: string; from: "left" | "right" | "top"; run?: boolean; fly?: boolean };
 }
 
 export interface VehicleEntry {
@@ -156,7 +156,7 @@ export interface CastMember {
   scale: number;
   rig: RigInfo;
   /** Speed (px/s at scale 1) for walk and run. */
-  speed?: { walk: number; run: number };
+  speed?: { walk: number; run: number; fly?: number };
 }
 
 /** The pieces a series (or a one-off video) is made of. */
