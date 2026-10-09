@@ -248,6 +248,16 @@ describe("director", () => {
     expect((out.scenes.x.script as { action: string; on?: string }[]).some((x) => x.action === "camera" && x.on === "face")).toBe(true);
   });
 
+  it("checks the picture: a face covered by scenery, a character past the edge of the set", () => {
+    const withHead = { ...stick } as typeof stick;
+    // A bottle on a table, standing right in front of where "a" stands.
+    const tableRig = { format: "toon", version: 1, name: "t", skeleton: [{ id: "root" }], parts: [{ id: "t", type: "rigid", bone: "root", art: "<rect x='-300' y='-90' width='600' height='90'/><rect x='-200' y='-190' width='400' height='110'/>" }] };
+    const k: Kit = { ...kit, characters: { a: withHead, b: withHead, t: tableRig as never }, sets: { ...kit.sets, room: { ...kit.sets.room, bounds: [0, 0, 1920, 1080], fixtures: [{ id: "tbl", character: "t", mark: "door", z: 5 }] } } };
+    const msgs = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door" }, { id: "b", at: "door", offset: 4 }], beats: [{ line: 2, do: "walk", who: "b", to: { mark: "door", dx: 900 } }] }] }, lines, k).map((i) => i.message).join("\n");
+    expect(msgs).toContain("tbl is drawn over a's face");
+    expect(msgs).toContain("b goes past the edge of set");
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

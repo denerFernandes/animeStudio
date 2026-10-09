@@ -2,7 +2,10 @@ import {
   type MouthCue,
   type SceneDoc,
   type SequenceDoc,
+  actorPlacement,
+  actorPose,
   anchorPosition,
+  apply,
   compileScene,
   screenPoint,
   cuesFromText,
@@ -2092,6 +2095,110 @@ export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
         issues.push({ severity: "error", where: `line ${l.i}`, message: `${l.speaker} speaks out of the frame or at its edge (head at x ${Math.round(x)}, y ${Math.round(y)}): change the camera so the speaker is in shot` });
     } catch {
       // validation already reports scenes that do not compile
+    }
+  }
+  // What the pictures show: characters past the edge of the set, faces covered by something.
+  for (const block of staging.blocks) {
+    const doc = out.scenes[block.id];
+    if (!doc) continue;
+    try {
+      if (!compiled.has(block.id)) compiled.set(block.id, compileScene(doc, assets as never));
+      issues.push(...pictureIssues(compiled.get(block.id)!, block, kit, time, blocks0(staging, time, block)));
+    } catch {
+      // validation already reports scenes that do not compile
+    }
+  }
+  return issues;
+}
+
+/** Rough boxes of the shapes of an SVG drawing (absolute paths, rects, circles, ellipses), in its own space. */
+function markupBoxes(svg: string): [number, number, number, number][] {
+  const out: [number, number, number, number][] = [];
+  const box = (xs: number[], ys: number[]) => xs.length && out.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  for (const m of svg.matchAll(/\bd=["']([^"']+)["']/g)) {
+    if (/[a-df-z]/.test(m[1])) continue; // relative paths: their numbers are offsets
+    const nums = (m[1].match(/-?\d*\.?\d+(?:e-?\d+)?/g) ?? []).map(Number);
+    const xs: number[] = [], ys: number[] = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) xs.push(nums[i]), ys.push(nums[i + 1]);
+    box(xs, ys);
+  }
+  for (const m of svg.matchAll(/<(rect|circle|ellipse)\b([^>]*)>/g)) {
+    const a = (k: string) => Number(new RegExp(`\\b${k}=["'](-?[\\d.]+)["']`).exec(m[2])?.[1] ?? NaN);
+    if (m[1] === "rect") {
+      const [x, y, w, h] = [a("x") || 0, a("y") || 0, a("width"), a("height")];
+      if (Number.isFinite(w) && Number.isFinite(h)) box([x, x + w], [y, y + h]);
+    } else {
+      const [cx, cy] = [a("cx") || 0, a("cy") || 0];
+      const rx = Number.isFinite(a("r")) ? a("r") : a("rx"), ry = Number.isFinite(a("r")) ? a("r") : a("ry");
+      if (Number.isFinite(rx) && Number.isFinite(ry)) box([cx - rx, cx + rx], [cy - ry, cy + ry]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Checks of the staged picture, sampled every quarter second: a cast member whose posed body goes
+ * past the edge of the set (its `bounds`), and a face covered by something in front of it (a prop,
+ * a fixture, furniture or a vehicle drawn over it).
+ */
+function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: Kit, time: Timeline, t0: number): Issue[] {
+  const issues: Issue[] = [];
+  const set = kit.sets[block.set];
+  const cast = new Set(block.cast.map((c) => c.id));
+  const lineAt = (t: number) => time.lines.filter((l) => l.s <= t0 + t).pop()?.i ?? block.from;
+  const reported = new Set<string>();
+  const report = (key: string, t: number, message: string) => {
+    if (reported.has(key)) return;
+    reported.add(key);
+    issues.push({ severity: "error", where: `block ${block.id}`, message: `around line ${lineAt(t)}: ${message}` });
+  };
+  // Boxes of the scenery in front (setup space of each rig: its parts' art, once).
+  const artBoxes = new Map<string, [number, number, number, number][]>();
+  const boxesOf = (character: string) => {
+    if (!artBoxes.has(character)) {
+      const doc = kit.characters[character] as unknown as { art?: Record<string, string>; parts?: { art?: string; variants?: Record<string, string>; space?: string }[] } | undefined;
+      // Rigid art in setup space (scenery rigs: tables, cars, signs); parts in bone space are skipped.
+      const arts = (doc?.parts ?? []).filter((p) => p.space !== "bone").flatMap((p) => [p.art, ...Object.values(p.variants ?? {})]).filter(Boolean).map((a) => (a!.trim().startsWith("<") ? a! : (doc?.art?.[a!] ?? "")));
+      artBoxes.set(character, arts.flatMap(markupBoxes));
+    }
+    return artBoxes.get(character)!;
+  };
+  const opacityAt = (id: string, t: number) => {
+    const tr = (sc.doc as { tracks?: Record<string, [number, number][]> }).tracks?.[`actors.${id}.opacity`];
+    if (!tr?.length) return 1;
+    let v = tr[0][1];
+    for (const [k, val] of tr) if (k <= t) v = val;
+    return v;
+  };
+  for (let t = 0.25; t < sc.duration; t += 0.25) {
+    for (const actor of sc.actors) {
+      if (!cast.has(actor.id) || opacityAt(actor.id, t) <= 0.01) continue;
+      // Past the edge of the set: the posed bones (the art reaches a little further).
+      if (set?.bounds) {
+        const pose = actorPose(sc, actor, t);
+        const m = actorPlacement(actor, t);
+        const xs = actor.rig.bones.flatMap((b) => [apply(m, apply(pose.world[b.index], [0, 0]))[0], apply(m, apply(pose.world[b.index], [b.length, 0]))[0]]);
+        const [x0, , x1] = set.bounds;
+        if (Math.min(...xs) < x0 || Math.max(...xs) > x1)
+          report(`edge:${actor.id}`, t, `${actor.id} goes past the edge of set "${block.set}" (x ${Math.round(Math.min(...xs))}…${Math.round(Math.max(...xs))}, the set spans ${x0}…${x1}): keep the action inside`);
+      }
+      // A face covered by something drawn in front of it.
+      const anchor = actor.rig.anchors.face ? "face" : actor.rig.anchors.head ? "head" : undefined;
+      if (!anchor) continue;
+      const [fx, fy] = anchorPosition(sc, actor.id, anchor, t);
+      const z = actor.def.z ?? 0;
+      for (const other of sc.actors) {
+        if (other === actor || cast.has(other.id) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
+        const m = actorPlacement(other, t);
+        for (const b of boxesOf(other.def.character)) {
+          const c = [apply(m, [b[0], b[1]]), apply(m, [b[2], b[3]])];
+          const [bx0, bx1] = [Math.min(c[0][0], c[1][0]), Math.max(c[0][0], c[1][0])], [by0, by1] = [Math.min(c[0][1], c[1][1]), Math.max(c[0][1], c[1][1])];
+          if (fx > bx0 && fx < bx1 && fy > by0 && fy < by1) {
+            report(`cover:${actor.id}:${other.id}`, t, `${other.id} is drawn over ${actor.id}'s face: move it (or what is on it) away from the face`);
+            break;
+          }
+        }
+      }
     }
   }
   return issues;

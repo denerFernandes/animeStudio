@@ -117,6 +117,8 @@ Lessons from converting a 66-shot storyboard into an episode:
   forward over the table (throwing dice). Aim at the centre of the face (a profile head anchor
   sits on the nose side), and use the near hand: in the front view the far arm is drawn behind
   the body.
+- **Set bounds are the drawn world.** `SetDef.bounds` must match the extent of the drawn ground
+  and background: `check` reports anyone whose body goes past it (thrown, falling, running off).
 - **Tracks hold their first key before it.** A `pose`/`set` at t = 40 s also applies before
   40 s, so give every changing channel an explicit value at t = 0 (e.g. `view: "profile"`).
 

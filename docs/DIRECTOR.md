@@ -232,3 +232,9 @@ dismount/fall when not riding, feet dangling from a high seat as a warning), unk
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a
 replay cut), and every
 `validateScene` / `validateSequence` issue.
+
+It also checks **the picture**, sampling every staged scene every quarter second: a cast member
+whose posed body goes past the edge of the set (`SetDef.bounds` — give it the extent of the drawn
+ground and background, not more), and a face covered by scenery drawn in front of it (fixtures,
+furniture, vehicles: each shape of their art is tested against the posed `face`/`head` anchor —
+a bottle on a table standing in front of someone is reported).
