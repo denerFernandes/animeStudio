@@ -1,0 +1,919 @@
+import {
+  type MouthCue,
+  type SceneDoc,
+  type SequenceDoc,
+  anchorPosition,
+  compileScene,
+  cuesFromText,
+  mergeCues,
+  validateScene,
+  validateSequence,
+} from "@animestudio/core";
+import type { Beat, Block, CastMember, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
+
+type Action = Record<string, unknown> & { at: number; action: string };
+type Key = [number, number | string, string?];
+
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+const norm = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .trim();
+
+/** "unknown x" messages name the closest valid id. */
+export function closest(word: string, options: string[]): string {
+  const d = (a: string, b: string) => {
+    const m = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) m[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return m[a.length][b.length];
+  };
+  const best = [...options].sort((a, b) => d(norm(word), norm(a)) - d(norm(word), norm(b)))[0];
+  return best ? ` (did you mean "${best}"? valid: ${options.join(", ")})` : "";
+}
+
+/** Lighting presets for `light { mood }`: grade colour/opacity and the sun's height. */
+export const MOODS: Record<string, { grade: string; opacity: number; ambient?: { color: string; opacity: number } }> = {
+  day: { grade: "#ffcf8a", opacity: 0.08 },
+  afternoon: { grade: "#ff9d5c", opacity: 0.22 },
+  evening: { grade: "#ff6f6f", opacity: 0.3, ambient: { color: "#4a3a8a", opacity: 0.25 } },
+  night: { grade: "#3a4aa0", opacity: 0.35, ambient: { color: "#1c1f4a", opacity: 0.55 } },
+};
+
+/** Lead time: a block (and its camera) starts this much before its first line. */
+const LEAD = 0.25;
+const SLOT = 230;
+
+// ------------------------------------------------------------------ timing
+
+export class Timeline {
+  constructor(readonly lines: Line[]) {}
+  start(i: number): number {
+    return this.lines[i]?.s ?? this.end;
+  }
+  get end(): number {
+    const last = this.lines[this.lines.length - 1];
+    return last ? last.e + 0.6 : 0;
+  }
+  /** Episode time of a `When`. */
+  at(w: When): number {
+    const l = this.lines[w.line];
+    if (!l) throw new Error(`line ${w.line} does not exist (${this.lines.length} lines)`);
+    let t = w.end ? l.e : l.s;
+    if (w.word && l.words?.length) {
+      const target = norm(w.word);
+      const word = l.words.find((x) => norm(x.w) === target) ?? l.words.find((x) => norm(x.w).startsWith(target));
+      if (word) t = w.end ? word.e : word.s;
+    }
+    return t + (w.offset ?? 0);
+  }
+  blockStart(b: Block) {
+    return b.from <= 0 ? 0 : Math.max(0, this.start(b.from) - LEAD);
+  }
+  blockEnd(b: Block) {
+    return b.to >= this.lines.length ? this.end : this.start(b.to) - LEAD;
+  }
+}
+
+/** Mouth cues of a line from its word timings (relative to the line start). */
+export function lineCues(l: Line): MouthCue[] {
+  if (!l.words?.length) return cuesFromText(l.text, { duration: l.e - l.s });
+  const cues: MouthCue[] = [];
+  for (const w of l.words) {
+    for (const c of cuesFromText(w.w, { start: Math.max(0, w.s - l.s), duration: Math.max(0.08, w.e - w.s) })) if (c.value !== "X" || c.end - c.start > 0.06) cues.push(c);
+  }
+  cues.sort((a, b) => a.start - b.start);
+  const out: MouthCue[] = [];
+  let t = 0;
+  for (const c of cues) {
+    if (c.start > t + 0.02) out.push({ start: r3(t), end: r3(c.start), value: "X" });
+    out.push({ start: r3(Math.max(c.start, t)), end: r3(c.end), value: c.value });
+    t = Math.max(t, c.end);
+  }
+  out.push({ start: r3(t), end: r3(t + 0.1), value: "X" });
+  return mergeCues(out.filter((c) => c.end > c.start));
+}
+
+/** Every beat action (`do`). */
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light"];
+/** Camera types. */
+export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
+
+// ------------------------------------------------------------------ one block = one continuous scene
+
+interface Walk { actor: string; t0: number; t1: number; x0: number; x1: number }
+interface PropState { id: string; radius: number; x: Key[]; y: Key[]; scale: Key[]; rotation: Key[]; heldBy: { actor: string; t0: number; t1: number }[] }
+
+class BlockScene {
+  readonly actors: Record<string, unknown>[] = [];
+  readonly props: Record<string, unknown>[] = [];
+  readonly script: Action[] = [];
+  readonly tracks: Record<string, Key[]> = {};
+  private walks: Walk[] = [];
+  private x0: Record<string, number> = {};
+  private facing0: Record<string, boolean> = {};
+  private busy: { actor: string; t0: number; t1: number }[] = [];
+  private views: { actor: string; t: number; view: string }[] = [];
+  private holds: { actor: string; t0: number; t1: number }[] = [];
+  private faces: { actor: string; t: number }[] = [];
+  private propStates = new Map<string, PropState>();
+  private cam: Record<string, unknown>;
+  readonly present: string[] = [];
+  readonly t0: number;
+  readonly t1: number;
+  readonly setDef: SetDef;
+
+  constructor(
+    readonly block: Block,
+    readonly kit: Kit,
+    readonly time: Timeline,
+    readonly issues: Issue[],
+    first = false,
+  ) {
+    // The first block starts the episode (whatever cuts show before its first line).
+    this.t0 = first ? 0 : time.blockStart(block);
+    this.t1 = time.blockEnd(block);
+    const set = kit.sets[block.set];
+    if (!set) throw new Error(`block "${block.id}": unknown set "${block.set}" (sets: ${Object.keys(kit.sets).join(", ")})`);
+    this.setDef = set;
+    this.cam = { x: this.mark("center").x, y: (kit.height ?? 1080) / 2, zoom: 1, handheld: 1.5, ...(set.bounds ? { bounds: set.bounds } : {}) };
+  }
+
+  // -------------------------------------------------- helpers
+  t = (abs: number) => r3(Math.min(this.t1 - this.t0, Math.max(0, abs - this.t0)));
+  push(a: Action) {
+    this.script.push(a);
+  }
+  mark(name: string) {
+    const m = this.setDef.marks[name];
+    if (m) return m;
+    if (name === "center") return { x: (this.kit.width ?? 1920) / 2 };
+    if (name === "left") return { x: 160 };
+    if (name === "right") return { x: (this.kit.width ?? 1920) - 160 };
+    this.issue("error", `unknown mark "${name}" in set "${this.block.set}"${closest(name, [...Object.keys(this.setDef.marks), "center", "left", "right"])}`);
+    return { x: (this.kit.width ?? 1920) / 2 };
+  }
+  issue(severity: Issue["severity"], message: string) {
+    this.issues.push({ severity, where: `block ${this.block.id}`, message });
+  }
+  member(id: string): CastMember | undefined {
+    return this.kit.cast[id];
+  }
+  scaleOf(id: string) {
+    return this.member(id)?.scale ?? 1;
+  }
+  /** Scene x of a place at a given time. */
+  placeX(p: Place, abs: number, who?: string): number {
+    if (typeof p === "string") {
+      if (this.present.includes(p)) return this.xAt(p, abs) + (who && this.xAt(who, abs) < this.xAt(p, abs) ? -1 : 1) * SLOT * 0.8;
+      if (this.propStates.has(p)) return this.propX(p, abs);
+      return this.mark(p).x;
+    }
+    if ("mark" in p) return this.mark(p.mark).x + (p.dx ?? 0);
+    const side = p.side === "left" ? -1 : 1;
+    return this.xAt(p.near, abs) + side * SLOT * 0.8;
+  }
+  xAt(actor: string, abs: number): number {
+    let x = this.x0[actor] ?? 960;
+    for (const w of this.walks.filter((w) => w.actor === actor).sort((a, b) => a.t0 - b.t0)) {
+      if (abs >= w.t1) x = w.x1;
+      else if (abs > w.t0) x = w.x0 + ((w.x1 - w.x0) * (abs - w.t0)) / (w.t1 - w.t0);
+    }
+    return x;
+  }
+  private viewAt(actor: string, abs: number) {
+    return this.views.filter((v) => v.actor === actor && v.t <= abs).sort((a, b) => b.t - a.t)[0]?.view ?? "profile";
+  }
+
+  // -------------------------------------------------- cast
+  placeCast() {
+    const entries = this.block.cast.filter((c) => {
+      if (this.kit.cast[c.id]) return true;
+      this.issue("error", `"${c.id}" is not in the cast${closest(c.id, Object.keys(this.kit.cast))}`);
+      return false;
+    });
+    // Group by anchor mark; spread each group left → right in the listed order.
+    const groups = new Map<string, typeof entries>();
+    for (const c of entries) groups.set(c.at ?? "center", [...(groups.get(c.at ?? "center") ?? []), c]);
+    const xs = new Map<string, number>();
+    for (const [mark, group] of groups) {
+      const widths = group.map((c) => this.spacing(c.id));
+      const total = widths.reduce((a, b) => a + b, 0) - widths[widths.length - 1];
+      let x = this.mark(mark).x - total / 2;
+      group.forEach((c, i) => {
+        xs.set(c.id, x + (c.offset ?? 0) * SLOT * this.scaleOf(c.id));
+        x += widths[i];
+      });
+    }
+    this.spaceOut(entries.map((c) => c.id), xs, entries);
+    for (const c of entries) {
+      const x = xs.get(c.id)!;
+      // An "enter" beat is the same as an `enter` on the cast entry.
+      const eb = (this.block.beats ?? []).find((b) => b.do === "enter" && (b.who === c.id || (Array.isArray(b.who) && b.who.includes(c.id))));
+      const enter = c.enter ?? (eb ? { line: eb.line, word: eb.word, from: (eb.from as "left" | "right") ?? "left", run: !!eb.run } : undefined);
+      const startX = enter ? (enter.from === "left" ? -400 : (this.kit.width ?? 1920) + 400) : x;
+      const flip = c.facing ? c.facing === "left" : enter ? enter.from === "right" : x > this.mark("center").x + 120;
+      this.addActor(c.id, startX, { flip, emotion: c.emotion });
+      if (enter) {
+        const at = this.time.at(enter);
+        this.walk(c.id, x, at, Math.abs(x - startX) / ((this.member(c.id)?.speed?.[enter.run ? "run" : "walk"] ?? (enter.run ? 380 : 170)) * this.scaleOf(c.id)), { clip: enter.run ? "run" : "walk" });
+      }
+    }
+  }
+  /** Distance to the next character so heads never overlap (facing right). */
+  private spacing(id: string) {
+    const rig = this.member(id)?.rig;
+    return ((rig?.extent.front ?? 100) + 90) * this.scaleOf(id);
+  }
+  private spaceOut(ids: string[], xs: Map<string, number>, entries: Block["cast"]) {
+    const facingRight = (id: string) => {
+      const e = entries.find((c) => c.id === id);
+      return e?.facing ? e.facing === "right" : xs.get(id)! <= this.mark("center").x + 120;
+    };
+    for (let pass = 0; pass < 8; pass++) {
+      const list = [...ids].sort((a, b) => xs.get(a)! - xs.get(b)!);
+      for (let i = 1; i < list.length; i++) {
+        const A = list[i - 1], B = list[i];
+        const ea = this.member(A)!.rig.extent, eb = this.member(B)!.rig.extent;
+        const need = ((facingRight(A) ? ea.front : ea.back) * this.scaleOf(A) + (facingRight(B) ? eb.back : eb.front) * this.scaleOf(B)) * 0.95;
+        const gap = xs.get(B)! - xs.get(A)!;
+        if (gap < need) {
+          xs.set(A, xs.get(A)! - (need - gap) / 2);
+          xs.set(B, xs.get(B)! + (need - gap) / 2);
+        }
+      }
+    }
+  }
+  addActor(id: string, x: number, o: { flip?: boolean; emotion?: string; y?: number; scale?: number; character?: string; z?: number; palette?: Record<string, string> } = {}) {
+    const cast = !!this.kit.cast[id];
+    this.actors.push({
+      id,
+      character: o.character ?? id,
+      x: Math.round(x),
+      y: Math.round(o.y ?? this.setDef.ground.near),
+      scale: o.scale ?? this.scaleOf(id),
+      flip: !!o.flip,
+      z: o.z ?? 2,
+      ...(o.palette ? { palette: o.palette } : {}),
+    });
+    this.x0[id] = x;
+    this.facing0[id] = !o.flip;
+    if (cast) {
+      this.present.push(id);
+      if (this.hasClip(id, "idle")) this.push({ at: 0, actor: id, action: "play", clip: "idle", loop: true, layer: -1, fadeIn: 0 });
+      if (this.hasControl(id, "emotion")) this.push({ at: 0, actor: id, action: "pose", control: "emotion", value: o.emotion ?? "happy", duration: 0 });
+      if (this.hasControl(id, "view")) this.push({ at: 0, actor: id, action: "pose", control: "view", value: "profile", duration: 0 });
+    }
+  }
+
+  // -------------------------------------------------- primitive actions
+  walk(actor: string, x: number, abs: number, dur: number, o: { clip?: string; y?: number; ease?: string } = {}) {
+    const x0 = this.xAt(actor, abs);
+    const d = Math.max(0.4, dur);
+    this.walks.push({ actor, t0: abs, t1: abs + d, x0, x1: x });
+    this.busy.push({ actor, t0: abs, t1: abs + d });
+    this.push({ at: this.t(abs), actor, action: "walkTo", x: Math.round(x), duration: r3(d), ...(o.y !== undefined ? { y: Math.round(o.y) } : {}), ...(o.clip ? { clip: o.clip } : {}), ...(o.ease ? { ease: o.ease } : {}) });
+  }
+  hasClip(actor: string, clip: string) {
+    return !!this.kit.characters[this.characterOf(actor)]?.clips?.[clip];
+  }
+  hasControl(actor: string, control: string) {
+    return !!this.kit.characters[this.characterOf(actor)]?.controls?.[control];
+  }
+  play(actor: string, clip: string, abs: number, dur?: number, o: Record<string, unknown> = {}) {
+    if (!this.hasClip(actor, clip)) {
+      // The automatic gestures (talk, turn, hold…) are optional; staged ones are reported.
+      if (!["talk", "sing", "turn", "hold"].includes(clip)) this.issue("warning", `${actor} has no clip "${clip}"${closest(clip, Object.keys(this.kit.characters[this.characterOf(actor)]?.clips ?? {}))}`);
+      return;
+    }
+    this.push({ at: this.t(abs), actor, action: "play", clip, ...(dur ? { duration: r3(dur), loop: true } : {}), fadeIn: 0.25, fadeOut: 0.3, ...o });
+    this.busy.push({ actor, t0: abs, t1: abs + (dur ?? 1) });
+  }
+  private characterOf(actor: string) {
+    return (this.actors.find((a) => a.id === actor)?.character as string) ?? actor;
+  }
+  set(actor: string, channel: string, value: unknown, abs: number, dur = 0, ease?: string) {
+    this.push({ at: this.t(abs), actor, action: "set", channel, value, duration: r3(dur), ...(ease ? { ease } : {}) });
+  }
+  face(actor: string, dir: "left" | "right", abs: number) {
+    this.faces.push({ actor, t: abs });
+    this.push({ at: this.t(abs), actor, action: "face", direction: dir });
+  }
+  view(actor: string, v: string, abs: number, turn = true) {
+    this.views.push({ actor, t: abs, view: v });
+    if (!this.hasControl(actor, "view")) return this.issue("warning", `${actor} has no "view" control`);
+    if (turn && this.hasClip(actor, "turn")) this.push({ at: this.t(abs - 0.12), actor, action: "play", clip: "turn", fadeIn: 0.02, fadeOut: 0.05 });
+    this.push({ at: this.t(abs), actor, action: "pose", control: "view", value: v, duration: 0 });
+    // Facing the camera means looking at the camera.
+    if (v === "front") this.push({ at: this.t(abs), actor, action: "lookAt", target: null });
+  }
+
+  // -------------------------------------------------- props
+  addProp(id: string, kind: string, color: string | undefined, x: number, y: number, z = 3) {
+    const def = this.kit.props[kind];
+    if (!def) {
+      this.issue("error", `unknown prop kind "${kind}"${closest(kind, Object.keys(this.kit.props))}`);
+      return;
+    }
+    this.props.push({ id, art: def.art({ color }), x: Math.round(x), y: Math.round(y), z });
+    this.propStates.set(id, { id, radius: def.radius, x: [], y: [], scale: [], rotation: [], heldBy: [] });
+  }
+  propX(id: string, abs: number): number {
+    const st = this.propStates.get(id);
+    if (!st) return (this.kit.width ?? 1920) / 2;
+    const held = st.heldBy.find((h) => h.t0 <= abs && h.t1 > abs);
+    if (held) return this.xAt(held.actor, abs);
+    const k = [...st.x].reverse().find((k) => k[0] <= this.t(abs));
+    return (k?.[1] as number) ?? ((this.props.find((p) => p.id === id)?.x as number) ?? 960);
+  }
+  grab(actor: string, prop: string, abs: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    st.heldBy.push({ actor, t0: abs, t1: Infinity });
+    this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: "hand" });
+  }
+  release(prop: string, abs: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return;
+    const h = st.heldBy.find((h) => h.t1 === Infinity);
+    if (!h) return;
+    h.t1 = abs;
+    this.push({ at: this.t(abs), action: "release", actor: h.actor, prop });
+  }
+  /** Hand position of an actor (scene space) while playing a clip at clip time `ct`. */
+  private handIn(actor: string, clip: string, ct: number): [number, number] {
+    const doc = this.kit.characters[this.characterOf(actor)];
+    const probe: SceneDoc = {
+      format: "toon-scene", version: 1, width: 100, height: 100, fps: 30, duration: 4,
+      characters: { c: "c" }, actors: [{ id: "a", character: "c", x: 0, y: 0, scale: 1 }],
+      script: [
+        { at: 0, actor: "a", action: "play", clip, loop: true, fadeIn: 0 },
+        { at: 0, actor: "a", action: "set", channel: "behaviors.breathe.mix", value: 0 },
+      ],
+    } as unknown as SceneDoc;
+    try {
+      const p = anchorPosition(compileScene(probe, { characters: { c: doc } }), "a", "hand", ct);
+      return [p[0], p[1]];
+    } catch {
+      const h = this.member(actor)?.rig.hand.F ?? [20, -70];
+      return [h[0], h[1]];
+    }
+  }
+
+  // -------------------------------------------------- beats
+  beat(b: Beat) {
+    const at = this.time.at(b);
+    const until = b.until ? this.time.at(b.until) : undefined;
+    const all = (b.who === undefined ? [] : Array.isArray(b.who) ? b.who : [b.who]) as string[];
+    // The camera can frame anything in the scene (cast, fixtures, vehicles, props); the other
+    // actions are for the cast present in the block.
+    const valid = b.do === "camera" ? [...this.actors.map((a) => a.id as string), ...this.propStates.keys()] : this.present;
+    for (const w of all) {
+      if (valid.includes(w)) continue;
+      const known = b.do === "camera" || this.kit.cast[w] ? "" : " and not in the kit";
+      this.issue("error", `line ${b.line} "${b.do}": "${w}" is not in block "${this.block.id}"${known}${closest(w, valid)}`);
+    }
+    const who = all.filter((w) => valid.includes(w));
+    if (all.length && !who.length) return;
+    const one = who[0];
+    for (const key of ["prop"] as const)
+      if (b[key] !== undefined && !this.propStates.has(b[key] as string))
+        return this.issue("error", `line ${b.line} "${b.do}": unknown prop "${String(b[key])}"${closest(String(b[key]), [...this.propStates.keys()])}`);
+    switch (b.do) {
+      case "walk":
+      case "run": {
+        for (const w of who) {
+          const x = this.placeX(b.to as Place, at, w);
+          const speed = (this.member(w)?.speed?.[b.do as "walk" | "run"] ?? (b.do === "run" ? 380 : 170)) * this.scaleOf(w);
+          this.walk(w, x, at, until ? until - at : Math.abs(x - this.xAt(w, at)) / speed, { clip: b.do });
+        }
+        break;
+      }
+      case "enter":
+        break; // handled when the cast is placed
+      case "exit": {
+        for (const w of who) {
+          const x = b.to === "left" ? -500 : (this.kit.width ?? 1920) + 500;
+          const speed = (b.run ? 380 : 170) * this.scaleOf(w);
+          this.walk(w, x, at, Math.abs(x - this.xAt(w, at)) / speed, { clip: b.run ? "run" : "walk" });
+        }
+        break;
+      }
+      case "face":
+        for (const w of who) this.face(w, b.direction === "left" ? "left" : "right", at);
+        break;
+      case "look": {
+        // An actor, a prop, a set mark (looked at at its height, or the horizon) or null.
+        const tg = b.target as string | null | undefined;
+        const mk = typeof tg === "string" && !this.actors.some((a) => a.id === tg) && !this.propStates.has(tg) && !tg.match(/^[a-z]+\d+$/) ? this.setDef.marks[tg] ?? (tg === "left" || tg === "right" ? this.mark(tg) : undefined) : undefined;
+        const target = mk ? [mk.x, mk.y ?? this.setDef.ground.near - 180] : (tg ?? null);
+        for (const w of who) this.push({ at: this.t(at), actor: w, action: "lookAt", target });
+        break;
+      }
+      case "emotion":
+        for (const w of who.filter((w) => this.hasControl(w, "emotion"))) this.push({ at: this.t(at), actor: w, action: "pose", control: "emotion", value: b.value, duration: 0.35 });
+        break;
+      case "gesture":
+        for (const w of who) this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
+        break;
+      case "fx":
+        if (one) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, actor: one, ...(b.type === "dust" ? { anchor: "origin" } : {}) });
+        else this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: this.placeX((b.at as Place) ?? "center", at), y: 380, scale: 1.4 });
+        break;
+      case "view":
+        for (const w of who) this.view(w, b.value as string, at);
+        break;
+      case "hold":
+        this.hold(who, at, (b.view as "profile" | "back") ?? "profile");
+        break;
+      case "release":
+        for (const w of who) this.releaseHands(w, at);
+        break;
+      case "cross":
+        this.cross(who, b.to as string, at, until ?? at + 8);
+        break;
+      case "pick": {
+        const prop = b.prop as string;
+        const px = this.propX(prop, at);
+        if (Math.abs(px - this.xAt(one, at)) > 60 * this.scaleOf(one)) {
+          const side = px > this.xAt(one, at) ? -1 : 1;
+          const dur = Math.abs(px + side * 50 - this.xAt(one, at)) / (170 * this.scaleOf(one));
+          this.walk(one, px + side * 50, at - dur, dur);
+        }
+        this.grab(one, prop, at);
+        break;
+      }
+      case "drop": {
+        const prop = b.prop as string;
+        const x = this.xAt(one, at) + 60 * this.scaleOf(one);
+        this.release(prop, at);
+        this.propKeys(prop, [[at, x, this.setDef.ground.near - this.propStates.get(prop)!.radius, 1]]);
+        break;
+      }
+      case "throw":
+        this.throwProp(one, b.prop as string, at, b.to as Place | undefined);
+        break;
+      case "roll":
+        this.roll(b.prop as string, b.to as Place, at, until ?? at + 2.5);
+        break;
+      case "dribble":
+        this.dribble(one, b.prop as string, at, until ?? at + 3);
+        break;
+      case "vehicle":
+        this.vehicle(b, at);
+        break;
+      case "fixture": {
+        const f = this.setDef.fixtures?.find((x) => x.id === b.id);
+        if (!f) this.issue("error", `unknown fixture "${String(b.id)}"${closest(String(b.id), (this.setDef.fixtures ?? []).map((x) => x.id))}`);
+        else this.set(f.id, f.channel ?? "parts.light.variant", b.value, at);
+        break;
+      }
+      case "camera":
+        this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string }, at);
+        break;
+      case "light": {
+        const d = r3(until ? until - at : 2);
+        const mood = b.mood ? MOODS[b.mood as string] : undefined;
+        if (b.mood && !mood) this.issue("error", `unknown light mood "${String(b.mood)}"${closest(String(b.mood), Object.keys(MOODS))}`);
+        if (mood) {
+          if (!this.setDef.lighting) break;
+          this.push({ at: this.t(at), action: "light", channel: "lighting.grade.color", value: mood.grade, duration: d });
+          this.push({ at: this.t(at), action: "light", channel: "lighting.grade.opacity", value: mood.opacity, duration: d });
+        } else this.push({ at: this.t(at), action: "light", channel: b.channel, value: b.value, duration: d });
+        break;
+      }
+      default:
+        this.issue("error", `line ${b.line}: unknown action "${b.do}"${closest(b.do, ACTIONS)}`);
+    }
+  }
+
+  private propKeys(prop: string, keys: [number, number, number, number, number?][], ease = "sineInOut") {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    for (const [abs, x, y, s, rot] of keys) {
+      st.x.push([this.t(abs), Math.round(x), ease]);
+      st.y.push([this.t(abs), Math.round(y), ease]);
+      st.scale.push([this.t(abs), r3(s), ease]);
+      if (rot !== undefined) st.rotation.push([this.t(abs), Math.round(rot), ease]);
+    }
+  }
+
+  /** Throw up and land in front of the thrower (or at a place). */
+  private throwProp(who: string, prop: string, at: number, to?: Place) {
+    this.play(who, "toss", at - 0.4);
+    const st = this.propStates.get(prop)!;
+    const dir = this.facing(who, at) ? 1 : -1;
+    const x0 = this.xAt(who, at) + dir * 80 * this.scaleOf(who);
+    const x1 = to ? this.placeX(to, at) : x0 + dir * 30;
+    const g = this.setDef.ground.near - st.radius;
+    this.release(prop, at);
+    const top = this.setDef.ground.near - (this.member(who)?.rig.height ?? 250) * this.scaleOf(who) - 140;
+    const yk: Key[] = [[this.t(at), Math.round(g - 120)], [this.t(at + 0.6), Math.round(top), "easeOut"], [this.t(at + 1.3), Math.round(g), "easeIn"]];
+    st.x.push([this.t(at), Math.round(x0)], [this.t(at + 1.3), Math.round(x1), "linear"]);
+    st.y.push(...yk);
+    st.scale.push([this.t(at), 1]);
+  }
+
+  /** Roll (with a couple of small bounces) to a place; crossing to the far ground if it is there. */
+  private roll(prop: string, to: Place, at: number, until: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    const x0 = this.propX(prop, at);
+    const x1 = this.placeX(to, at);
+    const near = this.setDef.ground.near - st.radius;
+    const markY = typeof to === "string" ? this.setDef.marks[to]?.y : undefined;
+    const far = markY !== undefined && this.setDef.ground.far !== undefined && Math.abs(markY - this.setDef.ground.far) < Math.abs(markY - this.setDef.ground.near);
+    const ds = this.setDef.depthScale ?? 0.6;
+    const T = Math.max(0.8, until - at);
+    const keys: [number, number, number, number, number][] = [];
+    const steps = 16;
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      const e = 1 - (1 - u) ** 2;
+      const x = x0 + (x1 - x0) * e;
+      const depth = far ? Math.min(1, Math.max(0, (u - 0.25) / 0.6)) : 0;
+      const s = 1 + (ds - 1) * depth;
+      const ground = far ? near + ((this.setDef.ground.far! - st.radius * ds) - near) * depth : near;
+      const hop = Math.abs(Math.sin(u * Math.PI * 3)) * 60 * (1 - u) * s;
+      keys.push([at + u * T, x, ground - hop, s, ((x - x0) / (st.radius * s)) * (180 / Math.PI)]);
+    }
+    this.release(prop, at);
+    this.propKeys(prop, keys);
+    if (far) this.props.find((p) => p.id === prop)!.z = 0.5;
+  }
+
+  /** Bouncing a prop in sync with the `dribble` clip: the palm meets it at the top of each bounce. */
+  private dribble(who: string, prop: string, at: number, until: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    const period = (this.kit.characters[this.characterOf(who)]?.clips?.dribble as { duration?: number } | undefined)?.duration ?? 0.6;
+    const top = this.handIn(who, "dribble", 0);
+    const push = this.handIn(who, "dribble", period * 0.2);
+    const s = this.scaleOf(who);
+    const dir = this.facing(who, at) ? 1 : -1;
+    const x = this.xAt(who, at);
+    const contact = 10 * s + st.radius;
+    const X = (lx: number) => Math.round(x + dir * lx * s);
+    const Y = (ly: number) => Math.round(this.setDef.ground.near + ly * s + contact);
+    this.release(prop, at);
+    this.play(who, "dribble", at, until - at, { fadeIn: 0.05 });
+    for (let t = at; t <= until + 1e-6; t += period) {
+      st.x.push([this.t(t), X(top[0])], [this.t(t + period * 0.2), X(push[0])]);
+      st.y.push([this.t(t), Y(top[1])], [this.t(t + period * 0.2), Y(push[1]), "linear"], [this.t(t + period * 0.45), Math.round(this.setDef.ground.near - st.radius), "easeIn"]);
+    }
+  }
+
+  private facing(actor: string, abs: number): boolean {
+    let right = this.facing0[actor] ?? true;
+    for (const a of this.script.filter((a) => a.actor === actor && a.at <= this.t(abs)).sort((x, y) => x.at - y.at)) {
+      if (a.action === "face") right = a.direction === "right";
+      if (a.action === "walkTo") right = (a.x as number) >= this.xAt(actor, this.t0 + a.at - 0.01);
+    }
+    return right;
+  }
+
+  /** A vehicle drives by on a lane and leaves the frame (invisible before and after). */
+  private vehicle(b: Beat, at: number) {
+    const kind = (b.kind as string) ?? "car";
+    const v = this.kit.vehicles?.[kind];
+    if (!v) return this.issue("error", `unknown vehicle "${kind}"${closest(kind, Object.keys(this.kit.vehicles ?? {}))}`);
+    const id = `${kind}${this.actors.filter((a) => a.character === v.character).length + 1}`;
+    const centre = this.present.length ? this.present.reduce((a, p) => a + this.xAt(p, at), 0) / this.present.length : 960;
+    const leftToRight = b.dir !== "left";
+    const x0 = leftToRight ? centre - 1500 : centre + 1500;
+    const x1 = leftToRight ? centre + 2100 : centre - 2100;
+    const speed = v.speed ?? 950;
+    const dur = Math.abs(x1 - x0) / speed;
+    const start = at - 0.3;
+    const laneY = b.lane === "far" && this.setDef.marks.farLane ? this.setDef.marks.farLane.y! : (this.setDef.marks.nearLane?.y ?? this.setDef.ground.near - 16);
+    this.addActor(id, x0, { character: v.character, y: laneY, scale: v.scale * (b.lane === "far" ? (this.setDef.depthScale ?? 0.6) : 1), z: b.lane === "far" ? 0.3 : 1, flip: !leftToRight, palette: b.color ? { paint: b.color as string } : undefined });
+    this.push({ at: this.t(start), actor: id, action: "walkTo", x: Math.round(x1), duration: r3(dur), clip: "drive", ease: "linear" });
+    this.tracks[`actors.${id}.opacity`] = [[0, 0], [this.t(start) - 0.001 > 0 ? this.t(start) - 0.001 : 0, 0], [this.t(start), 1], [this.t(start + dur), 1], [this.t(start + dur) + 0.001, 0]];
+  }
+
+  // -------------------------------------------------- hand in hand
+  hold(who: string[], at: number, view: "profile" | "back" = "profile") {
+    const order = [...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
+    // Step together first (so the hands can meet) and face right.
+    let x = this.xAt(order[0], at);
+    for (let i = 0; i < order.length; i++) {
+      const id = order[i];
+      if (i > 0) x += ((this.member(order[i - 1])!.rig.extent.front + 80) * this.scaleOf(order[i - 1]) + (this.member(id)!.rig.extent.back + 10) * this.scaleOf(id)) * 0.62;
+      if (Math.abs(this.xAt(id, at) - x) > 6) this.walk(id, x, at - 0.6, 0.6);
+      this.face(id, "right", at);
+    }
+    for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at, view);
+  }
+  private holdPair(a: string, b: string, at: number, view: "profile" | "back") {
+    const ik = (id: string, chain: string) => ((this.kit.characters[this.characterOf(id)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
+    if (!ik(a, "handF") || !ik(b, "handB")) return this.issue("warning", `${a} and ${b} cannot hold hands (IK chains handF / handB missing)`);
+    const A = this.member(a)!.rig, B = this.member(b)!.rig;
+    const sc = this.scaleOf(a);
+    const gap = (this.xAt(b, at) - this.xAt(a, at)) / sc;
+    const sAF: [number, number] = view === "back" ? [A.shoulder.F[0] + A.backShoulder.F[0], A.shoulder.F[1] + A.backShoulder.F[1]] : A.shoulder.F;
+    const sBB: [number, number] = view === "back" ? [B.shoulder.B[0] + B.backShoulder.B[0], B.shoulder.B[1] + B.backShoulder.B[1]] : B.shoulder.B;
+    const sB: [number, number] = [sBB[0] + gap, sBB[1]];
+    const m: [number, number] = view === "back" ? [(sAF[0] + sB[0]) / 2, Math.max(sAF[1], sB[1]) + 62] : [(sAF[0] + sB[0]) / 2, (sAF[1] + sB[1]) / 2 + 42];
+    const arms = [
+      { actor: a, chain: "handF", bones: ["armF1", "armF2"], target: m, rest: A.hand.F, shoulder: sAF, len: A.armLength.F },
+      { actor: b, chain: "handB", bones: ["armB1", "armB2"], target: [m[0] - gap, m[1]] as [number, number], rest: B.hand.B, shoulder: sBB, len: B.armLength.B },
+    ];
+    for (const arm of arms) {
+      const need = Math.hypot(arm.target[0] - arm.shoulder[0], arm.target[1] - arm.shoulder[1]);
+      const stretch = r3(Math.max(0, need / (arm.len * 0.94) - 1));
+      this.set(arm.actor, `ik.${arm.chain}.x`, r3(arm.target[0] - arm.rest[0]), at);
+      this.set(arm.actor, `ik.${arm.chain}.y`, r3(arm.target[1] - arm.rest[1]), at);
+      this.set(arm.actor, `ik.${arm.chain}.mix`, 1, at, 0.45, "sineInOut");
+      for (const bone of arm.bones) this.set(arm.actor, `bones.${bone}.squash`, stretch, at, 0.45, "sineInOut");
+      this.holds.push({ actor: arm.actor, t0: at, t1: Infinity });
+      this.play(arm.actor, "hold", at, 60, { fadeIn: 0.4 });
+    }
+    // Whoever holds something in the near hand passes it to the other hand (a "heldHand" switch: near | far).
+    const ca = this.kit.characters[this.characterOf(a)];
+    if ((ca?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(a, "parts.heldHand.variant", "far", at);
+  }
+  releaseHands(actor: string, at: number) {
+    for (const h of this.holds) if (h.actor === actor && h.t1 === Infinity) h.t1 = at;
+    for (const c of ["handF", "handB"]) this.set(actor, `ik.${c}.mix`, 0, at, 0.4, "sineInOut");
+    for (const bone of ["armF1", "armF2", "armB1", "armB2"]) this.set(actor, `bones.${bone}.squash`, 0, at, 0.4);
+    if ((this.kit.characters[this.characterOf(actor)]?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(actor, "parts.heldHand.variant", "near", at);
+  }
+
+  /** Cross to the far ground walking away from the camera (back view), hand in hand. */
+  cross(who: string[], to: string, at: number, until: number) {
+    if (this.setDef.ground.far === undefined) return this.issue("error", `set "${this.block.set}" has no far ground to cross to`);
+    const ds = this.setDef.depthScale ?? 0.6;
+    const target = this.mark(to).x;
+    const centre = who.reduce((a, w) => a + this.xAt(w, at), 0) / who.length;
+    for (const w of who) {
+      this.view(w, "back", at - 0.15);
+      const s0 = this.scaleOf(w);
+      const x1 = target + (this.xAt(w, at) - centre) * ds;
+      this.walk(w, x1, at, until - at, { clip: this.hasClip(w, "walkDepth") ? "walkDepth" : "walk", y: this.setDef.ground.far, ease: "linear" });
+      this.set(w, "scale", r3(s0 * ds), at, until - at, "linear");
+      this.push({ at: this.t(at), actor: w, action: "lookAt", target: null });
+    }
+    if (who.length > 1) for (let i = 1; i < who.length; i++) this.holdPair(...([...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at)).slice(i - 1, i + 1) as [string, string]), at - 0.15, "back");
+    this.camera({ type: "cross", who }, at);
+  }
+
+  // -------------------------------------------------- camera
+  camera(c: { type: string; who?: string | string[]; mark?: string }, at: number) {
+    const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w));
+    const abs = this.t(at);
+    switch (c.type) {
+      case "follow":
+        this.push({ at: abs, action: "camera", follow: who[0], offset: [120, -40], lag: 0.6, axes: "x", blend: 0.8 });
+        break;
+      case "close":
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), padding: 300, minZoom: 1.2, maxZoom: 1.5, blend: 0.8 });
+        break;
+      case "two-shot":
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), padding: 260, minZoom: 1.05, maxZoom: 1.3, blend: 1 });
+        break;
+      case "reveal":
+        this.push({ at: abs, action: "camera", x: this.mark(c.mark ?? "center").x, y: 520, zoom: 1.1, duration: 2.5, ease: "sineInOut" });
+        break;
+      case "cross": {
+        const x = this.mark("crossing").x;
+        this.push({ at: abs, action: "camera", x, y: 640, zoom: 1.25, duration: 3, ease: "sineInOut" });
+        this.push({ at: r3(abs + 3), action: "camera", x, y: 600, zoom: 1.6, duration: 6, ease: "sineInOut" });
+        break;
+      }
+      case "group":
+      case "wide":
+      default:
+        this.push({ at: abs, action: "camera", frame: who.length ? who : this.present, padding: c.type === "wide" ? 260 : 220, minZoom: 1, maxZoom: 1.15, blend: 1.2 });
+    }
+  }
+
+  // -------------------------------------------------- dialogue (automatic)
+  private canTurn(actor: string, abs: number) {
+    if (this.viewAt(actor, abs) !== "profile") return false;
+    if (this.holds.some((h) => h.actor === actor && h.t0 <= abs + 0.3 && h.t1 > abs - 0.3)) return false;
+    if (this.walks.some((w) => w.actor === actor && w.t0 - 0.3 <= abs && w.t1 + 0.2 > abs)) return false;
+    if (this.faces.some((f) => f.actor === actor && Math.abs(f.t - abs) < 1.2)) return false;
+    return true;
+  }
+  private turnTowards(actor: string, x: number, abs: number) {
+    if (!this.canTurn(actor, abs)) return;
+    const dx = x - this.xAt(actor, abs);
+    if (Math.abs(dx) < 20) return;
+    this.push({ at: this.t(abs), actor, action: "face", direction: dx > 0 ? "right" : "left" });
+  }
+  private speakerOf(l: Line): string[] {
+    if (l.song || norm(l.speaker) === "song") return [...this.present];
+    const id = Object.entries(this.kit.cast).find(([id, c]) => norm(c.name) === norm(l.speaker) || norm(id) === norm(l.speaker))?.[0];
+    return id && this.present.includes(id) ? [id] : [];
+  }
+  private addressed(l: Line, speaker: string): string | undefined {
+    const text = ` ${norm(l.text)} `;
+    return this.present.find((id) => {
+      if (id === speaker) return false;
+      const c = this.kit.cast[id];
+      return [c.name, ...(c.aliases ?? [])].some((n) => text.includes(` ${norm(n)} `));
+    });
+  }
+  dialogue(noTurn: Set<number>) {
+    for (const l of this.time.lines.filter((l) => l.s >= this.t0 && l.s < this.t1)) {
+      const speakers = this.speakerOf(l);
+      const at = this.t(l.s);
+      for (const id of speakers) {
+        this.push({ at, actor: id, action: "say", cues: lineCues(l) });
+        const busy = this.busy.some((b) => b.actor === id && b.t0 <= l.s + 0.2 && b.t1 > l.s + 0.2);
+        const clip = l.song || norm(l.speaker) === "song" ? "sing" : "talk";
+        if (!busy && this.hasClip(id, clip)) this.push({ at: this.t(l.s - 0.15), actor: id, action: "play", clip, duration: r3(l.e - l.s + 0.2), fadeIn: 0.3, fadeOut: 0.4, weight: 0.7 });
+      }
+      if (speakers.length !== 1 || l.song || norm(l.speaker) === "song") continue;
+      const sp = speakers[0];
+      const turn = !noTurn.has(l.i);
+      const named = this.addressed(l, sp);
+      const others = this.present.filter((x) => x !== sp).sort((a, b) => Math.abs(this.xAt(a, l.s) - this.xAt(sp, l.s)) - Math.abs(this.xAt(b, l.s) - this.xAt(sp, l.s)));
+      if (named) others.unshift(named);
+      if (others[0] && this.viewAt(sp, l.s) === "profile") {
+        this.push({ at: this.t(l.s - 0.2), actor: sp, action: "lookAt", target: others[0] });
+        if (turn) this.turnTowards(sp, this.xAt(others[0], l.s), l.s - 0.3);
+      }
+      for (const id of this.present) {
+        if (id === sp || this.viewAt(id, l.s) !== "profile") continue;
+        this.push({ at: this.t(l.s - 0.1), actor: id, action: "lookAt", target: sp });
+        if (turn) this.turnTowards(id, this.xAt(sp, l.s), l.s - 0.25);
+      }
+    }
+  }
+
+  // -------------------------------------------------- build
+  build(): SceneDoc {
+    this.placeCast();
+    // Fixtures (traffic lights…).
+    for (const f of this.setDef.fixtures ?? []) {
+      const m = this.mark(f.mark);
+      this.addActor(f.id, m.x, { character: f.character, y: f.y ?? m.y ?? this.setDef.ground.far ?? this.setDef.ground.near, scale: f.scale ?? 1, z: f.z ?? 0, flip: f.flip });
+      if (f.value) this.set(f.id, f.channel ?? "parts.light.variant", f.value, this.t0);
+    }
+    // Props.
+    for (const p of this.block.props ?? []) {
+      const holder = p.heldBy;
+      const x = holder ? this.xAt(holder, this.t0) : this.placeX(p.at ?? "center", this.t0);
+      const def = this.kit.props[p.kind];
+      const markY = typeof p.at === "string" ? this.setDef.marks[p.at]?.y : undefined;
+      this.addProp(p.id, p.kind, p.color, x, (markY ?? this.setDef.ground.near) - (def?.radius ?? 20), holder ? 4 : 3);
+      if (holder) this.grab(holder, p.id, this.t0);
+    }
+    this.camera(this.block.camera ?? { type: "wide" }, this.t0);
+    const noTurn = new Set<number>();
+    for (const b of [...(this.block.beats ?? [])].sort((a, b) => this.time.at(a) - this.time.at(b))) {
+      try {
+        this.beat(b);
+      } catch (e) {
+        this.issue("error", `line ${b.line} "${b.do}": ${(e as Error).message}`);
+      }
+      if (b.do === "look" || b.do === "face") noTurn.add(b.line);
+    }
+    this.dialogue(noTurn);
+    for (const st of this.propStates.values()) {
+      for (const [ch, keys] of [["x", st.x], ["y", st.y], ["scale", st.scale], ["rotation", st.rotation]] as const)
+        if (keys.length) this.tracks[`props.${st.id}.${ch}`] = [...keys].sort((a, b) => a[0] - b[0]);
+    }
+    const layers = typeof this.setDef.layers === "function" ? this.setDef.layers() : this.setDef.layers;
+    const usedChars = new Set(this.actors.map((a) => a.character as string));
+    return {
+      format: "toon-scene",
+      version: 1,
+      width: this.kit.width ?? 1920,
+      height: this.kit.height ?? 1080,
+      fps: this.kit.fps ?? 30,
+      duration: r3(this.t1 - this.t0),
+      background: this.setDef.background ?? "#bfe6ff",
+      characters: Object.fromEntries([...usedChars].map((c) => [c, c])),
+      camera: this.cam,
+      layers: layers.map((l) => ({ id: l.id, art: l.art, parallax: l.parallax ?? 1, z: -10 })),
+      actors: this.actors,
+      props: this.props,
+      tracks: this.tracks,
+      ...(this.setDef.lighting ? { lighting: this.setDef.lighting } : {}),
+      script: [...this.script].sort((a, b) => a.at - b.at),
+    } as unknown as SceneDoc;
+  }
+}
+
+// ------------------------------------------------------------------ the episode
+
+/**
+ * Turns a staging (blocks of continuous action, beats timed to lines and words, cuts and texts)
+ * into a toon-sequence with one scene per block. Pure: runs in the browser and in node.
+ */
+export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
+  const time = new Timeline(lines);
+  const issues: Issue[] = [];
+  const scenes: Record<string, SceneDoc> = {};
+  const starts: Record<string, number> = {};
+  const blocks = [...staging.blocks].sort((a, b) => a.from - b.from);
+  for (const [i, block] of blocks.entries()) {
+    if (scenes[block.id]) issues.push({ severity: "error", where: `block ${block.id}`, message: "duplicate block id" });
+    const bs = new BlockScene(block, kit, time, issues, i === 0);
+    scenes[block.id] = bs.build();
+    starts[block.id] = bs.t0;
+  }
+  // Coverage: blocks must follow each other.
+  for (let i = 1; i < blocks.length; i++) if (blocks[i].from !== blocks[i - 1].to) issues.push({ severity: "warning", where: `block ${blocks[i].id}`, message: `starts at line ${blocks[i].from}, the previous block ends at ${blocks[i - 1].to}` });
+
+  // Timeline: live blocks, with replay cuts spliced in.
+  type Seg = { t0: number; t1: number; scene: string; from: number; mute?: boolean; transition?: string };
+  const segs: Seg[] = blocks.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < blocks.length ? starts[blocks[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 && blocks[i - 1].set !== b.set ? "fade" : undefined }));
+  for (const c of [...(staging.cuts ?? [])].sort((a, b) => a.line - b.line)) {
+    const t0 = time.at(c);
+    const t1 = c.until ? time.at(c.until) : time.at({ line: c.line, end: true });
+    const src = blocks.find((b) => b.id === c.replay.block);
+    if (!src) {
+      issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `unknown block "${c.replay.block}"` });
+      continue;
+    }
+    const from = time.at(c.replay) - starts[src.id];
+    const cut: Seg = { t0, t1, scene: src.id, from: Math.max(0, from), mute: true, transition: c.transition ?? "flash" };
+    const out: Seg[] = [];
+    for (const s of segs) {
+      if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
+      else {
+        if (s.t0 < t0) out.push({ ...s, t1: t0 });
+        if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: "flash", mute: s.mute });
+      }
+    }
+    out.push(cut);
+    segs.splice(0, segs.length, ...out.sort((a, b) => a.t0 - b.t0));
+  }
+  // Shots must tile the timeline: close the gaps (between lines, before the first block).
+  segs.sort((a, b) => a.t0 - b.t0);
+  if (segs.length) segs[0].t0 = 0;
+  for (let i = 1; i < segs.length; i++) if (segs[i].t0 > segs[i - 1].t1) segs[i - 1].t1 = segs[i].t0;
+  if (segs.length) segs[segs.length - 1].t1 = Math.max(segs[segs.length - 1].t1, time.end);
+  const shots = segs
+    .filter((s) => s.t1 - s.t0 > 0.02)
+    .map((s) => ({
+      scene: s.scene,
+      from: r3(s.from),
+      duration: r3(s.t1 - s.t0),
+      ...(s.mute ? { muteSpeech: true } : {}),
+      ...(s.transition ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, color: "#ffffff" } } : {}),
+    }));
+  const sequence = {
+    format: "toon-sequence",
+    version: 1,
+    width: kit.width ?? 1920,
+    height: kit.height ?? 1080,
+    fps: kit.fps ?? 30,
+    scenes: Object.fromEntries(Object.keys(scenes).map((id) => [id, id])),
+    shots,
+  } as unknown as SequenceDoc;
+
+  // On-screen texts: fixed at the top, while their line plays.
+  const overlays: Overlay[] = [];
+  for (const t of staging.texts ?? []) {
+    const from = time.at({ line: t.line });
+    const to = t.until ? time.at(t.until) : Math.max(time.at({ line: t.line, end: true }), from + 1.6);
+    overlays.push({ text: t.text, from: r3(from), to: r3(to), row: 0 });
+  }
+  overlays.sort((a, b) => a.from - b.from);
+  const inCut = (t: number) => (staging.cuts ?? []).some((c) => time.at(c) <= t + 0.01 && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= t);
+  for (let i = 1; i < overlays.length; i++) {
+    const prev = overlays[i - 1], cur = overlays[i];
+    if (cur.from < prev.to) {
+      cur.row = prev.row + 1;
+      const max = inCut(cur.from) ? 2 : 1;
+      if (cur.row + 1 > max)
+        issues.push({ severity: "error", where: `text "${cur.text}" (line ${staging.texts!.find((t) => t.text === cur.text)?.line})`, message: `overlaps "${prev.text}": at most ${max === 1 ? "one text at a time (two only during a recap replay)" : "two texts at once"}` });
+    }
+  }
+  return { sequence, scenes, overlays, issues };
+}
+
+/** direct() + document validation + continuity checks. */
+export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
+  let out: Directed;
+  try {
+    out = direct(staging, lines, kit);
+  } catch (e) {
+    return [{ severity: "error", where: "staging", message: (e as Error).message }];
+  }
+  const issues = [...out.issues];
+  const assets = { characters: kit.characters };
+  for (const [id, doc] of Object.entries(out.scenes)) {
+    const v = validateScene(doc, assets as never);
+    for (const i of v.issues) issues.push({ severity: i.severity === "warning" ? "warning" : "error", where: `scene ${id} ${i.path}`, message: i.message });
+  }
+  const sv = validateSequence(out.sequence);
+  for (const i of sv.issues) issues.push({ severity: "error", where: `sequence ${i.path}`, message: i.message });
+  // Every speaking cast member is in the block where they speak.
+  const time = new Timeline(lines);
+  for (const l of lines) {
+    const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
+    if (!id) continue;
+    const block = staging.blocks.find((b) => l.i >= b.from && l.i < b.to);
+    const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
+    if (block && !replayed && !block.cast.some((c) => c.id === id)) issues.push({ severity: "error", where: `line ${l.i}`, message: `${l.speaker} speaks but is not in block "${block.id}"` });
+  }
+  return issues;
+}

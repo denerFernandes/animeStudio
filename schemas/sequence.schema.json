@@ -115,6 +115,10 @@
               "type"
             ],
             "additionalProperties": false
+          },
+          "muteSpeech": {
+            "description": "Show the scene without its speech (no lip sync, no voice audio): replays under other audio",
+            "type": "boolean"
           }
         },
         "required": [

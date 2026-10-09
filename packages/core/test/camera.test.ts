@@ -196,6 +196,15 @@ describe("sequences", () => {
     expect(sequenceAudio(s)[0].start).toBeCloseTo(2.5);
   });
 
+  it("mutes speech in replay shots", () => {
+    const talky = scene({ duration: 2, script: [{ at: 0, actor: "a", action: "say", cues: [{ start: 0, end: 2, value: "D" }] }] });
+    const doc: SequenceDoc = { format: "toon-sequence", version: 1, width: 800, height: 400, fps: 30, scenes: { t: "t" }, shots: [{ scene: "t" }, { scene: "t", muteSpeech: true }] };
+    const s = compileSequence(doc, { scenes: { t: { doc: talky, assets: { characters: { stick } } } } });
+    const mouth = (t: number) => frameToSVG(evaluateSequence(s, t)).includes("<ellipse rx='6' ry='8'") || frameToSVG(evaluateSequence(s, t)).includes('<ellipse rx="6" ry="8"');
+    expect(mouth(1)).toBe(true);
+    expect(mouth(3)).toBe(false);
+  });
+
   it("validates shots", () => {
     const bad = seq("cut");
     bad.shots.push({ scene: "zzz" });

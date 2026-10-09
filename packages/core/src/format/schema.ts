@@ -618,6 +618,7 @@ export const SequenceSchema = z.strictObject({
         from: z.number().min(0).optional().describe("Start time inside the scene (default 0)"),
         duration: z.number().positive().optional().describe("Shot length (default: rest of the scene)"),
         transition: ShotTransitionSchema.optional().describe("Transition from the previous shot into this one"),
+        muteSpeech: z.boolean().optional().describe("Show the scene without its speech (no lip sync, no voice audio): replays under other audio"),
       }),
     )
     .min(1),

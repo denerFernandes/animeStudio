@@ -147,6 +147,7 @@ uses a system Chrome when present, or the browser in `REMOTION_BROWSER`.
 - [Format specification](docs/FORMAT.md)
 - [API reference](docs/API.md)
 - [Authoring guide for AI agents](docs/AI_GUIDE.md)
+- [Director: staging whole episodes](docs/DIRECTOR.md)
 - [Editor guide](docs/EDITOR.md)
 - [Architecture & roadmap](PLAN.md)
 

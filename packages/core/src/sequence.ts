@@ -70,18 +70,25 @@ export function sequenceDuration(doc: SequenceDoc, scenes: Record<string, SceneD
 
 export function compileSequence(doc: SequenceDoc, assets: SequenceAssets): CompiledSequence {
   const compiled = new Map<string, CompiledScene>();
-  const sceneOf = (id: string): CompiledScene => {
-    let c = compiled.get(id);
+  const sceneOf = (id: string, muteSpeech = false): CompiledScene => {
+    const key = muteSpeech ? `${id}\u0000mute` : id;
+    let c = compiled.get(key);
     if (!c) {
       const src = assets.scenes[id];
       if (!src) throw new SceneError(`scene "${id}" was not provided`, `scenes.${id}`);
-      c = "doc" in src && "assets" in src ? compileScene(src.doc, src.assets) : (src as CompiledScene);
-      compiled.set(id, c);
+      if ("doc" in src && "assets" in src) {
+        // A muted replay: the same scene without its speech (no lip sync, no voice audio).
+        const sceneDoc = muteSpeech ? { ...src.doc, script: (src.doc.script ?? []).filter((a) => a.action !== "say") } : src.doc;
+        c = compileScene(sceneDoc, src.assets);
+      } else if (muteSpeech) {
+        throw new SceneError(`muteSpeech needs the scene document of "${id}", not a compiled scene`, `scenes.${id}`);
+      } else c = src as CompiledScene;
+      compiled.set(key, c);
     }
     return c;
   };
   const layout = layoutShots(doc, (id) => sceneOf(id).duration);
-  const shots: CompiledShot[] = layout.map((l) => ({ ...l, scene: sceneOf(l.sceneId) }));
+  const shots: CompiledShot[] = layout.map((l) => ({ ...l, scene: sceneOf(l.sceneId, !!doc.shots[l.index].muteSpeech) }));
   return { doc, width: doc.width, height: doc.height, fps: doc.fps, duration: shots[shots.length - 1].end, shots };
 }
 
