@@ -157,6 +157,11 @@ Lessons from converting a 66-shot storyboard into an episode:
   channel of the emotion poses to the front mouth and brows. Draw the front face symmetric about
   one centre line (two mirrored eyes, centred mouth, both ears) and the hair from the front (the
   skull's top edge, then the bangs) rather than reusing profile spikes.
+- Hands read better with shapes than as plain circles: give the hands a switch part with
+  `handShapes` (open, fist, point, grip) and build the clips with `hands: true` — a pointing
+  gesture then shows a finger, a punch a fist, a wave an open hand.
+- A change of view (profile ↔ front/back) is hidden by the kit's `turn` clip (a quick squeeze);
+  the director plays it automatically on every `view` change.
   Hide the switch with a quick squash clip (e.g. `bones.root.scaleX` 1 → 0.8 → 1) at the change.
 
 ## Common validation errors

@@ -176,6 +176,36 @@ export interface ClipOptions {
   jump: number;
   /** How far the forearm swings up in gestures (< 1 keeps a held object away from the face). */
   forearmLift?: number;
+  /**
+   * The hands are switch parts `handF` / `handB` with the variants of `handShapes` (open, fist,
+   * point, grip): gestures then shape them (a fist to punch, a finger to point).
+   */
+  hands?: boolean;
+}
+
+/**
+ * Hand shapes drawn in setup space around the wrist position `at`: `open`, `fist`, `point` (index
+ * finger out) and `grip` (curled around something), as switch variants for a `handF` / `handB`
+ * part. The fingers follow the forearm (`dir`, degrees in setup space: 90 = down, a hanging arm),
+ * so a pointing finger points wherever the arm points. `r` is the palm radius, `fill` its colour.
+ */
+export function handShapes(at: P, o: { r: number; fill: string; ink?: string; stroke?: number; dir?: number }) {
+  const [x, y] = at, R = o.r, ink = o.ink ?? "palette(ink)", w = o.stroke ?? 4;
+  const st = `stroke="${ink}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+  const palm = `<circle cx="${x}" cy="${y}" r="${R}" fill="${o.fill}" ${st}/>`;
+  const finger = (dx: number, dy: number, len: number, ang: number) => {
+    const a = (ang * Math.PI) / 180;
+    return `<path d="M${r(x + dx)} ${r(y + dy)} l${r(Math.cos(a) * len)} ${r(Math.sin(a) * len)}" stroke="${ink}" stroke-width="${r(R * 0.62 + w)}" stroke-linecap="round"/>` +
+      `<path d="M${r(x + dx)} ${r(y + dy)} l${r(Math.cos(a) * len)} ${r(Math.sin(a) * len)}" stroke="${o.fill}" stroke-width="${r(R * 0.62 - w * 0.4)}" stroke-linecap="round"/>`;
+  };
+  const knuckles = `<path d="M${r(x + R * 0.2)} ${r(y - R * 0.55)} v${r(R * 1.1)} M${r(x + R * 0.55)} ${r(y - R * 0.45)} v${r(R * 0.9)}" fill="none" stroke="${ink}" stroke-width="${r(w * 0.6)}"/>`;
+  const turn = (art: string) => `<g transform="rotate(${o.dir ?? 90} ${x} ${y})">${art}</g>`;
+  return {
+    open: turn(finger(R * 0.3, -R * 0.5, R * 1.2, -25) + finger(R * 0.5, 0, R * 1.3, 0) + finger(R * 0.3, R * 0.5, R * 1.1, 25) + finger(-R * 0.3, -R * 0.6, R * 0.9, -80) + palm),
+    fist: turn(`<rect x="${r(x - R * 0.9)}" y="${r(y - R * 0.95)}" width="${r(R * 1.9)}" height="${r(R * 1.9)}" rx="${r(R * 0.7)}" fill="${o.fill}" ${st}/>` + knuckles),
+    point: turn(finger(R * 0.4, -R * 0.35, R * 1.5, -8) + `<rect x="${r(x - R * 0.9)}" y="${r(y - R * 0.8)}" width="${r(R * 1.8)}" height="${r(R * 1.7)}" rx="${r(R * 0.7)}" fill="${o.fill}" ${st}/>`),
+    grip: turn(palm + `<path d="M${r(x + R * 0.2)} ${r(y - R)} q${r(R * 1.2)} ${r(R * 0.2)} ${r(R * 0.6)} ${r(R * 1.6)}" fill="none" ${st}/>`),
+  };
 }
 
 export function characterClips(o: ClipOptions) {
@@ -184,7 +214,16 @@ export function characterClips(o: ClipOptions) {
   const B = !o.busyFarHand; // far arm free?
   const fl = (v: number) => r(v * (o.forearmLift ?? 1));
   const farArm = (t: Tracks) => (B ? t : {});
+  // Hand shapes over a clip (only for characters with switch hands).
+  const hand = (v: string, dur: number, both = false): Tracks =>
+    o.hands ? { "parts.handF.variant": [[0, v], [dur, v]], ...(both && B ? { "parts.handB.variant": [[0, v], [dur, v]] } : {}) } : {};
   const clips: Record<string, unknown> = {
+    // A quick turn (profile ↔ front/back): squeezed for a few frames around the switch, hiding the
+    // change of drawing (played centred on the moment the view changes).
+    turn: {
+      duration: 0.24,
+      tracks: { "bones.root.scaleX": [[0, 1], [0.1, 0.62, "easeIn"], [0.14, 0.62], [0.24, 1, "easeOut"]], "bones.root.scaleY": [[0, 1], [0.12, 1.04], [0.24, 1]] },
+    },
     idle: {
       duration: 3.2,
       loop: true,
@@ -212,6 +251,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1.2,
       loop: true,
       tracks: {
+        ...hand("open", 1.2),
         "bones.armF1.rotation": [[0, k(-92)], [0.6, k(-98)], [1.2, k(-92)]],
         "bones.armF2.rotation": [[0, fl(-18)], [0.3, fl(-58)], [0.6, fl(-14)], [0.9, fl(-58)], [1.2, fl(-18)]],
         "bones.armF1.squash": [[0, 0.2], [1.2, 0.2]],
@@ -224,6 +264,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1,
       loop: true,
       tracks: {
+        ...hand("point", 1),
         "bones.armF1.rotation": [[0, -88], [0.5, -92], [1, -88]],
         "bones.armF2.rotation": [[0, -4], [1, -4]],
         "bones.body.rotation": [[0, 3], [1, 3]],
@@ -234,6 +275,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1.4,
       loop: true,
       tracks: {
+        ...hand("open", 1.4),
         "bones.armF1.rotation": [[0, -70], [0.7, -78], [1.4, -70]],
         "bones.armF2.rotation": [[0, -40], [0.7, -48], [1.4, -40]],
         "bones.head.rotation": [[0, -4], [1.4, -4]],
@@ -243,6 +285,7 @@ export function characterClips(o: ClipOptions) {
       duration: 0.5,
       loop: true,
       tracks: {
+        ...hand("open", 0.5, true),
         "bones.armF1.rotation": [[0, -55], [0.25, -62], [0.5, -55]],
         "bones.armF2.rotation": [[0, -70], [0.25, -40, "easeIn"], [0.5, -70]],
         ...farArm({
@@ -257,6 +300,7 @@ export function characterClips(o: ClipOptions) {
       duration: 0.8,
       loop: true,
       tracks: {
+        ...hand("fist", 0.8, true),
         "bones.armF1.rotation": [[0, k(-155)], [0.4, k(-165)], [0.8, k(-155)]],
         "bones.armF2.rotation": [[0, -10], [0.4, 10], [0.8, -10]],
         ...farArm({ "bones.armB1.rotation": [[0, k(155)], [0.4, k(165)], [0.8, k(155)]], "bones.armB2.rotation": [[0, 10], [0.4, -10], [0.8, 10]] }),
@@ -301,6 +345,7 @@ export function characterClips(o: ClipOptions) {
     shrug: {
       duration: 1.2,
       tracks: {
+        ...hand("open", 1.2, true),
         "bones.armF1.rotation": [[0, 0], [0.3, -40, "backOut"], [0.9, -40], [1.2, 0]],
         "bones.armF2.rotation": [[0, 0], [0.3, -80, "backOut"], [0.9, -80], [1.2, 0]],
         ...farArm({ "bones.armB1.rotation": [[0, 0], [0.3, 30, "backOut"], [0.9, 30], [1.2, 0]], "bones.armB2.rotation": [[0, 0], [0.3, -70, "backOut"], [0.9, -70], [1.2, 0]] }),
@@ -334,6 +379,7 @@ export function characterClips(o: ClipOptions) {
       duration: 0.24,
       loop: true,
       tracks: {
+        ...hand("open", 0.24, true),
         "bones.body.rotation": [[0, -3], [0.06, -5], [0.12, -3], [0.18, -5], [0.24, -3]],
         "bones.root.x": [[0, -1.5], [0.06, 1.5], [0.12, -1.5], [0.18, 1.5], [0.24, -1.5]],
         "bones.armF1.rotation": [[0, -60], [0.24, -60]],
@@ -391,6 +437,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1.2,
       loop: true,
       tracks: {
+        ...hand("point", 1.2),
         "bones.armF1.rotation": [[0, -104], [0.6, -108], [1.2, -104]],
         "bones.armF2.rotation": [[0, -20], [1.2, -20]],
         "bones.head.rotation": [[0, -10], [1.2, -10]],
@@ -413,6 +460,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1.6,
       loop: true,
       tracks: {
+        ...hand("fist", 1.6, true),
         "bones.hips.y": [[0, 6], [0.8, 9], [1.6, 6]],
         "bones.body.rotation": [[0, 6], [0.8, 8], [1.6, 6]],
         "bones.armF1.rotation": [[0, -70], [0.8, -66], [1.6, -70]],
@@ -425,6 +473,7 @@ export function characterClips(o: ClipOptions) {
       duration: 1.2,
       loop: true,
       tracks: {
+        ...hand("fist", 1.2, true),
         "bones.hips.y": [[0, 5], [0.6, 7], [1.2, 5]],
         "bones.head.rotation": [[0, 8], [1.2, 8]],
         "bones.armF1.rotation": [[0, 22], [0.6, 24], [1.2, 22]],
@@ -436,6 +485,7 @@ export function characterClips(o: ClipOptions) {
     punch: {
       duration: 0.9,
       tracks: {
+        ...hand("fist", 0.9, true),
         "bones.body.rotation": [[0, 0], [0.18, -10, "easeOut"], [0.28, 16, "easeIn"], [0.6, 14], [0.9, 0]],
         "bones.hips.y": [[0, 0], [0.18, 6], [0.28, 3], [0.9, 0]],
         "bones.armF1.rotation": [[0, 0], [0.18, 50, "easeOut"], [0.28, -84, "easeIn"], [0.6, -82], [0.9, 0]],
@@ -471,6 +521,7 @@ export function characterClips(o: ClipOptions) {
       duration: 2,
       loop: true,
       tracks: {
+        ...hand("grip", 2),
         "bones.body.rotation": [[0, 0], [1, 1.5], [2, 0]],
         "bones.head.rotation": [[0, -3], [1, -5], [2, -3]],
       },

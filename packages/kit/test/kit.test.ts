@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type ToonDoc, compileRig, evaluatePose, validateToon } from "@animestudio/core";
-import { blinkAndBreathe, characterClips, emotions, limbBones, limbIk, rigInfo, withProportions } from "../src";
+import { blinkAndBreathe, characterClips, emotions, handShapes, limbBones, limbIk, rigInfo, withProportions } from "../src";
 
 /** A minimal kit character (stick figure with the kit bone layout). */
 const doc = {
@@ -51,5 +51,16 @@ describe("kit", () => {
     expect(len(adult)).toBeCloseTo(len(doc) * 0.8);
     expect(rigInfo(adult, { extent: { front: 40, back: 40 }, height: 300 }).armLength.F).toBeCloseTo(rigInfo(doc, { extent: { front: 40, back: 40 }, height: 240 }).armLength.F * 1.1, 1);
     expect(() => evaluatePose(compileRig(adult), { time: 0.3 })).not.toThrow();
+  });
+  it("draws hand shapes and shapes the hands in gestures", () => {
+    const h = handShapes([20, -60], { r: 10, fill: "#fc9" });
+    expect(Object.keys(h)).toEqual(["open", "fist", "point", "grip"]);
+    expect(h.point).toContain("rotate(90 20 -60)");
+    const clips = characterClips({ walk: { a: 10, lift: 8, dur: 0.6, bob: 2, lean: 1, armSwing: 10 }, run: { a: 20, lift: 14, dur: 0.4, bob: 4, lean: 3, armSwing: 30 }, jump: 40, hands: true }) as Record<string, { tracks: Record<string, unknown[][]> }>;
+    expect(clips.point.tracks["parts.handF.variant"][0][1]).toBe("point");
+    expect(clips.punch.tracks["parts.handF.variant"][0][1]).toBe("fist");
+    expect(clips.turn.tracks["bones.root.scaleX"]).toBeDefined();
+    const plain = characterClips({ walk: { a: 10, lift: 8, dur: 0.6, bob: 2, lean: 1, armSwing: 10 }, run: { a: 20, lift: 14, dur: 0.4, bob: 4, lean: 3, armSwing: 30 }, jump: 40 }) as Record<string, { tracks: Record<string, unknown> }>;
+    expect(plain.point.tracks["parts.handF.variant"]).toBeUndefined();
   });
 });
