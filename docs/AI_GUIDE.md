@@ -70,6 +70,9 @@ Lessons from converting a 66-shot storyboard into an episode:
   feet on the pedals or the floor and keeps the far leg behind the bicycle. A beginner wobbles
   (`wobble`) before falling; nobody walks while sitting. Watching TV or in class, sit facing the
   audience (`"view": "front"`).
+- **Time of day is one light beat.** `{"do": "light", "mood": "night"}` darkens the scene and swaps
+  the set to its night version (sky, moon, lamps, clocks) — never stage a night scene in a day set
+  without it. A block that happens at night starts with `"mood": "night"`.
 - **Keep screen direction (the 180° rule).** Who stands left of whom must not change between
   cuts unless the audience sees them move.
 - **Objects keep their history.** A ball held in a hand is grabbed from the first frame of the

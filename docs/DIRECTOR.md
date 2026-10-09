@@ -119,10 +119,20 @@ never coordinates.
 | `fly` | `who`, `to` (a place, `"offLeft"`, `"offRight"` or `"up"`), `until?` | Crouches, takes off and flies one smooth arc (speed and height change continuously, the body pitching with the climb and the descent) with the wings beating (`fly` clip, else `flap`), lands softly with a little squash; flying away speeds up out of the frame. The shadow stays on the ground, smaller and fainter the higher they are. Only rigs with `meta.canFly` or a `fly` clip |
 | `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
 
+### Light moods
+
+`light` beats with a `mood` (`morning`, `day`, `afternoon`, `evening`, `night`) change the colour
+grade and the ambient darkness, and the set follows: a **layer** with `moods: [...]` shows only in
+those moods (a night sky with the moon and stars, a sunset), cross-fading with the light; a
+**fixture** with `moods` likewise (a moon, twinkling stars with a `loop` clip); a **light** in the
+set's `lighting.lights` with `moods` is lit only then (street lamps at night, the sun by day); and
+time-of-day fixtures change (below). A block starts in `Block.mood`, else `SetDef.mood`, else `day`
+(a light beat right at its start counts as its mood, without a transition).
+
 ### Set fixtures
 
 Scenery rigs always in the set (`SetDef.fixtures`: traffic lights, a clock on a tower, a weather
-vane): `{ id, character, mark, y?, scale?, z?, flip?, channel?, value?, parallax?, clip? }`. `value`
+vane): `{ id, character, mark, y?, scale?, z?, flip?, channel?, value?, parallax?, clip?, moods? }`. `value`
 sets a part (or `channel`) from the start and the `fixture` beat changes it; `parallax` puts it at
 the depth of the layer it belongs to (it moves with that layer); `clip` (default the rig's `loop`
 clip) loops from the start (a second hand, a windmill). A fixture whose rig has `meta.timeOfDay`

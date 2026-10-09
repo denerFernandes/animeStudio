@@ -92,6 +92,8 @@ export interface Block {
   props?: PropEntry[];
   /** Vehicles standing in the block that the cast can ride (a bicycle, a scooter…). */
   vehicles?: VehicleEntry[];
+  /** Light mood at the start of the block (default: the set's `mood`, else "day"). */
+  mood?: string;
   /** Furniture in the block (chairs, beds…) to sit or lie on. */
   furniture?: FurnitureEntry[];
   camera?: { type: string; who?: string | string[]; mark?: string };
@@ -132,8 +134,18 @@ export interface Mark {
   lie?: boolean;
 }
 
+export interface SetLayer {
+  id: string;
+  art: string;
+  parallax?: number;
+  moods?: string[];
+}
+
 export interface SetDef {
-  layers: { id: string; art: string; parallax?: number }[] | (() => { id: string; art: string; parallax?: number }[]);
+  /** Background layers; with `moods` a layer shows only in those light moods (a night sky, a sunset). */
+  layers: SetLayer[] | (() => SetLayer[]);
+  /** Light mood the set starts in (default "day"); a block's `mood` overrides it. */
+  mood?: string;
   /** Feet line of the near ground and (sets with depth) of the far side. */
   ground: { near: number; far?: number };
   /** Character scale multiplier on the far ground. */
@@ -156,9 +168,12 @@ export interface SetDef {
     parallax?: number;
     /** Clip looping from the start (a clock's second hand, a weather vane); default the rig's `loop` clip. */
     clip?: string;
+    /** Shown only in these light moods (the moon, twinkling stars). */
+    moods?: string[];
   }[];
   bounds?: [number, number, number, number];
   background?: string;
+  /** Scene lighting; a light with `moods` is lit only in those moods (street lamps at night, the sun by day). */
   lighting?: Record<string, unknown>;
 }
 

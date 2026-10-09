@@ -602,10 +602,8 @@ class BlockScene {
         const mood = b.mood ? MOODS[b.mood as string] : undefined;
         if (b.mood && !mood) this.issue("error", `unknown light mood "${String(b.mood)}"${closest(String(b.mood), Object.keys(MOODS))}`);
         if (mood) {
-          this.timeOfDay(b.mood as string, at, d);
-          if (!this.setDef.lighting) break;
-          this.push({ at: this.t(at), action: "light", channel: "lighting.grade.color", value: mood.grade, duration: d });
-          this.push({ at: this.t(at), action: "light", channel: "lighting.grade.opacity", value: mood.opacity, duration: d });
+          // A light change right at the start of the block is the block's mood, not a transition.
+          this.applyMood(b.mood as string, at, at - this.t0 < 0.3 ? 0 : d);
         } else this.push({ at: this.t(at), action: "light", channel: b.channel, value: b.value, duration: d });
         break;
       }
@@ -614,14 +612,56 @@ class BlockScene {
     }
   }
 
+  /** The light mood now (and when it last changed): layers, lights and fixtures follow it. */
+  private mood = "day";
+  /**
+   * Changes the light mood: colour grade and ambient darkness, layers and fixtures that belong to
+   * some moods cross-fade, lights with `moods` switch on or off, time-of-day fixtures follow.
+   */
+  private applyMood(name: string, at: number, dur: number) {
+    const mood = MOODS[name];
+    if (!mood) return;
+    const from = this.mood;
+    this.mood = name;
+    const t = this.t(at);
+    const shows = (moods: string[] | undefined, m: string) => !moods || moods.includes(m);
+    const fade = (key: string, a: boolean, b: boolean) => {
+      if (a === b && this.tracks[key]) return;
+      const keys = (this.tracks[key] ??= []) as [number, unknown][];
+      if (dur > 0) keys.push([t, a ? 1 : 0], [r3(t + dur), b ? 1 : 0]);
+      else keys.push([t, b ? 1 : 0]);
+    };
+    const layers = typeof this.setDef.layers === "function" ? this.setDef.layers() : this.setDef.layers;
+    for (const l of layers) if (l.moods) fade(`layers.${l.id}.opacity`, shows(l.moods, from), shows(l.moods, name));
+    for (const f of this.setDef.fixtures ?? []) if (f.moods) fade(`actors.${f.id}.opacity`, shows(f.moods, from), shows(f.moods, name));
+    const lighting = this.setDef.lighting as { lights?: { id: string; intensity?: number; moods?: string[] }[] } | undefined;
+    for (const l of lighting?.lights ?? []) {
+      if (!l.moods) continue;
+      const [a, b] = [shows(l.moods, from), shows(l.moods, name)];
+      if (a === b && this.tracks[`lights.${l.id}.intensity`]) continue;
+      const on = l.intensity ?? 1;
+      const keys = (this.tracks[`lights.${l.id}.intensity`] ??= []) as [number, unknown][];
+      if (dur > 0) keys.push([t, a ? on : 0], [r3(t + dur), b ? on : 0]);
+      else keys.push([t, b ? on : 0]);
+    }
+    this.timeOfDay(name, at, dur, from === "");
+    if (!this.setDef.lighting || (from === "" && name === "day")) return;
+    this.push({ at: t, action: "light", channel: "lighting.grade.color", value: mood.grade, duration: dur });
+    this.push({ at: t, action: "light", channel: "lighting.grade.opacity", value: mood.opacity, duration: dur });
+    this.push({ at: t, action: "light", channel: "lighting.ambient.color", value: mood.ambient?.color ?? "#1c1f4a", duration: dur });
+    this.push({ at: t, action: "light", channel: "lighting.ambient.opacity", value: mood.ambient?.opacity ?? 0, duration: dur });
+  }
+
   /**
    * Set fixtures that show the time of day (a clock, a sun/moon dial…: rig `meta.timeOfDay`) follow
    * a light mood: their channel (the fixture's `channel`, default `parts.light.variant`) takes the
    * value `meta.timeOfDay.values[mood]`, else the mood's name when the switch has that variant
    * ("day" also finds "noon"), halfway through the light change.
    */
-  private timeOfDay(mood: string, at: number, dur: number) {
+  private timeOfDay(mood: string, at: number, dur: number, start = false) {
     for (const f of this.setDef.fixtures ?? []) {
+      // At the start, a fixture given a `value` keeps it.
+      if (start && f.value) continue;
       const doc = this.kit.characters[f.character] as unknown as { meta?: { timeOfDay?: boolean | { values?: Record<string, string> } }; parts?: { id: string; variants?: Record<string, unknown> }[] } | undefined;
       const tod = doc?.meta?.timeOfDay;
       if (!tod) continue;
@@ -1570,6 +1610,16 @@ class BlockScene {
     return { band: [Math.round(top), ground + 30] };
   }
 
+  /** The set's lighting for the scene: `moods` stripped from lights, an ambient layer for the moods to darken. */
+  private sceneLighting() {
+    const l = this.setDef.lighting as { lights?: Record<string, unknown>[]; ambient?: unknown };
+    return {
+      ...l,
+      ...(l.lights ? { lights: l.lights.map(({ moods: _, ...rest }) => rest) } : {}),
+      ambient: l.ambient ?? { color: "#1c1f4a", opacity: 0 },
+    };
+  }
+
   // -------------------------------------------------- continuity checks
   /** Two characters covering each other for more than half a second (not hand in hand). */
   private checkOverlaps() {
@@ -1678,6 +1728,9 @@ class BlockScene {
         else this.issue("error", `fixture "${f.id}": its rig has no clip "${loop}"`);
       }
     }
+    // The light mood the block starts in: mood layers, lights and fixtures shown accordingly.
+    this.mood = "";
+    this.applyMood(this.block.mood ?? this.setDef.mood ?? "day", this.t0, 0);
     // Props.
     for (const p of this.block.props ?? []) {
       const holder = p.heldBy;
@@ -1734,7 +1787,7 @@ class BlockScene {
       actors: this.actors,
       props: this.props,
       tracks: this.tracks,
-      ...(this.setDef.lighting ? { lighting: this.setDef.lighting } : {}),
+      ...(this.setDef.lighting ? { lighting: this.sceneLighting() } : {}),
       script: [...this.script].sort((a, b) => a.at - b.at),
     } as unknown as SceneDoc;
   }

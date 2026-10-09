@@ -206,7 +206,7 @@ describe("director", () => {
     const k2: Kit = { ...k, characters: { ...k.characters, clock: dial as never } };
     const lit = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }], beats: [{ line: 1, do: "light", mood: "day" }, { line: 2, do: "light", mood: "night" }, { line: 3, do: "light", mood: "evening" }] }] }, lines, k2);
     const sets = (lit.scenes.x.script as { actor?: string; channel?: string; value?: unknown }[]).filter((x) => x.actor === "tower" && x.channel === "parts.light.variant").map((x) => x.value);
-    expect(sets).toEqual(["noon", "night"]);
+    expect(sets).toEqual(["noon", "noon", "night"]); // the block starts in "day"
     expect(lit.issues.map((i) => i.message).join("\n")).toContain('has nothing for "evening"');
   });
 
