@@ -201,6 +201,13 @@ describe("director", () => {
     expect(script.filter((x) => x.actor === "bed1Cover" && x.channel === "opacity").map((x) => x.value)).toEqual([0, 1, 0]);
     expect(script.some((x) => x.actor === "tower" && x.action === "play" && x.clip === "loop")).toBe(true);
     expect((out.scenes.x.actors as { id: string; parallax?: number }[]).find((x) => x.id === "tower")?.parallax).toBe(0.6);
+    // A clock showing the time of day follows the light mood.
+    const dial = { ...clock, meta: { timeOfDay: true }, parts: [...clock.parts, { id: "light", type: "switch", bone: "root", variants: { morning: "<g/>", noon: "<g/>", night: "<g/>" }, default: "morning" }] };
+    const k2: Kit = { ...k, characters: { ...k.characters, clock: dial as never } };
+    const lit = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }], beats: [{ line: 1, do: "light", mood: "day" }, { line: 2, do: "light", mood: "night" }, { line: 3, do: "light", mood: "evening" }] }] }, lines, k2);
+    const sets = (lit.scenes.x.script as { actor?: string; channel?: string; value?: unknown }[]).filter((x) => x.actor === "tower" && x.channel === "parts.light.variant").map((x) => x.value);
+    expect(sets).toEqual(["noon", "night"]);
+    expect(lit.issues.map((i) => i.message).join("\n")).toContain('has nothing for "evening"');
   });
 
   it("reports staging problems", () => {

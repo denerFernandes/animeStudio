@@ -51,6 +51,7 @@ export function closest(word: string, options: string[]): string {
 
 /** Lighting presets for `light { mood }`: grade colour/opacity and the sun's height. */
 export const MOODS: Record<string, { grade: string; opacity: number; ambient?: { color: string; opacity: number } }> = {
+  morning: { grade: "#fff0b8", opacity: 0.1 },
   day: { grade: "#ffcf8a", opacity: 0.08 },
   afternoon: { grade: "#ff9d5c", opacity: 0.22 },
   evening: { grade: "#ff6f6f", opacity: 0.3, ambient: { color: "#4a3a8a", opacity: 0.25 } },
@@ -601,6 +602,7 @@ class BlockScene {
         const mood = b.mood ? MOODS[b.mood as string] : undefined;
         if (b.mood && !mood) this.issue("error", `unknown light mood "${String(b.mood)}"${closest(String(b.mood), Object.keys(MOODS))}`);
         if (mood) {
+          this.timeOfDay(b.mood as string, at, d);
           if (!this.setDef.lighting) break;
           this.push({ at: this.t(at), action: "light", channel: "lighting.grade.color", value: mood.grade, duration: d });
           this.push({ at: this.t(at), action: "light", channel: "lighting.grade.opacity", value: mood.opacity, duration: d });
@@ -609,6 +611,25 @@ class BlockScene {
       }
       default:
         this.issue("error", `line ${b.line}: unknown action "${b.do}"${closest(b.do, ACTIONS)}`);
+    }
+  }
+
+  /**
+   * Set fixtures that show the time of day (a clock, a sun/moon dial…: rig `meta.timeOfDay`) follow
+   * a light mood: their channel (the fixture's `channel`, default `parts.light.variant`) takes the
+   * value `meta.timeOfDay.values[mood]`, else the mood's name when the switch has that variant
+   * ("day" also finds "noon"), halfway through the light change.
+   */
+  private timeOfDay(mood: string, at: number, dur: number) {
+    for (const f of this.setDef.fixtures ?? []) {
+      const doc = this.kit.characters[f.character] as unknown as { meta?: { timeOfDay?: boolean | { values?: Record<string, string> } }; parts?: { id: string; variants?: Record<string, unknown> }[] } | undefined;
+      const tod = doc?.meta?.timeOfDay;
+      if (!tod) continue;
+      const channel = f.channel ?? "parts.light.variant";
+      const variants = Object.keys(doc?.parts?.find((p) => p.id === channel.split(".")[1])?.variants ?? {});
+      const value = (typeof tod === "object" ? tod.values?.[mood] : undefined) ?? (variants.includes(mood) ? mood : mood === "day" && variants.includes("noon") ? "noon" : undefined);
+      if (value) this.set(f.id, channel, value, at + dur / 2);
+      else this.issue("warning", `fixture "${f.id}" shows the time of day but has nothing for "${mood}" (meta.timeOfDay.values or a "${mood}" variant)`);
     }
   }
 
