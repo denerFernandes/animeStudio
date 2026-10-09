@@ -96,6 +96,20 @@ export class Timeline {
   }
 }
 
+/** Volume of a music envelope at a time (linear between its keys). */
+export function volumeAt(keys: [number, number][], t: number): number {
+  if (!keys.length) return 1;
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    const [t1, v1] = keys[i];
+    if (t <= t1) {
+      const [t0, v0] = keys[i - 1];
+      return t1 > t0 ? v0 + ((v1 - v0) * (t - t0)) / (t1 - t0) : v1;
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+
 /** Mouth cues of a line from its word timings (relative to the line start). */
 export function lineCues(l: Line): MouthCue[] {
   if (!l.words?.length) return cuesFromText(l.text, { duration: l.e - l.s });
@@ -121,7 +135,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -397,6 +411,13 @@ class BlockScene {
   private characterOf(actor: string) {
     return (this.actors.find((a) => a.id === actor)?.character as string) ?? actor;
   }
+  /** A sound effect of the kit for an event (hit, dash, fall, land, whip, crash, fly, jump…), if it has one. */
+  sfx(event: string, abs: number) {
+    const s = this.kit.sounds?.[event];
+    if (!s) return;
+    const { src, volume } = typeof s === "string" ? { src: s, volume: undefined } : s;
+    this.push({ at: this.t(abs), action: "sound", audio: src, ...(volume !== undefined ? { volume } : {}) });
+  }
   /** Holds an IK chain somewhere (a scene point, another actor's anchor, or null to let go). */
   reach(actor: string, chain: string, target: unknown, abs: number, dur = 0.3) {
     this.reachLog.push({ actor, chain, t: abs, target });
@@ -573,7 +594,10 @@ class BlockScene {
           const fg = FRONT_GESTURES[b.clip as string];
           // From the front, these are hand positions (resolved on the posed face after staging).
           if (fg && this.viewAt(w, at) === "front") this.pendingGestures.push({ actor: w, clip: b.clip as string, at, until: until ?? at + fg.hold });
-          else this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
+          else {
+            this.play(w, b.clip as string, at - 0.1, until ? until - at + 0.1 : undefined);
+            if (b.clip === "jump") this.sfx("jump", at);
+          }
         }
         break;
       case "hands":
@@ -582,6 +606,15 @@ class BlockScene {
       case "hit":
         if (one) this.hit(one, b.target as string, at, { ko: !!b.ko, until });
         break;
+      case "sound": {
+        // A sound of the kit by name, or a file.
+        const name = (b.name ?? b.src) as string | undefined;
+        if (!name) this.issue("error", `line ${b.line}: "sound" needs a "name" (kit sound) or a "src"`);
+        else if (this.kit.sounds?.[name]) this.sfx(name, at);
+        else if (b.src) this.push({ at: this.t(at), action: "sound", audio: b.src as string, ...(b.volume !== undefined ? { volume: b.volume } : {}) });
+        else this.issue("error", `line ${b.line}: unknown sound "${name}"${closest(name, Object.keys(this.kit.sounds ?? {}))}`);
+        break;
+      }
       case "fx":
         if (one) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, actor: one, ...(b.type === "dust" ? { anchor: "origin" } : {}) });
         else this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: this.placeX((b.at as Place) ?? "center", at), y: 380, scale: 1.4 });
@@ -1113,6 +1146,7 @@ class BlockScene {
     this.bendNeck(actor, g.neck, at, dur);
     this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y });
     this.shadow(actor, at, { hide: true }, dur);
+    this.sfx("fall", at + dur);
     if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
     this.push({ at: this.t(at + dur + 0.05), action: "fx", type: "stars", actor });
   }
@@ -1184,12 +1218,14 @@ class BlockScene {
       const dash = 0.35;
       this.walk(attacker, close, at, dash, { clip: this.hasClip(attacker, "run") ? "run" : "walk", ease: "easeIn" });
       this.push({ at: this.t(at), action: "fx", type: "speedLines", duration: dash + 0.1, angle: dir > 0 ? 0 : 180 });
+      this.sfx("dash", at);
       t = at + dash;
     }
     if (this.hasClip(attacker, "punch")) this.play(attacker, "punch", t, 0.9, { fadeIn: 0.05 });
     const hitT = t + 0.28;
     // The hit.
     this.push({ at: this.t(hitT), action: "fx", type: "impactFrame", duration: 0.12 });
+    this.sfx("hit", hitT);
     this.push({ at: this.t(hitT), action: "fx", type: "burst", actor: target, duration: 0.35, scale: 1.2 });
     this.push({ at: this.t(hitT), action: "shake", duration: 0.8, amount: 20, frequency: 22 });
     if (this.hasClip(target, "knocked")) this.play(target, "knocked", hitT, 0.6, { fadeIn: 0.02 });
@@ -1213,6 +1249,7 @@ class BlockScene {
     this.push({ at: this.t(hitT + fly), action: "fx", type: "dust", actor: target, anchor: "origin", scale: 2 });
     this.push({ at: this.t(hitT + fly), action: "fx", type: "stars", actor: target, scale: 1.3 });
     this.push({ at: this.t(hitT + fly), action: "shake", duration: 0.4, amount: 10, frequency: 22 });
+    this.sfx("land", hitT + fly);
     if (o.ko) {
       const poses = ((this.kit.characters[this.characterOf(target)]?.controls as Record<string, { poses?: Record<string, unknown> }> | undefined)?.emotion?.poses) ?? {};
       if (poses.dead || poses.sleep) this.push({ at: this.t(hitT + fly + 0.3), actor: target, action: "pose", control: "emotion", value: poses.dead ? "dead" : "sleep", duration: 0.05 });
@@ -1269,6 +1306,7 @@ class BlockScene {
     }
     const clip = this.wings(actor);
     if (clip) this.push({ at: this.t(at), actor, action: "play", clip, loop: true, duration: r3(dur), fadeIn: 0.15, fadeOut: 0.25 });
+    this.sfx("fly", at);
   }
   /** A little squash on touching down. */
   private touchDown(actor: string, at: number) {
@@ -1726,11 +1764,13 @@ class BlockScene {
         this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.05 });
         this.push({ at: abs, action: "shake", duration: 0.45, amount: 7, frequency: 22 });
         this.push({ at: abs, action: "fx", type: "focusLines", duration: 1.1 });
+        this.sfx("crash", at);
         break;
       // A whip pan to someone: a fast swing with speed lines.
       case "whip":
         this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.05 });
         this.push({ at: abs, action: "fx", type: "speedLines", duration: 0.3 });
+        this.sfx("whip", at);
         break;
       case "reveal": {
         // Pan towards a mark, but never so far that the cast leaves the frame.
@@ -2043,7 +2083,42 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
         issues.push({ severity: "error", where: `text "${cur.text}" (line ${staging.texts!.find((t) => t.text === cur.text)?.line})`, message: `overlaps "${prev.text}": at most ${max === 1 ? "one text at a time (two only during a recap replay)" : "two texts at once"}` });
     }
   }
-  return { sequence, scenes, overlays, issues };
+  // Music beds: full when nobody speaks, ducked under the dialogue (songs keep it up).
+  const end = time.end;
+  const music = (staging.music ?? []).map((m) => {
+    const start = m.from ? time.at(m.from) : 0, stop = m.until ? time.at(m.until) : end;
+    const vol = m.volume ?? 0.5, duck = m.duck ?? 0.15, fade = m.fade ?? 1;
+    const speech = lines.filter((l) => l.text && !l.song && norm(l.speaker) !== "song" && norm(l.speaker) !== "sfx" && l.e > start && l.s < stop);
+    // Spans of speech (lines closer than a second are one span: the music does not pump between them).
+    const spans: [number, number][] = [];
+    for (const l of speech) {
+      const last = spans[spans.length - 1];
+      if (last && l.s - last[1] < 1) last[1] = Math.max(last[1], l.e);
+      else spans.push([l.s, l.e]);
+    }
+    // Level: ducked over each span (0.25 s down before, 0.45 s back up after), times the fades.
+    const level = (t: number) => {
+      let k = 0;
+      for (const [a, b] of spans) k = Math.max(k, t < a - 0.25 || t > b + 0.7 ? 0 : t < a ? (t - (a - 0.25)) / 0.25 : t <= b + 0.25 ? 1 : 1 - (t - (b + 0.25)) / 0.45);
+      const f = Math.min(1, Math.max(0, (t - start) / fade), Math.max(0, (stop - t) / fade));
+      return f * (vol + (duck - vol) * k);
+    };
+    const sorted: [number, number][] = [];
+    for (let t = start; t <= stop + 1e-6; t += 0.05) {
+      const v = r3(level(t));
+      // Keep only the keys where the curve bends.
+      if (sorted.length >= 2) {
+        const [[t0, v0], [t1, v1]] = sorted.slice(-2);
+        if (Math.abs(v0 + ((v1 - v0) * (t - t0)) / (t1 - t0) - v) < 1e-3 && Math.abs(v1 - v0 - (v - v1) * ((t1 - t0) / (t - t1))) < 1e-3) {
+          sorted[sorted.length - 1] = [r3(t), v];
+          continue;
+        }
+      }
+      sorted.push([r3(t), v]);
+    }
+    return { src: m.src, start: r3(start), end: r3(stop), volume: sorted };
+  });
+  return { sequence, scenes, overlays, issues, music };
 }
 
 /** Episode time where a block's scene starts (the first block starts at 0). */

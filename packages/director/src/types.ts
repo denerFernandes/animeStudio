@@ -117,10 +117,26 @@ export interface Text {
 }
 
 /** What the AI writes (see docs/DIRECTOR.md). */
+export interface Music {
+  /** Audio file (as the composition resolves it). */
+  src: string;
+  /** Starts at this moment (default: the beginning). */
+  from?: When;
+  /** Ends at this moment (default: the end), fading out over `fade`. */
+  until?: When;
+  /** Volume when nobody speaks (default 0.5) and under speech (default 0.15). */
+  volume?: number;
+  duck?: number;
+  /** Fade in/out (s, default 1). */
+  fade?: number;
+}
+
 export interface Staging {
   blocks: Block[];
   cuts?: Cut[];
   texts?: Text[];
+  /** A music bed under the episode: it ducks under the dialogue (not under songs). */
+  music?: Music[];
   /** What the story needed but the kit does not have (ignored by the director; a to-do list). */
   missing?: unknown[];
 }
@@ -204,6 +220,12 @@ export interface Kit {
    */
   vehicles?: Record<string, { character: string; scale: number; speed?: number }>;
   /**
+   * Sound effects by event (audio files as the composition resolves them, optionally with a
+   * volume): played automatically when the staging does these things — hit, dash, fall, land,
+   * whip, crash, fly, jump — and by name with the `sound` beat.
+   */
+  sounds?: Record<string, string | { src: string; volume?: number }>;
+  /**
    * Furniture by kind (chairs, benches, sofas, beds): rigs with a `seat` anchor (where the hip joint
    * goes when sitting) and/or a `bed` anchor (where the hip goes when lying). `scale` as for vehicles.
    */
@@ -230,5 +252,7 @@ export interface Directed {
   sequence: SequenceDoc;
   scenes: Record<string, SceneDoc>;
   overlays: Overlay[];
+  /** Music beds with their volume envelopes (episode time): play them with `volumeAt`. */
+  music: { src: string; start: number; end: number; volume: [number, number][] }[];
   issues: Issue[];
 }

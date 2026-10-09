@@ -356,6 +356,7 @@ See [DIRECTOR.md](DIRECTOR.md).
 | `closest(word, options)` | "did you mean" helper used in messages |
 | `wardrobeOf(doc)` | Wardrobe controls of a rig and their poses: the pose controls in `meta.wardrobe`, or every pose control except `view` / `emotion` |
 | `ACTIONS`, `CAMERAS`, `MOODS` | Vocabulary |
+| `volumeAt(keys, t)` | Volume of a music envelope (`Directed.music[i].volume`) at a time |
 | `FRONT_GESTURES` | Gestures played as hand positions on the face in the front view (`facepalm`, `despair`, `think`, `cover`, `excited`, `shout`) |
 | Types | `Staging`, `Block`, `Beat`, `CastEntry`, `PropEntry`, `VehicleEntry`, `FurnitureEntry`, `Cut`, `Text`, `When`, `Place`, `Line`, `Kit`, `SetDef`, `CastMember`, `Overlay`, `Issue`, `Directed` |
 

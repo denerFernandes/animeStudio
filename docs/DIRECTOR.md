@@ -40,6 +40,7 @@ interface Kit {
   props: Record<string, { art(o: { color? }): string; radius: number }>;
   vehicles?: Record<string, { character: string; scale: number; speed? }>;   // drive-bys and vehicles to ride
   furniture?: Record<string, { character: string; scale: number }>;          // chairs, benches, sofas, beds
+  sounds?: Record<string, string | { src; volume? }>;  // sound effects by event (see Sound)
 }
 ```
 
@@ -101,6 +102,7 @@ never coordinates.
 | `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once). From the front, `facepalm`, `despair`, `think`, `cover`, `excited` and `shout` are hand positions on the posed face (IK), and the hands come back where they were (on a table…) afterwards |
 | `hands` | `who`, `on` (a fixture or furniture with a `top` anchor) | Forearms on the table: both hands on its top |
+| `sound` | `name` (a kit sound) or `src`, `volume?` | A sound effect at that moment |
 | `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
@@ -191,6 +193,17 @@ Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `Ri
 thickness, `rigInfo(doc, { …, depth: 30 })` or `{ back, front }` (a shell is thicker) — never on the
 reach (`extent` includes tails, backpacks, snouts); without it a small default is used; without leg chains they still sit (legs not bent) and ride. A
 `ground` bone carrying the `shadow` part keeps the shadow on the floor while sitting.
+
+### Sound
+
+`kit.sounds` maps events to audio files, played automatically when the staging does them:
+`hit` (the punch lands), `dash` (an attacker rushes in), `land` (thrown and landing), `fall` (a
+fall), `fly` (taking off), `jump` (the jump gesture), `whip` and `crash` (camera moves). The
+`sound` beat plays a kit sound by `name`, or any file by `src` (`volume?`). Music goes in
+`staging.music: [{ src, from?, until?, volume? (0.5), duck? (0.15), fade? (1 s) }]`: `direct`
+returns `music` with a volume envelope that fades in and out and ducks under the dialogue (not
+under songs; lines less than a second apart are one span) — play it with
+`<Audio volume={(f) => volumeAt(m.volume, m.start + f / fps)}>` starting at `m.start`.
 
 ### Automatic (never written in a staging)
 

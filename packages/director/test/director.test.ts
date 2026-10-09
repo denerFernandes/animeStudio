@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateSequence, compileSequence } from "@animestudio/core";
-import { check, describeKit, direct, type Kit, type Line, type Staging } from "../src";
+import { check, describeKit, direct, type Kit, type Line, type Staging, volumeAt } from "../src";
 import { stick } from "../../core/test/fixtures";
 
 const rig = { hand: { F: [80, -110], B: [80, -110] }, shoulder: { F: [0, -110], B: [0, -110] }, armLength: { F: 80, B: 80 }, backShoulder: { F: [0, 0], B: [0, 0] }, extent: { front: 60, back: 40 }, height: 160 } as const;
@@ -256,6 +256,22 @@ describe("director", () => {
     const msgs = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door" }, { id: "b", at: "door", offset: 4 }], beats: [{ line: 2, do: "walk", who: "b", to: { mark: "door", dx: 900 } }] }] }, lines, k).map((i) => i.message).join("\n");
     expect(msgs).toContain("tbl is drawn over a's face");
     expect(msgs).toContain("b goes past the edge of set");
+  });
+
+  it("plays the kit's sounds on actions and ducks the music under the dialogue", () => {
+    const k: Kit = { ...kit, sounds: { whip: "whoosh.mp3", pop: { src: "pop.mp3", volume: 0.5 } } };
+    const s: Staging = {
+      blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], beats: [{ line: 1, do: "camera", type: "whip", who: "b" }, { line: 2, do: "sound", name: "pop" }] }],
+      music: [{ src: "theme.mp3", volume: 0.6, duck: 0.2 }],
+    };
+    const out = direct(s, lines, k);
+    const sounds = (out.scenes.x.script as { action: string; audio?: string; volume?: number }[]).filter((x) => x.action === "sound");
+    expect(sounds.map((x) => x.audio)).toEqual(["whoosh.mp3", "pop.mp3"]);
+    expect(sounds[1].volume).toBe(0.5);
+    const m = out.music[0];
+    expect(volumeAt(m.volume, (lines[1].s + lines[1].e) / 2)).toBeCloseTo(0.2);
+    expect(volumeAt(m.volume, m.start + 0.5)).toBeGreaterThan(0);
+    expect(volumeAt(m.volume, m.end)).toBe(0);
   });
 
   it("reports staging problems", () => {
