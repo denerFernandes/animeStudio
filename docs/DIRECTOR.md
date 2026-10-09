@@ -202,7 +202,8 @@ reach (`extent` includes tails, backpacks, snouts); without it a small default i
 
 `kit.sounds` maps events to audio files, played automatically when the staging does them:
 `hit` (the punch lands), `dash` (an attacker rushes in), `land` (thrown and landing), `fall` (a
-fall), `fly` (taking off), `jump` (the jump gesture), `whip` and `crash` (camera moves). The
+fall), `fly` (taking off), `jump` (the jump gesture, climbing on someone's back), `clap` (a high
+five), `hug`, `whip` and `crash` (camera moves). The
 `sound` beat plays a kit sound by `name`, or any file by `src` (`volume?`). Music goes in
 `staging.music: [{ src, from?, until?, volume? (0.5), duck? (0.15), fade? (1 s) }]`: `direct`
 returns `music` with a volume envelope that fades in and out and ducks under the dialogue (not
