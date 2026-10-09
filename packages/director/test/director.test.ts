@@ -210,6 +210,13 @@ describe("director", () => {
     expect(lit.issues.map((i) => i.message).join("\n")).toContain('has nothing for "evening"');
   });
 
+  it("keeps those who enter later invisible until they come in", () => {
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b", enter: { line: 2, from: "left", run: true } }] }] }, lines, kit);
+    const op = (out.scenes.x.tracks as Record<string, [number, number][]>)["actors.b.opacity"];
+    expect(op[0]).toEqual([0, 0]);
+    expect(op[op.length - 1]).toEqual([lines[2].s, 1]);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

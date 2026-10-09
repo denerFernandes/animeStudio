@@ -267,6 +267,11 @@ class BlockScene {
       const flip = c.facing ? c.facing === "left" : enter ? enter.from === "right" : x > this.mark("center").x + 120;
       this.addActor(c.id, startX, { flip, emotion: c.emotion });
       if (c.wear) this.wear(c.id, c.wear, this.t0);
+      // Until they come in, those who enter later are invisible (whatever the camera frames).
+      if (enter) {
+        const show = this.t(this.time.at(enter));
+        if (show > 0.02) this.tracks[`actors.${c.id}.opacity`] = [[0, 0], [r3(show - 0.001), 0], [show, 1]];
+      }
       if (enter?.fly) {
         this.flyIn(c.id, x, this.time.at(enter), enter.from);
       } else if (enter) {

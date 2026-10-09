@@ -91,7 +91,7 @@ never coordinates.
 | Action | Fields | Effect |
 |---|---|---|
 | `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
-| `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?` | Same as `enter` on the cast entry: comes in from off screen; `fly: true` comes through the air from above the frame and lands |
+| `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?` | Same as `enter` on the cast entry: comes in from off screen (invisible until then, whatever the camera frames); `fly: true` comes through the air from above the frame and lands |
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame |
 | `face` | `who`, `direction` | Turns around |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |

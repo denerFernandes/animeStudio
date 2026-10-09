@@ -85,8 +85,13 @@ export function withProportions(base: ToonDoc, p: Proportions): ToonDoc {
 
   for (const part of doc.parts as Doc[]) {
     if (part.space === "bone") continue;
+    // Skinned paths (hair locks, capes) are in setup space: remapped with their first bone's region.
+    if (part.type === "skinned" && part.bones?.length) {
+      part.path = mapPath(part.path, mapOf(part.bones[0]));
+      continue;
+    }
     const bone = part.bone as string | undefined;
-    if (!bone) continue; // hoses and skinned parts follow their bones
+    if (!bone) continue; // hoses follow their bones
     const m = mapOf(bone);
     if (part.type === "rigid") part.art = wrap(resolve(part.art), m);
     else if (part.type === "switch") part.variants = Object.fromEntries(Object.entries(part.variants as Record<string, string>).map(([k, v]) => [k, wrap(resolve(v), m)]));
