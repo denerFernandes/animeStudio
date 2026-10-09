@@ -38,7 +38,8 @@ interface Kit {
   narrators?: string[];
   sets: Record<string, SetDef>;               // layers, ground {near, far?}, depthScale, marks, fixtures, bounds, lighting
   props: Record<string, { art(o: { color? }): string; radius: number }>;
-  vehicles?: Record<string, { character: string; scale: number; speed? }>;
+  vehicles?: Record<string, { character: string; scale: number; speed? }>;   // drive-bys and vehicles to ride
+  furniture?: Record<string, { character: string; scale: number }>;          // chairs, benches, sofas, beds
 }
 ```
 
@@ -109,6 +110,43 @@ never coordinates.
 | `fixture` | `id`, `value` | Changes a fixture (traffic light `red`/`green`) |
 | `camera` | `type` (`wide`, `group`, `two-shot`, `close`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `follow` of an object (ball, car) frames it with the cast; `reveal` pans towards a mark without losing the cast |
 | `light` | `mood` (`day`, `afternoon`, `evening`, `night`) or `channel` + `value`, `until?` | Lighting change |
+| `mount` / `dismount` | `who`, `vehicle` (a block vehicle) | Gets on (walks to it, sits on the seat, feet on the pedals, hands on the handlebar) / gets off and stands beside it |
+| `ride` | `who`, `to`, `until?`, `vehicle?`, `wobble?` (0..1) | Rides to a place (mounts first if needed; `vehicle` defaults to the last one ridden). Pedals turn in step with the ground (`drive` clip `stride`). `wobble` rocks it like a beginner |
+| `fall` | `who`, `side?` (`back` default, `front`) | Riding: the vehicle tips and lies on its side, the rider is thrown clear and lands on the back (or face down). Standing: trips and falls. Stars over the head; until `getUp` |
+| `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground |
+| `lie` | `who`, `on?` (furniture id, set mark with `seat` and `lie`, or `"ground"`) | Lies face up, head towards the back of the furniture (on its `pillow`); the ground shadow hides |
+| `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
+
+### Riding, sitting, lying
+
+Vehicles to ride and furniture stand in the block, declared next to the cast:
+
+```jsonc
+"vehicles": [{ "id": "bike", "kind": "bike", "at": "gate", "wear": { "trainingWheels": "on" } }],
+"furniture": [{ "id": "sofa", "kind": "sofa", "at": "wall", "facing": "right" }]
+```
+
+A **rideable** vehicle rig (any kind: bicycle, scooter, horse…) has the anchors `seat` (where the
+rider's hip joint goes), `pedalF` / `pedalB` (ankles; on pedal bones that do not inherit the crank's
+rotation, so they stay level), `gripF` / `gripB` or `handlebar` (wrists), and a looping `drive`
+clip (one crank turn per loop) with a `stride` (ground distance per loop) so the pedals keep pace.
+Put the seat behind and above the crank (as on a real bicycle) so the rider reads as sitting, and
+make the crank long enough (about a third of the leg) for the two legs to read apart. Its `scale`
+is for a cast member of scale 1 and is multiplied by its first rider's scale; `check` reports legs
+too short for the pedals. The rider's far leg (parts on `legB1`, `legB2`, `footB`) is drawn behind
+the vehicle, so its frame passes between the legs. For falls, give the rig a `view` pose control
+with a `lying` pose (the vehicle drawn on its side, with its own ground shadow) and an upright pose;
+without it the vehicle is flattened as a fallback. Its wardrobe (e.g. training wheels on/off) works
+with `wear` like a character's.
+
+**Furniture** rigs have a `seat` anchor (where the hip joint goes when sitting), and to lie on them
+`bed` (hips) or better `pillow` (the head rests there, any body length). They face right (seat
+front / foot of the bed on the right). **Set seats** are marks with a height: `{ "x": 700, "seat":
+90 }` (a bench, a log), plus `"lie": true` for places to lie on (grass bank, bed drawn in the set).
+
+Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `RigInfo.hip` /
+`legLength` (from `rigInfo`); without leg chains they still sit (legs not bent) and ride. A
+`ground` bone carrying the `shadow` part keeps the shadow on the floor while sitting.
 
 ### Automatic (never written in a staging)
 
@@ -142,7 +180,9 @@ who is present), characters standing on top of each other for more than half a s
 in hand, not walking past; depth-aware), a hold whose hands cannot meet (an arm would stretch
 more than 60%), a speaker out of the frame or at its edge (the camera is
 evaluated), unknown ids (with the closest valid one),
-unknown actions/marks/props/vehicles/fixtures, unknown wardrobe controls or poses (and `view` /
+unknown actions/marks/props/vehicles/fixtures/furniture, riding or sitting problems (not a
+vehicle of the block, no `seat` anchor, legs that do not reach the pedals, a mark without `seat`,
+dismount/fall when not riding, feet dangling from a high seat as a warning), unknown wardrobe controls or poses (and `view` /
 `emotion` given as wardrobe), a speaker missing from the block where they
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a
 replay cut), and every

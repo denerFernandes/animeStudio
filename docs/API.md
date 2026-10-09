@@ -333,11 +333,11 @@ gesture clips, emotions and the director work for every character.
 | `eyeArt(spec)`, `eyeWhite`, `eyeArc`, `eyeLid`, `eyeSwitch(bone)` | Storybook eyes: open, wide, closed, happy, half-lidded, pupils |
 | `browShapes(eyes, rad, lift?)` | Brow morph (up, sad, cross, smug) |
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
-| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold) |
+| `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold, ride: torso leaning into the ride, head up) |
 | `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
 | `withViews(doc, spec)`, `ViewSpec`, `STILL_MIX` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); bones in `still` (default the head) keep only `STILL_MIX` of their rotation in those views; records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
-| `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director |
+| `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director (hands, shoulders, arm lengths, `hip` joint, `legLength`) |
 | `withProportions(doc, { head, torso, legs, arms })`, `proportionMeasure(measure, p, hipHeight)` | Build-time body proportions (e.g. a grown-up from a child template: smaller head, longer torso, legs and arms): remaps bones, setup-space art, morph paths, anchors and pose offsets; parts in bone space keep their size |
 
 ## `@animestudio/director`
@@ -348,13 +348,13 @@ See [DIRECTOR.md](DIRECTOR.md).
 |---|---|
 | `direct(staging, lines, kit)` | `{ sequence, scenes, overlays, issues }`: one continuous scene per block, cuts/replays, texts |
 | `check(staging, lines, kit)` | Issues from directing, the continuity checklist and scene/sequence validation |
-| `describeKit(kit)` | Catalogue of cast (clips, emotions, views, wardrobe `wear: { control: [poses] }`), sets (marks, depth, fixture values), props, vehicles, fx, cameras, actions, light moods |
+| `describeKit(kit)` | Catalogue of cast (clips, emotions, views, wardrobe `wear: { control: [poses] }`), sets (marks, depth, fixture values, `seats`), props, vehicles, `rides` (rideable vehicles and their wardrobe), `furniture` (sit / lie), fx, cameras, actions, light moods |
 | `lineCues(line)` | Mouth cues from a line's word timings |
 | `Timeline` | Line/word → seconds |
 | `closest(word, options)` | "did you mean" helper used in messages |
 | `wardrobeOf(doc)` | Wardrobe controls of a rig and their poses: the pose controls in `meta.wardrobe`, or every pose control except `view` / `emotion` |
 | `ACTIONS`, `CAMERAS`, `MOODS` | Vocabulary |
-| Types | `Staging`, `Block`, `Beat`, `CastEntry`, `PropEntry`, `Cut`, `Text`, `When`, `Place`, `Line`, `Kit`, `SetDef`, `CastMember`, `Overlay`, `Issue`, `Directed` |
+| Types | `Staging`, `Block`, `Beat`, `CastEntry`, `PropEntry`, `VehicleEntry`, `FurnitureEntry`, `Cut`, `Text`, `When`, `Place`, `Line`, `Kit`, `SetDef`, `CastMember`, `Overlay`, `Issue`, `Directed` |
 
 ## `@animestudio/cli` (`toon`)
 

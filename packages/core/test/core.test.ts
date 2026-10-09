@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  actorPlacement,
+  anchorPosition,
   apply,
   bakePhysics,
   compileRig,
@@ -299,5 +301,75 @@ describe("physics on flips", () => {
     const r = bake.resets![0];
     const mid = samplePhysics(bake, (r - 0.5) / bake.rate)!;
     expect([bake.samples[r - 1], bake.samples[r]]).toContainEqual(mid);
+  });
+});
+
+describe("riding (mount + reach)", () => {
+  const bike = {
+    format: "toon",
+    version: 1,
+    name: "bike",
+    skeleton: [
+      { id: "root" },
+      { id: "frame", parent: "root", from: [0, -10], to: [60, -10] },
+      { id: "crank", parent: "frame", from: [30, -60], to: [45, -60] },
+    ],
+    parts: [{ id: "frame", type: "rigid", bone: "frame", art: "<rect x='-40' y='-60' width='100' height='50'/>" }],
+    anchors: { seat: { bone: "frame", at: [0, -20] }, pedal: { bone: "crank", at: [45, -60] } },
+    clips: { drive: { duration: 1, loop: true, tracks: { "bones.crank.rotation": [[0, 0, "linear"], [1, 360]] } } },
+  } as unknown as SceneDoc["characters"][string];
+  const doc: SceneDoc = {
+    format: "toon-scene",
+    version: 1,
+    width: 800,
+    height: 400,
+    fps: 30,
+    duration: 3,
+    characters: { stick: "stick", bike: "bike" },
+    actors: [
+      { id: "bike", character: "bike", x: 200, y: 300 },
+      { id: "kid", character: "stick", x: 100, y: 300 },
+    ],
+    script: [
+      { at: 0, actor: "bike", action: "play", clip: "drive", loop: true },
+      { at: 0, actor: "bike", action: "walkTo", x: 600, duration: 2, clip: "drive", ease: "linear" },
+      { at: 0.2, actor: "kid", action: "mount", on: "bike", point: [0, -40], duration: 0 },
+      { at: 0.2, actor: "kid", action: "reach", chain: "hand", target: { actor: "bike", anchor: "pedal" }, duration: 0 },
+      { at: 2.5, actor: "kid", action: "mount", on: null, duration: 0 },
+    ],
+  };
+  const scene = compileScene(doc, { characters: { stick, bike: bike as never } });
+
+  it("carries the rider on the anchor and keeps the hand on a turning pedal", () => {
+    for (const t of [0.5, 0.9, 1.3]) {
+      const seat = anchorPosition(scene, "bike", "seat", t);
+      const kid = scene.actors.find((a) => a.id === "kid")!;
+      const hip = apply(actorPlacement(kid, t), [0, -40]);
+      expect(hip[0]).toBeCloseTo(seat[0], 3);
+      expect(hip[1]).toBeCloseTo(seat[1], 3);
+      const hand = anchorPosition(scene, "kid", "hand", t);
+      const pedal = anchorPosition(scene, "bike", "pedal", t);
+      expect(Math.hypot(hand[0] - pedal[0], hand[1] - pedal[1])).toBeLessThan(0.5);
+    }
+    // Off again: back on its own placement.
+    expect(apply(actorPlacement(scene.actors[1], 2.8), [0, 0])[0]).toBeCloseTo(100, 3);
+    expect(() => evaluateScene(scene, 1)).not.toThrow();
+  });
+
+  it("draws the parts listed in `behind` just under the ridden actor", () => {
+    const behind = { ...doc, script: [...doc.script!.slice(0, 2), { at: 0.2, actor: "kid", action: "mount", on: "bike", point: [0, -40], duration: 0, behind: ["tail"] }] } as SceneDoc;
+    const json = JSON.stringify(evaluateScene(compileScene(behind, { characters: { stick, bike: bike as never } }), 1));
+    // Order: the kid's tail, then the bike, then the rest of the kid.
+    const tail = json.indexOf('"actor-kid-behind"'), bikeArt = json.indexOf('"actor-bike"'), kid = json.indexOf('"actor-kid"');
+    expect(tail).toBeGreaterThan(-1);
+    expect(tail).toBeLessThan(bikeArt);
+    expect(bikeArt).toBeLessThan(kid);
+  });
+
+  it("rejects unknown anchors and chains", () => {
+    const bad = { ...doc, script: [{ at: 0, actor: "kid", action: "reach", chain: "foot", target: { actor: "bike", anchor: "pedal" } }] } as SceneDoc;
+    expect(() => compileScene(bad, { characters: { stick, bike: bike as never } })).toThrow(/unknown IK chain "foot"/);
+    const bad2 = { ...doc, script: [{ at: 0, actor: "kid", action: "mount", on: "bike", anchor: "saddle" }] } as SceneDoc;
+    expect(() => compileScene(bad2, { characters: { stick, bike: bike as never } })).toThrow(/no anchor "saddle"/);
   });
 });

@@ -65,6 +65,10 @@ Lessons from converting a 66-shot storyboard into an episode:
   controls on the same rig (e.g. `outfit`, `backpack`); dress each block in its cast entry
   (`wear`) — swimsuits at the beach, backpacks at school — and change them on screen with a
   `wear` beat when the story does (taking the backpack off at home).
+- **Riding, sitting, lying are staged, not drawn per shot.** Declare the bicycle or the sofa in the
+  block and use `ride` / `fall` / `getUp` / `sit` / `lie`; the director seats the hips, puts the
+  feet on the pedals or the floor and keeps the far leg behind the bicycle. A beginner wobbles
+  (`wobble`) before falling; nobody walks while sitting.
 - **Keep screen direction (the 180° rule).** Who stands left of whom must not change between
   cuts unless the audience sees them move.
 - **Objects keep their history.** A ball held in a hand is grabbed from the first frame of the

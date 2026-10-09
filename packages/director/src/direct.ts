@@ -117,7 +117,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "getUp"];
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "follow", "reveal"];
 
@@ -142,6 +142,15 @@ class BlockScene {
   private faces: { actor: string; t: number }[] = [];
   /** When each actor started crossing to the far ground (smaller from then on). */
   private crossed = new Map<string, number>();
+  /** Riding: who is on which vehicle, and when. */
+  private rides: { rider: string; vehicle: string; t0: number; t1: number }[] = [];
+  /** Block vehicles (id → kind, scale) and the ones lying on their side. */
+  private vehicleOf = new Map<string, { kind: string; scale: number }>();
+  private fallen = new Set<string>();
+  /** Block furniture (id → kind, scale). */
+  private furnitureOf = new Map<string, { kind: string; scale: number }>();
+  /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
+  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number }[] = [];
   private propStates = new Map<string, PropState>();
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
@@ -307,6 +316,9 @@ class BlockScene {
 
   // -------------------------------------------------- primitive actions
   walk(actor: string, x: number, abs: number, dur: number, o: { clip?: string; y?: number; ease?: string } = {}) {
+    // Sitting or lying: stand up first.
+    const rest = this.rests.find((l) => l.actor === actor && l.t0 < abs && l.t1 === Infinity);
+    if (rest) this.getUp(actor, Math.max(rest.t0 + 0.1, abs - 0.6));
     const x0 = this.xAt(actor, abs);
     const d = Math.max(0.4, dur);
     this.walks.push({ actor, t0: abs, t1: abs + d, x0, x1: x });
@@ -427,7 +439,7 @@ class BlockScene {
     const all = (b.who === undefined ? [] : Array.isArray(b.who) ? b.who : [b.who]) as string[];
     // The camera can frame anything in the scene (cast, fixtures, vehicles, props); the other
     // actions are for the cast present in the block.
-    const valid = b.do === "camera" ? [...this.actors.map((a) => a.id as string), ...this.propStates.keys()] : this.present;
+    const valid = b.do === "camera" ? [...this.actors.map((a) => a.id as string), ...this.propStates.keys()] : b.do === "wear" ? [...this.present, ...this.vehicleOf.keys(), ...this.furnitureOf.keys()] : this.present;
     for (const w of all) {
       if (valid.includes(w)) continue;
       const known = b.do === "camera" || this.kit.cast[w] ? "" : " and not in the kit";
@@ -483,6 +495,27 @@ class BlockScene {
       }
       case "emotion":
         for (const w of who.filter((w) => this.hasControl(w, "emotion"))) this.push({ at: this.t(at), actor: w, action: "pose", control: "emotion", value: b.value, duration: 0.35 });
+        break;
+      case "mount":
+        for (const w of who) this.mountOn(w, b.vehicle as string, at);
+        break;
+      case "dismount":
+        for (const w of who) this.dismount(w, at);
+        break;
+      case "ride":
+        for (const w of who) this.ride(w, b, at, until);
+        break;
+      case "fall":
+        for (const w of who) this.fallDown(w, at, (b.side ?? b.dir) === "front" ? "front" : "back");
+        break;
+      case "sit":
+        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at);
+        break;
+      case "lie":
+        for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at);
+        break;
+      case "getUp":
+        for (const w of who) this.getUp(w, at);
         break;
       case "wear": {
         // { wear: { control: pose } } or the shorthand { control, value }.
@@ -782,6 +815,368 @@ class BlockScene {
     });
   }
 
+  // -------------------------------------------------- riding (bicycles, scooters…)
+  /** Vehicles standing in the block, sized for their first rider. */
+  placeVehicles() {
+    for (const v of this.block.vehicles ?? []) {
+      const def = this.kit.vehicles?.[v.kind];
+      if (!def) {
+        this.issue("error", `vehicle "${v.id}": unknown kind "${v.kind}"${closest(v.kind, Object.keys(this.kit.vehicles ?? {}))}`);
+        continue;
+      }
+      const first = (this.block.beats ?? []).find((b) => (b.do === "mount" || b.do === "ride") && b.vehicle === v.id)?.who;
+      const rider = (Array.isArray(first) ? first[0] : first) as string | undefined;
+      const scale = r3(def.scale * (rider && this.kit.cast[rider] ? this.scaleOf(rider) : 1));
+      const x = v.at ? this.placeX(v.at, this.t0) : rider && this.present.includes(rider) ? this.xAt(rider, this.t0) + 150 * this.scaleOf(rider) : this.mark("center").x;
+      this.addActor(v.id, x, { character: def.character, scale, z: 1.9, flip: v.facing === "left", palette: v.color ? { paint: v.color } : undefined });
+      this.vehicleOf.set(v.id, { kind: v.kind, scale });
+      // Upright from the start (a track holds its first key before it: a later "lying" would show).
+      const up = this.lyingPose(v.id);
+      if (up) this.push({ at: 0, actor: v.id, action: "pose", control: "view", value: up, duration: 0 });
+      if (v.wear) this.wear(v.id, v.wear, this.t0);
+    }
+  }
+  /** A vehicle drawn lying on its side: pose "lying" of its `view` control; returns its upright pose. */
+  private lyingPose(vehicle: string): string | undefined {
+    const poses = Object.keys(((this.kit.characters[this.characterOf(vehicle)]?.controls ?? {}) as Record<string, { type: string; poses?: object }>).view?.poses ?? {});
+    return poses.includes("lying") ? (poses.find((p) => p !== "lying") ?? "side") : undefined;
+  }
+  /** Keeps a character's ground shadow on the floor while its body goes down (sitting) or hides it (lying). */
+  private shadow(actor: string, abs: number, o: { drop?: number; hide?: boolean }, dur: number) {
+    const doc = this.kit.characters[this.characterOf(actor)];
+    const s = this.scaleOf(actor);
+    if (o.drop !== undefined && (doc?.skeleton as { id: string }[] | undefined)?.some((b) => b.id === "ground")) this.set(actor, "bones.ground.y", r3(-o.drop / s), abs, dur, "easeOut");
+    if (o.hide !== undefined && (doc?.parts as { id: string }[] | undefined)?.some((p) => p.id === "shadow")) this.set(actor, "parts.shadow.opacity", o.hide ? 0 : 1, abs, dur * 0.6);
+  }
+  private ridingAt(rider: string, abs: number) {
+    return this.rides.find((r) => r.rider === rider && r.t0 <= abs && r.t1 > abs);
+  }
+  private restAt(actor: string, abs: number) {
+    return this.rests.find((l) => l.actor === actor && l.t0 <= abs && l.t1 > abs);
+  }
+  /** IK chains of the rider held on the vehicle: feet on the pedals, hands on the handlebar. */
+  private static readonly GRIPS: [string, string[]][] = [
+    ["footF", ["pedalF"]],
+    ["footB", ["pedalB"]],
+    ["handF", ["gripF", "handlebar"]],
+    ["handB", ["gripB", "handlebar"]],
+  ];
+  private grips(rider: string, vehicle: string) {
+    const anchors = (this.kit.characters[this.characterOf(vehicle)]?.anchors ?? {}) as Record<string, { at: [number, number] }>;
+    const chains = new Set(((this.kit.characters[this.characterOf(rider)]?.ik ?? []) as { id: string }[]).map((k) => k.id));
+    return BlockScene.GRIPS.flatMap(([chain, names]) => {
+      const anchor = names.find((n) => anchors[n]);
+      return anchor && chains.has(chain) ? [{ chain, anchor }] : [];
+    });
+  }
+  /** Gets on a vehicle: walks to it, sits on its `seat`, feet on the pedals, hands on the handlebar. */
+  mountOn(rider: string, vehicle: string | undefined, at: number) {
+    if (!vehicle || !this.vehicleOf.has(vehicle)) return this.issue("error", `${rider} cannot mount "${vehicle ?? ""}": not a vehicle of block "${this.block.id}"${closest(vehicle ?? "", [...this.vehicleOf.keys()])} (declare it in the block's "vehicles")`);
+    const doc = this.kit.characters[this.characterOf(vehicle)];
+    const anchors = (doc?.anchors ?? {}) as Record<string, { at: [number, number] }>;
+    if (!anchors.seat) return this.issue("error", `"${vehicle}" cannot be ridden: its rig has no "seat" anchor`);
+    if (this.ridingAt(rider, at)) return;
+    const other = this.rides.find((r) => r.vehicle === vehicle && r.t0 <= at && r.t1 > at);
+    if (other) return this.issue("error", `${rider} cannot mount "${vehicle}": ${other.rider} is riding it`);
+    if (this.restAt(rider, at - 1.6)) this.getUp(rider, at - 1.6);
+    const s = this.vehicleOf.get(vehicle)!.scale;
+    // A fallen vehicle is lifted back up first.
+    if (this.fallen.has(vehicle)) {
+      const up = this.lyingPose(vehicle);
+      if (up) this.push({ at: this.t(at - 0.5), actor: vehicle, action: "pose", control: "view", value: up, duration: 0 });
+      this.set(vehicle, "rotation", 0, at - 0.5, 0.4, "easeOut");
+      this.set(vehicle, "scale", s, at - 0.5, 0.4, "easeOut");
+      this.fallen.delete(vehicle);
+    }
+    const bx = this.xAt(vehicle, at);
+    if (Math.abs(this.xAt(rider, at - 0.8) - bx) > 30) this.walk(rider, bx, at - 0.8, 0.7);
+    this.face(rider, this.facing(vehicle, at) ? "right" : "left", at);
+    const rig = this.member(rider)?.rig;
+    const hip = rig?.hip ?? [0, -Math.round((rig?.height ?? 200) * 0.4)];
+    // The far leg goes behind the vehicle (its frame passes between the legs).
+    const far = new Set(["legB1", "legB2", "footB"]);
+    const parts = ((this.kit.characters[this.characterOf(rider)]?.parts ?? []) as { id: string; bone?: string; bones?: string[] }[]).filter((p) => (p.bone && far.has(p.bone)) || p.bones?.some((b) => far.has(b))).map((p) => p.id);
+    this.push({ at: this.t(at), actor: rider, action: "mount", on: vehicle, anchor: "seat", point: hip, duration: 0.4, ...(parts.length ? { behind: parts } : {}) });
+    for (const g of this.grips(rider, vehicle)) this.push({ at: this.t(at), actor: rider, action: "reach", chain: g.chain, target: { actor: vehicle, anchor: g.anchor }, duration: 0.4 });
+    if (!this.grips(rider, vehicle).some((g) => g.chain.startsWith("foot"))) this.issue("warning", `${rider} rides "${vehicle}" without feet on pedals (anchors pedalF / pedalB or IK chains footF / footB missing)`);
+    this.rides.push({ rider, vehicle, t0: at, t1: Infinity });
+    // Can the legs reach the pedals? (setup positions: seat → farthest pedal, scaled)
+    const legs = rig?.legLength ? Math.min(rig.legLength.F, rig.legLength.B) * this.scaleOf(rider) : undefined;
+    const pedals = ["pedalF", "pedalB"].filter((p) => anchors[p]).map((p) => Math.hypot(anchors[p].at[0] - anchors.seat.at[0], anchors[p].at[1] - anchors.seat.at[1]) * s);
+    if (legs && pedals.length && Math.max(...pedals) > legs * 1.02)
+      this.issue("error", `${rider}'s legs (${Math.round(legs)} px) do not reach the pedals of "${vehicle}" (${Math.round(Math.max(...pedals))} px from the seat): make kit.vehicles.${this.vehicleOf.get(vehicle)!.kind}.scale smaller`);
+  }
+  /** Gets off and stands next to the vehicle, facing the same way. */
+  dismount(rider: string, at: number) {
+    const r = this.ridingAt(rider, at);
+    if (!r) return this.issue("error", `${rider} cannot dismount: not riding anything then`);
+    r.t1 = at;
+    this.letGo(rider, r.vehicle, at, 0.4);
+    const dir = this.facing(r.vehicle, at) ? 1 : -1;
+    this.slide(rider, this.xAt(r.vehicle, at) - dir * 70 * this.scaleOf(rider), at, 0.45);
+  }
+  private letGo(rider: string, vehicle: string, at: number, dur: number) {
+    this.push({ at: this.t(at), actor: rider, action: "mount", on: null, duration: dur });
+    for (const g of this.grips(rider, vehicle)) this.push({ at: this.t(at), actor: rider, action: "reach", chain: g.chain, target: null, duration: Math.min(dur, 0.3) });
+  }
+  /** Rides to a place (mounting first if needed); `wobble` 0..1 rocks the vehicle like a beginner. */
+  ride(rider: string, b: Beat, at: number, until?: number) {
+    let start = at;
+    if (!this.ridingAt(rider, at)) {
+      // Without "vehicle": the one they rode last.
+      const last = [...this.rides].reverse().find((r) => r.rider === rider)?.vehicle;
+      this.mountOn(rider, (b.vehicle as string | undefined) ?? last, at);
+      start = at + 0.45;
+    }
+    const r = this.ridingAt(rider, start);
+    if (!r) return;
+    const vehicle = r.vehicle;
+    const v = this.vehicleOf.get(vehicle)!;
+    if (!this.hasClip(vehicle, "drive")) return this.issue("error", `"${vehicle}" cannot ride: its rig has no "drive" clip`);
+    if (b.to === undefined) return this.issue("error", `line ${b.line} "ride": needs "to"`);
+    const x0 = this.xAt(vehicle, start);
+    const x1 = this.placeX(b.to as Place, start, rider);
+    const speed = (this.kit.vehicles?.[v.kind]?.speed ?? 240) * v.scale;
+    const dur = Math.max(0.6, until !== undefined ? until - start : Math.abs(x1 - x0) / speed);
+    this.walk(vehicle, x1, start, dur, { clip: "drive" });
+    // The rider's own position goes along (it is where they stand when they get off).
+    const own = ["ride", "hold", "idle"].find((c) => this.hasClip(rider, c));
+    if (own) this.walk(rider, x1 + (this.xAt(rider, start) - x0), start, dur, { clip: own });
+    const wobble = Math.min(1, Math.max(0, Number(b.wobble ?? 0)));
+    if (wobble > 0) {
+      // Irregular rocking (a beginner fighting for balance), back to level at the end.
+      const amp = 7 * wobble;
+      const rnd = (i: number) => Math.abs(Math.sin(i * 12.9898 + x0 * 0.001) * 43758.5453) % 1;
+      let t = start + 0.15;
+      for (let i = 0; t < start + dur - 0.35; i++) {
+        const step = 0.3 + 0.25 * rnd(i);
+        this.set(vehicle, "rotation", r3((i % 2 ? 1 : -1) * amp * (0.5 + 0.5 * rnd(i + 7))), t, step, "sineInOut");
+        t += step;
+      }
+      this.set(vehicle, "rotation", 0, t, 0.3, "sineInOut");
+    }
+  }
+  /** Falls off: the vehicle tips and drops on its side, the rider is thrown forward (or back) and lands lying. */
+  fall(rider: string, at: number, side: "front" | "back") {
+    const r = this.ridingAt(rider, at);
+    if (!r) return this.issue("error", `${rider} cannot fall off: not riding anything then`);
+    const vehicle = r.vehicle;
+    if (this.walks.some((w) => w.actor === vehicle && w.t0 < at && w.t1 > at + 0.05))
+      this.issue("warning", `${rider} falls while "${vehicle}" is still moving: end the ride ("until") at the fall`);
+    r.t1 = at + 0.2;
+    const dir = this.facing(vehicle, at) ? 1 : -1;
+    const s = this.vehicleOf.get(vehicle)!.scale;
+    // The front wheel digs in, then the vehicle drops on its side: its own "lying" drawing (pose
+    // "lying" of its `view` control), else flattened as a fallback.
+    this.set(vehicle, "rotation", dir * 10, at, 0.22, "easeIn");
+    if (this.lyingPose(vehicle)) {
+      this.set(vehicle, "rotation", 0, at + 0.22, 0.12, "easeOut");
+      this.push({ at: this.t(at + 0.22), actor: vehicle, action: "pose", control: "view", value: "lying", duration: 0 });
+    } else {
+      this.set(vehicle, "scale", [s, r3(s * 0.6)], at + 0.22, 0.3, "easeIn");
+      this.set(vehicle, "rotation", dir * 3, at + 0.22, 0.3, "easeIn");
+    }
+    this.fallen.add(vehicle);
+    this.letGo(rider, vehicle, at + 0.2, 0.45);
+    // Thrown clear of the vehicle: over the front, or off the back.
+    this.knockDown(rider, at + 0.2, side, dir, 0.45, (side === "front" ? 0.35 : -0.3) * (this.member(rider)?.rig.height ?? 200) * this.scaleOf(rider));
+  }
+  /**
+   * Down on the ground after a fall, rotated about the feet: on the back (default, "back") or face
+   * down ("front"), lifted by the body's depth on that side so nothing sinks into the ground.
+   */
+  private knockDown(actor: string, at: number, side: "front" | "back", dir: number, dur: number, shift?: number) {
+    const rig = this.member(actor)?.rig;
+    const s = this.scaleOf(actor);
+    const height = (rig?.height ?? 200) * s;
+    const front = side === "front";
+    const depth = (front ? (rig?.extent.front ?? 60) * 0.8 : (rig?.extent.back ?? 60) * 0.7) * s;
+    const y = this.groundY(actor, at);
+    this.slide(actor, this.xAt(actor, at) + dir * (shift ?? (front ? 0.12 : -0.06) * height), at, dur);
+    this.set(actor, "rotation", dir * (front ? 84 : -84), at, dur, "easeIn");
+    this.set(actor, "y", Math.round(y - depth), at, dur, "easeIn");
+    this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y });
+    this.shadow(actor, at, { hide: true }, dur);
+    if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
+    this.push({ at: this.t(at + dur + 0.05), action: "fx", type: "stars", actor });
+  }
+  // -------------------------------------------------- sitting and lying (furniture, set seats, the ground)
+  /** Furniture standing in the block. */
+  placeFurniture() {
+    for (const f of this.block.furniture ?? []) {
+      const def = this.kit.furniture?.[f.kind];
+      if (!def) {
+        this.issue("error", `furniture "${f.id}": unknown kind "${f.kind}"${closest(f.kind, Object.keys(this.kit.furniture ?? {}))}`);
+        continue;
+      }
+      this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
+      this.furnitureOf.set(f.id, { kind: f.kind, scale: def.scale });
+      if (f.wear) this.wear(f.id, f.wear, this.t0);
+    }
+  }
+  private groundY(actor: string, abs: number) {
+    const far = this.crossed.has(actor) && abs >= this.crossed.get(actor)!;
+    return far ? (this.setDef.ground.far ?? this.setDef.ground.near) : this.setDef.ground.near;
+  }
+  /** Scene point of a furniture anchor in its setup pose (furniture stands still). */
+  private furniturePoint(id: string, anchor: string): [number, number] | undefined {
+    const at = ((this.kit.characters[this.characterOf(id)]?.anchors ?? {}) as Record<string, { at: [number, number] }>)[anchor]?.at;
+    if (!at) return undefined;
+    const s = this.furnitureOf.get(id)!.scale;
+    const dir = this.facing(id, this.t0) ? 1 : -1;
+    return [this.xAt(id, this.t0) + at[0] * s * dir, this.groundY(id, this.t0) + at[1] * s];
+  }
+  private hasChain(actor: string, chain: string) {
+    return ((this.kit.characters[this.characterOf(actor)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
+  }
+  /** Both feet planted on the floor at x (scene), the near foot a little ahead. */
+  private feetDown(actor: string, x: number, dir: number, y: number, at: number, dur: number) {
+    const s = this.scaleOf(actor);
+    if (this.hasChain(actor, "footF")) this.push({ at: this.t(at), actor, action: "reach", chain: "footF", target: [Math.round(x + dir * 4 * s), Math.round(y)], duration: dur });
+    if (this.hasChain(actor, "footB")) this.push({ at: this.t(at), actor, action: "reach", chain: "footB", target: [Math.round(x - dir * 8 * s), Math.round(y)], duration: dur });
+  }
+  private hipOf(actor: string): [number, number] {
+    const rig = this.member(actor)?.rig;
+    return rig?.hip ?? [0, -Math.round((rig?.height ?? 200) * 0.4)];
+  }
+  /**
+   * Where to sit / lie: a furniture actor, a set mark with a `seat` height, or the ground
+   * (`"ground"` or nothing). Reports what is wrong and returns undefined.
+   */
+  private restPlace(actor: string, on: string | null, kind: "sit" | "lie"): { furniture: string } | { x?: number; h: number } | undefined {
+    if (!on || on === "ground") return { h: 0 };
+    if (this.furnitureOf.has(on)) return { furniture: on };
+    const m = this.setDef.marks[on];
+    if (m) {
+      if (m.seat === undefined) return void this.issue("error", `${actor} cannot ${kind} on mark "${on}": it has no "seat" height (set "${this.block.set}")`);
+      if (kind === "lie" && !m.lie) return void this.issue("error", `${actor} cannot lie on mark "${on}": it is a seat, not a place to lie ("lie": true)`);
+      return { x: m.x, h: m.seat };
+    }
+    const seats = Object.entries(this.setDef.marks).filter(([, mk]) => mk.seat !== undefined).map(([id]) => id);
+    return void this.issue("error", `${actor} cannot ${kind} on "${on}": not furniture of the block nor a seat of set "${this.block.set}"${closest(on, [...this.furnitureOf.keys(), ...seats])}`);
+  }
+  /** Sits on furniture (`seat` anchor), a set seat (mark with `seat`) or the ground: hips down, knees up, feet on the floor. */
+  sit(actor: string, on: string | null, at: number) {
+    if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot sit: riding then (dismount first)`);
+    const rest = this.restAt(actor, at);
+    if (rest?.kind === "sit" && rest.on === on) return;
+    const place = this.restPlace(actor, on, "sit");
+    if (!place) return;
+    if (rest) this.getUp(actor, at - 1.6);
+    const rig = this.member(actor)?.rig;
+    const s = this.scaleOf(actor);
+    const hip = this.hipOf(actor);
+    const thigh = ((rig?.legLength?.F ?? (rig?.height ?? 200) * 0.4) / 2) * s;
+    const legs = rig?.legLength ? rig.legLength.F * s : undefined;
+    const hipY = Math.abs(hip[1]) * s;
+    if ("furniture" in place) {
+      const seat = this.furniturePoint(place.furniture, "seat");
+      if (!seat) return this.issue("error", `"${place.furniture}" has no "seat" anchor to sit on`);
+      const dir = this.facing(place.furniture, at) ? 1 : -1;
+      if (Math.abs(this.xAt(actor, at - 0.9) - seat[0]) > 30) this.walk(actor, seat[0], at - 0.9, 0.8);
+      this.face(actor, dir > 0 ? "right" : "left", at);
+      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor: "seat", point: hip, duration: 0.5 });
+      const floor = this.groundY(place.furniture, at);
+      // Feet on the floor, or (seat too high) dangling: knees bent, shins hanging.
+      this.feetDown(actor, seat[0] + dir * thigh * 0.95, dir, Math.min(floor, seat[1] + (legs ?? floor) * 0.6), at, 0.5);
+      if (legs && floor - seat[1] > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seat[1])} px high, legs ${Math.round(legs)} px): they dangle`);
+    } else {
+      if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) this.walk(actor, place.x, at - 0.9, 0.8);
+      const dir = this.facing(actor, at) ? 1 : -1;
+      const y = this.groundY(actor, at);
+      const h = place.h * s;
+      // The body goes down until the hips are on the seat (or the ground); the feet stay on the floor ahead.
+      const drop = Math.round(-h + Math.abs(hip[1]) * s * (h > 0 ? 1 : 0.9));
+      this.set(actor, "y", Math.round(y + drop), at, 0.5, "easeOut");
+      this.shadow(actor, at, { drop }, 0.5);
+      this.feetDown(actor, (place.x ?? this.xAt(actor, at)) + dir * thigh * (h > 0 ? 0.95 : 1.3), dir, h > 0 ? Math.min(y, y - h + hipY + (legs ?? 0) * 0.6) : y, at, 0.5);
+      if (legs && h > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(h)} px high, legs ${Math.round(legs)} px): they dangle`);
+    }
+    this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: this.groundY(actor, at) });
+  }
+  /** Lies down face up on furniture (`bed` anchor, else `seat`), a set place (mark with `seat` and `lie`) or the ground; head towards the back. */
+  lie(actor: string, on: string | null, at: number) {
+    if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot lie down: riding then (dismount first)`);
+    const rest = this.restAt(actor, at);
+    if (rest?.kind === "lie" && rest.on === on) return;
+    const place = this.restPlace(actor, on, "lie");
+    if (!place) return;
+    if (rest) this.getUp(actor, at - 1.6);
+    const rig = this.member(actor)?.rig;
+    const s = this.scaleOf(actor);
+    const hip = this.hipOf(actor);
+    // The back rests on the surface, not the spine: about half the body's depth.
+    const back = (rig?.extent.back ?? 60) * 0.7;
+    if ("furniture" in place) {
+      // With a `pillow` anchor the head goes on it (any body length); else the hips go on `bed` / `seat`.
+      const head = ((this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, { at: [number, number] }>).head?.at;
+      const anchor = this.furniturePoint(place.furniture, "pillow") && head ? "pillow" : this.furniturePoint(place.furniture, "bed") ? "bed" : "seat";
+      const bed = this.furniturePoint(place.furniture, anchor);
+      if (!bed) return this.issue("error", `"${place.furniture}" has no "bed" or "seat" anchor to lie on`);
+      const dir = this.facing(place.furniture, at) ? 1 : -1;
+      if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
+      this.face(actor, dir > 0 ? "right" : "left", at);
+      this.set(actor, "rotation", -90 * dir, at, 0.6, "sineInOut");
+      const point: [number, number] = anchor === "pillow" ? [-back, head![1]] : [hip[0] - back, hip[1]];
+      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point, duration: 0.6 });
+      this.shadow(actor, at, { hide: true }, 0.4);
+    } else {
+      const dir = this.facing(actor, at) ? 1 : -1;
+      // Rotated about the feet, the hips end up |hip| behind them: the feet go that much ahead.
+      if (place.x !== undefined) {
+        const x = place.x + dir * Math.abs(hip[1]) * s;
+        if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) this.walk(actor, x, at - 0.9, 0.8);
+        this.face(actor, dir > 0 ? "right" : "left", at);
+      }
+      const y = this.groundY(actor, at);
+      this.set(actor, "rotation", -90 * dir, at, 0.6, "sineInOut");
+      this.set(actor, "y", Math.round(y - place.h * s - back * s), at, 0.6, "sineInOut");
+      this.shadow(actor, at, { hide: true }, 0.4);
+    }
+    this.rests.push({ actor, kind: "lie", on, t0: at, t1: Infinity, y: this.groundY(actor, at) });
+  }
+  /** Trips and falls (standing), or falls off what they ride. */
+  fallDown(actor: string, at: number, side: "front" | "back") {
+    if (this.ridingAt(actor, at)) return this.fall(actor, at, side);
+    if (this.restAt(actor, at)) return this.issue("warning", `${actor} cannot fall: already sitting or lying`);
+    this.knockDown(actor, at, side, this.facing(actor, at) ? 1 : -1, 0.4);
+  }
+  /** Stands back up: from furniture, a set seat, the ground or after a fall. */
+  getUp(actor: string, at: number) {
+    const l = this.restAt(actor, at);
+    if (!l) return this.issue("warning", `${actor} is not sitting or lying to get up`);
+    l.t1 = at + 0.6;
+    this.shadow(actor, at, { drop: 0, hide: false }, 0.5);
+    if (l.kind === "fallen") {
+      this.set(actor, "rotation", 0, at, 0.6, "backOut");
+      return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
+    }
+    if (l.kind === "sit") for (const c of ["footF", "footB"]) if (this.hasChain(actor, c)) this.push({ at: this.t(at), actor, action: "reach", chain: c, target: null, duration: 0.45 });
+    if (l.on && this.furnitureOf.has(l.on)) {
+      // Off the seat (or the bed), standing in front of it.
+      const dir = this.facing(l.on, at) ? 1 : -1;
+      this.push({ at: this.t(at), actor, action: "mount", on: null, duration: 0.5 });
+      if (l.kind === "lie") this.set(actor, "rotation", 0, at, 0.5, "sineInOut");
+      const rig = this.member(actor)?.rig;
+      this.slide(actor, this.xAt(l.on, at) + dir * ((rig?.legLength?.F ?? 80) / 2) * this.scaleOf(actor), at, 0.5);
+    } else {
+      this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.5, "backOut");
+      if (l.kind === "lie") this.set(actor, "rotation", 0, at, 0.6, "backOut");
+    }
+  }
+  /** Moves an actor without a walking clip (thrown, stepping off a vehicle). */
+  private slide(actor: string, x: number, abs: number, dur: number) {
+    this.walks.push({ actor, t0: abs, t1: abs + dur, x0: this.xAt(actor, abs), x1: x });
+    this.set(actor, "x", Math.round(x), abs, dur, "easeOut");
+  }
+  /** The riding pose (torso into the ride) while mounted. */
+  private ridePoses() {
+    for (const r of this.rides) {
+      const t1 = Math.min(r.t1, this.t1);
+      if (t1 - r.t0 > 0.2 && this.hasClip(r.rider, "ride")) this.push({ at: this.t(r.t0), actor: r.rider, action: "play", clip: "ride", loop: true, duration: r3(t1 - r.t0), fadeIn: 0.3, fadeOut: 0.3 });
+    }
+  }
+
   /** Cross to the far ground walking away from the camera (back view), hand in hand. */
   cross(who: string[], to: string, at: number, until: number) {
     if (this.setDef.ground.far === undefined) return this.issue("error", `set "${this.block.set}" has no far ground to cross to`);
@@ -878,6 +1273,7 @@ class BlockScene {
   // -------------------------------------------------- dialogue (automatic)
   private canTurn(actor: string, abs: number) {
     if (this.viewAt(actor, abs) !== "profile") return false;
+    if (this.rides.some((r) => r.rider === actor && r.t0 - 0.3 <= abs && r.t1 + 0.3 > abs) || this.restAt(actor, abs)) return false;
     if (this.holds.some((h) => h.actor === actor && h.t0 <= abs + 0.3 && h.t1 > abs - 0.3)) return false;
     if (this.walks.some((w) => w.actor === actor && w.t0 - 0.3 <= abs && w.t1 + 0.2 > abs)) return false;
     if (this.faces.some((f) => f.actor === actor && Math.abs(f.t - abs) < 1.2)) return false;
@@ -933,6 +1329,8 @@ class BlockScene {
   // -------------------------------------------------- build
   build(): SceneDoc {
     this.placeCast();
+    this.placeVehicles();
+    this.placeFurniture();
     // Fixtures (traffic lights…).
     for (const f of this.setDef.fixtures ?? []) {
       const m = this.mark(f.mark);
@@ -971,6 +1369,7 @@ class BlockScene {
       }
       if (b.do === "look" || b.do === "face") noTurn.add(b.line);
     }
+    this.ridePoses();
     this.dialogue(noTurn);
     this.checkOverlaps();
     for (const st of this.propStates.values()) {

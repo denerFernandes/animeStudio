@@ -79,8 +79,28 @@ export interface CompiledActor {
   look: Record<string, Track>;
   /** Resolved ground: y follows the surface; feet adapt to its slope. */
   ground?: { surface: Surface; offset: number; feet: string[] };
+  /** Riding another actor (`mount` actions), in time order. */
+  mounts?: MountKey[];
+  /** IK chains held on another actor's anchor or a scene point (`reach` actions), per chain. */
+  reach?: Record<string, ReachKey[]>;
   /** Lazily computed. */
   bake?: PhysicsBake;
+}
+
+export interface MountKey {
+  t: number;
+  on: string | null;
+  anchor: string;
+  point: Vec2;
+  blend: number;
+  /** Parts drawn just behind the ridden actor. */
+  behind?: string[];
+}
+
+export interface ReachKey {
+  t: number;
+  target: { actor: string; anchor: string } | Vec2 | null;
+  blend: number;
 }
 
 export interface Grab {
@@ -305,6 +325,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       channels: Map<string, KeyBuffer>;
       look: Map<string, KeyBuffer>;
       clips: ClipInstance[];
+      mounts: MountKey[];
+      reach: Map<string, ReachKey[]>;
     }
   >();
 
@@ -328,6 +350,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       channels: new Map(),
       look: new Map(),
       clips: [],
+      mounts: [],
+      reach: new Map(),
     });
     return {
       id: def.id,
@@ -607,6 +631,34 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         buffers.placement.flip.transition(a.at, a.direction === "left", 0, "step");
         return;
       }
+      case "mount": {
+        const { buffers } = requireActor(a.actor, path);
+        const anchor = a.anchor ?? "seat";
+        if (a.on !== null) {
+          if (a.on === a.actor) throw new SceneError(`"${a.actor}" cannot ride itself`, path);
+          const ridden = rigCache.get(a.on);
+          if (!ridden) throw new SceneError(`mount: unknown actor "${a.on}"`, path);
+          if (!ridden.anchors[anchor]) throw new SceneError(`mount: "${a.on}" has no anchor "${anchor}". Known anchors: ${Object.keys(ridden.anchors).join(", ") || "none"}.`, path);
+        }
+        const { rig } = requireActor(a.actor, path);
+        for (const id of a.behind ?? []) if (!rig.partIndex.has(id)) throw new SceneError(`mount: unknown part "${id}" in "behind". Known parts: ${[...rig.partIndex.keys()].join(", ")}.`, path);
+        buffers.mounts.push({ t: a.at, on: a.on, anchor, point: (a.point as Vec2 | undefined) ?? [0, 0], blend: a.duration ?? 0.3, ...(a.behind?.length ? { behind: a.behind } : {}) });
+        return;
+      }
+      case "reach": {
+        const { buffers, rig } = requireActor(a.actor, path);
+        if (!rig.ik.some((k) => k.id === a.chain)) throw new SceneError(`reach: unknown IK chain "${a.chain}". Known chains: ${rig.ik.map((k) => k.id).join(", ") || "none"}.`, path);
+        const tg = a.target;
+        if (tg && !Array.isArray(tg)) {
+          const other = rigCache.get(tg.actor);
+          if (!other) throw new SceneError(`reach: unknown actor "${tg.actor}"`, path);
+          if (!other.anchors[tg.anchor]) throw new SceneError(`reach: "${tg.actor}" has no anchor "${tg.anchor}". Known anchors: ${Object.keys(other.anchors).join(", ") || "none"}.`, path);
+        }
+        const list = buffers.reach.get(a.chain) ?? [];
+        list.push({ t: a.at, target: (tg as ReachKey["target"]) ?? null, blend: a.duration ?? 0.3 });
+        buffers.reach.set(a.chain, list);
+        return;
+      }
       case "lookAt": {
         const { buffers, rig } = requireActor(a.actor, path);
         const control = firstControl(rig, "aim", a.control, path);
@@ -803,6 +855,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       const track = buf.build();
       if (track) actor.look[control] = track;
     }
+    if (b.mounts.length) actor.mounts = [...b.mounts].sort((x, y) => x.t - y.t);
+    if (b.reach.size) actor.reach = Object.fromEntries([...b.reach].map(([c, keys]) => [c, [...keys].sort((x, y) => x.t - y.t)]));
   }
   for (const prop of props) {
     for (const p of PLACEMENT) {
@@ -834,7 +888,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       }
     : undefined;
 
-  return {
+  const compiled: CompiledScene = {
     doc,
     lighting,
     width: doc.width,
@@ -858,6 +912,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
     fx,
     audio: audio.sort((x, y) => x.start - y.start),
   };
+  for (const actor of actors) if (actor.mounts) sceneOfActor.set(actor, compiled);
+  return compiled;
 }
 
 // ---------------------------------------------------------------------------
@@ -893,11 +949,51 @@ function samplePlacement(
 
 const placementMatrix = (p: Placement): Mat => fromTRS(p.x, p.y, p.rotation, p.scale[0] * (p.flip ? -1 : 1), p.scale[1]);
 
-/** Placement of an actor, standing on its ground surface when it has one. */
+/** Scene of each compiled actor (riding resolves the ridden actor's pose). */
+const sceneOfActor = new WeakMap<CompiledActor, CompiledScene>();
+/** Actors whose mount is being resolved (guards against riding cycles). */
+const resolvingMount = new Set<CompiledActor>();
+
+/** Placement of an actor, standing on its ground surface when it has one, or riding another actor. */
 function actorPlacementState(actor: CompiledActor, t: number): Placement {
   const p = samplePlacement(actor.placement, actor.def, t);
   if (actor.ground) p.y = surfaceY(actor.ground.surface, p.x) + actor.ground.offset;
-  return p;
+  return actor.mounts ? mountedPlacement(actor, p, t) : p;
+}
+
+/**
+ * Riding: the actor's `point` sits on the ridden actor's anchor (posed, so a bouncing saddle carries
+ * the rider), with the ridden actor's rotation added and its facing. Mounting and getting off blend
+ * from the previous placement over the key's `blend` time.
+ */
+function mountedPlacement(actor: CompiledActor, own: Placement, t: number): Placement {
+  const keys = actor.mounts!;
+  let idx = -1;
+  for (let k = 0; k < keys.length; k++) if (keys[k].t <= t) idx = k;
+  if (idx < 0) return own;
+  const scene = sceneOfActor.get(actor);
+  if (!scene || resolvingMount.has(actor)) return own;
+  const on = (key: MountKey | undefined): Placement => {
+    if (!key?.on) return own;
+    const ridden = scene.actors.find((a) => a.id === key.on);
+    if (!ridden) return own;
+    const pv = actorPlacementState(ridden, t);
+    const seat = anchorPosition(scene, ridden.id, key.anchor, t);
+    const st: Placement = { ...own, rotation: own.rotation + pv.rotation, flip: pv.flip };
+    const q = apply(placementMatrix({ ...st, x: 0, y: 0 }), key.point);
+    return { ...st, x: seat[0] - q[0], y: seat[1] - q[1] };
+  };
+  resolvingMount.add(actor);
+  try {
+    const key = keys[idx];
+    const cur = on(key);
+    const u = key.blend > 0 ? getEasing("sineInOut")(clamp((t - key.t) / key.blend, 0, 1)) : 1;
+    if (u >= 1) return cur;
+    const prev = on(keys[idx - 1]);
+    return { ...cur, x: lerp(prev.x, cur.x, u), y: lerp(prev.y, cur.y, u), rotation: lerp(prev.rotation, cur.rotation, u), flip: u < 0.5 ? prev.flip : cur.flip };
+  } finally {
+    resolvingMount.delete(actor);
+  }
 }
 
 export function actorPlacement(actor: CompiledActor, t: number): Mat {
@@ -1120,6 +1216,43 @@ function aimTargets(scene: CompiledScene, actor: CompiledActor, t: number, toCha
   return out;
 }
 
+/** Parts of a riding actor drawn just behind the ridden one, and that actor's z. */
+function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { parts: Set<string>; z: number } | undefined {
+  if (!actor.mounts) return undefined;
+  let key: MountKey | undefined;
+  for (const k of actor.mounts) if (k.t <= t) key = k;
+  if (!key?.on || !key.behind) return undefined;
+  const ridden = scene.actors.find((a) => a.id === key!.on);
+  return ridden ? { parts: new Set(key.behind), z: ridden.def.z ?? 0 } : undefined;
+}
+
+/** IK chains held on another actor's anchor (pedals, a handlebar) or a scene point, in character space. */
+function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toChar: Mat): Record<string, { point: Vec2; weight: number }> | undefined {
+  if (!actor.reach) return undefined;
+  const out: Record<string, { point: Vec2; weight: number }> = {};
+  const ease = getEasing("sineInOut");
+  const resolve = (k: ReachKey | undefined): Vec2 | null => {
+    if (!k?.target) return null;
+    if (Array.isArray(k.target)) return k.target as Vec2;
+    const other = scene.actors.find((a) => a.id === (k.target as { actor: string }).actor);
+    if (!other || resolvingAim.has(other)) return null;
+    return anchorPosition(scene, other.id, (k.target as { anchor: string }).anchor, t);
+  };
+  for (const [chain, keys] of Object.entries(actor.reach)) {
+    let idx = -1;
+    for (let k = 0; k < keys.length; k++) if (keys[k].t <= t) idx = k;
+    if (idx < 0) continue;
+    const key = keys[idx];
+    const u = key.blend > 0 ? ease(clamp((t - key.t) / key.blend, 0, 1)) : 1;
+    const cur = resolve(key);
+    const prev = u < 1 ? resolve(keys[idx - 1]) : null;
+    if (cur && prev) out[chain] = { point: apply(toChar, [lerp(prev[0], cur[0], u), lerp(prev[1], cur[1], u)]), weight: 1 };
+    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u };
+    else if (prev) out[chain] = { point: apply(toChar, prev), weight: 1 - u };
+  }
+  return out;
+}
+
 /** Extra IK offsets that plant grounded feet on a sloped surface. */
 function groundFeet(actor: CompiledActor, placement: Mat): Record<string, Vec2> | undefined {
   const g = actor.ground;
@@ -1146,10 +1279,12 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
   // Looking at a prop held in one's own hand (or a chain of actors holding things and looking at
   // each other) depends on this very pose: inside such a cycle the pose is evaluated without aim.
   let aim: ReturnType<typeof aimTargets> | undefined;
+  let reach: ReturnType<typeof reachTargets>;
   if (!resolvingAim.has(actor)) {
     resolvingAim.add(actor);
     try {
       aim = aimTargets(scene, actor, t, toChar);
+      reach = reachTargets(scene, actor, t, toChar);
     } finally {
       resolvingAim.delete(actor);
     }
@@ -1160,7 +1295,8 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
     tracks: actor.tracks,
     seed: actor.seed,
     aim,
-    ikOffset: groundFeet(actor, placement),
+    ikOffset: actor.mounts ? undefined : groundFeet(actor, placement),
+    ikTarget: reach,
   });
 }
 
@@ -1273,6 +1409,8 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), actorPlacement(actor, t - dtPrev)) : null;
     const z = actor.def.z ?? 0;
     const artId = `actor-art-${actor.id}`;
+    // Riding: some parts (the far leg…) are drawn just behind the ridden actor.
+    const under = behindRidden(scene, actor, t);
     const actorNode: RenderNode = {
       kind: "group",
       key: `actor-${actor.id}`,
@@ -1280,8 +1418,12 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       transform: m,
       opacity: p.opacity < 1 ? p.opacity : undefined,
       filter: blurFor(depth, m, mPrev),
-      children: renderCharacter(actor.rig, pose, `${actor.id}-`),
+      children: renderCharacter(actor.rig, pose, `${actor.id}-`, under ? (id) => !under.parts.has(id) : undefined),
     };
+    if (under) {
+      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-behind`, id: undefined, children: renderCharacter(actor.rig, pose, `${actor.id}-b-`, (id) => under.parts.has(id)) };
+      items.push({ z: under.z - 1e-3, order: order++, node });
+    }
     items.push({ z, order: order++, node: actorNode });
     // Shading copies the actor's art, so it must fade with it (and vanish with a hidden actor).
     if (light && actor.def.shading !== false && p.opacity > 0.01) {

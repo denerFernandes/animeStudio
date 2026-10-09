@@ -29,6 +29,8 @@ export function describeKit(kit: Kit) {
         id,
         {
           marks: Object.keys(s.marks),
+          // Places to sit drawn in the set (height above the ground), and the ones to lie on.
+          seats: Object.fromEntries(Object.entries(s.marks).filter(([, m]) => m.seat !== undefined).map(([id, m]) => [id, m.lie ? { seat: m.seat, lie: true } : { seat: m.seat }])),
           depth: s.ground.far !== undefined,
           fixtures: Object.fromEntries(
             (s.fixtures ?? []).map((f) => {
@@ -42,6 +44,19 @@ export function describeKit(kit: Kit) {
     ),
     props: Object.keys(kit.props),
     vehicles: Object.keys(kit.vehicles ?? {}),
+    /** Furniture kinds: can one sit (seat anchor) and/or lie (bed anchor) on it, and its wardrobe. */
+    furniture: Object.fromEntries(
+      Object.entries(kit.furniture ?? {}).map(([kind, f]) => {
+        const anchors = (doc(f.character) as { anchors?: Record<string, unknown> } | undefined)?.anchors ?? {};
+        return [kind, { sit: !!anchors.seat, lie: !!(anchors.bed ?? anchors.seat), wear: wardrobeOf(doc(f.character)) }];
+      }),
+    ),
+    /** Vehicles the cast can ride (rig with a "seat" anchor) and their wardrobe (e.g. training wheels). */
+    rides: Object.fromEntries(
+      Object.entries(kit.vehicles ?? {})
+        .filter(([, v]) => (doc(v.character) as { anchors?: Record<string, unknown> } | undefined)?.anchors?.seat)
+        .map(([kind, v]) => [kind, { wear: wardrobeOf(doc(v.character)) }]),
+    ),
     fx: [...FX_TYPES],
     cameras: CAMERAS,
     actions: ACTIONS,

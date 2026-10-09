@@ -98,9 +98,10 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
 }
 
 /** Renders a posed character into render nodes (character space). */
-export function renderCharacter(rig: Rig, pose: EvaluatedPose, keyPrefix = ""): RenderNode[] {
+export function renderCharacter(rig: Rig, pose: EvaluatedPose, keyPrefix = "", only?: (partId: string) => boolean): RenderNode[] {
   const out: RenderNode[] = [];
   for (const part of rig.drawOrder) {
+    if (only && !only(part.id)) continue;
     const node = renderPart(rig, pose, part, keyPrefix);
     if (node) out.push(node);
   }

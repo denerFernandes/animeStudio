@@ -408,6 +408,17 @@ export function characterClips(o: ClipOptions) {
         "bones.head.rotation": [[0, -4], [0.28, -4]],
       },
     },
+    // Riding (a bicycle…): hands and feet are held on the vehicle by the scene (`reach`); the
+    // torso leans into the ride, the head stays up, a small bob with each pedal stroke.
+    ride: {
+      duration: 1,
+      loop: true,
+      tracks: {
+        "bones.body.rotation": [[0, 15], [0.5, 17], [1, 15]],
+        "bones.head.rotation": [[0, -14], [0.5, -15], [1, -14]],
+        "bones.hips.y": [[0, 0], [0.25, 1.5], [0.5, 0], [0.75, 1.5], [1, 0]],
+      },
+    },
     // Hand in hand (the IK target is set by the scene); a gentle sway.
     hold: {
       duration: 2,

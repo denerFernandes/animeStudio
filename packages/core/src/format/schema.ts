@@ -442,6 +442,29 @@ export const ActionSchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...At,
     ...ActorRef,
+    action: z.literal("mount"),
+    on: z.union([z.string(), z.null()]).describe("Actor to ride (a bicycle, a horse…): this actor follows its anchor, rotation and facing; null gets off"),
+    anchor: z.string().optional().describe('Anchor of the ridden actor that carries this one (default "seat")'),
+    point: Vec2Schema.optional().describe("Point of this actor (character space, e.g. the hip joint) placed on the anchor (default the origin)"),
+    duration: z.number().min(0).optional().describe("Blend from the previous placement (default 0.3 s)"),
+    behind: z
+      .array(z.string())
+      .optional()
+      .describe("Parts of this actor drawn just behind the ridden actor (e.g. the far leg behind a bicycle's frame)"),
+  }),
+  z.strictObject({
+    ...At,
+    ...ActorRef,
+    action: z.literal("reach"),
+    chain: z.string().describe("IK chain id (e.g. footF, handF)"),
+    target: z
+      .union([z.strictObject({ actor: z.string(), anchor: z.string() }), Vec2Schema, z.null()])
+      .describe("Anchor of another actor (followed every frame: pedals, handlebar), a scene point, or null to let go"),
+    duration: z.number().min(0).optional().describe("Blend in/out (default 0.3 s)"),
+  }),
+  z.strictObject({
+    ...At,
+    ...ActorRef,
     action: z.literal("lookAt"),
     target: z.union([z.string(), Vec2Schema, z.null()]),
     control: z.string().optional(),

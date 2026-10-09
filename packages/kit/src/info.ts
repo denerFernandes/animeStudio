@@ -18,6 +18,10 @@ export interface RigInfo {
   extent: { front: number; back: number };
   /** Height of the top of the head (positive, px). */
   height: number;
+  /** Hip joint (between the legs' joints): the point that sits on a saddle when riding. */
+  hip?: P;
+  /** Thigh + shin length (hip joint to ankle). */
+  legLength?: { F: number; B: number };
 }
 
 type Bone = { id: string; from?: P; to?: P };
@@ -41,5 +45,10 @@ export function rigInfo(doc: ToonDoc, o: { extent: { front: number; back: number
     backShoulder: { F: move.armF1 ?? [0, 0], B: move.armB1 ?? [0, 0] },
     extent: o.extent,
     height: o.height,
+    hip: [(from("legF1")[0] + from("legB1")[0]) / 2, (from("legF1")[1] + from("legB1")[1]) / 2],
+    legLength: {
+      F: dist(from("legF1"), from("legF2")) + dist(from("legF2"), from("footF")),
+      B: dist(from("legB1"), from("legB2")) + dist(from("legB2"), from("footB")),
+    },
   };
 }

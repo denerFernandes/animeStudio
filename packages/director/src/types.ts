@@ -48,6 +48,29 @@ export interface CastEntry {
   enter?: { line: number; word?: string; from: "left" | "right"; run?: boolean };
 }
 
+export interface VehicleEntry {
+  id: string;
+  /** Kind in `kit.vehicles`. */
+  kind: string;
+  /** Where it stands (default: next to its first rider, or the centre). */
+  at?: Place;
+  facing?: "left" | "right";
+  /** Its wardrobe controls (e.g. `{ "trainingWheels": "on" }`). */
+  wear?: Record<string, string>;
+  color?: string;
+}
+
+export interface FurnitureEntry {
+  id: string;
+  /** Kind in `kit.furniture`. */
+  kind: string;
+  at?: Place;
+  /** Which way its front faces (a chair's seat front; a bed's head is behind). */
+  facing?: "left" | "right";
+  wear?: Record<string, string>;
+  color?: string;
+}
+
 export interface PropEntry {
   id: string;
   kind: string;
@@ -67,6 +90,10 @@ export interface Block {
   to: number;
   cast: CastEntry[];
   props?: PropEntry[];
+  /** Vehicles standing in the block that the cast can ride (a bicycle, a scooter…). */
+  vehicles?: VehicleEntry[];
+  /** Furniture in the block (chairs, beds…) to sit or lie on. */
+  furniture?: FurnitureEntry[];
   camera?: { type: string; who?: string | string[]; mark?: string };
   beats?: Beat[];
 }
@@ -99,6 +126,10 @@ export interface Staging {
 export interface Mark {
   x: number;
   y?: number;
+  /** A place to sit drawn in the set (bench, log, sofa…): seat height above the ground (px, at scale 1). */
+  seat?: number;
+  /** One can also lie on it (bed, sofa, grass bank): its surface is `seat` px high. */
+  lie?: boolean;
 }
 
 export interface SetDef {
@@ -136,7 +167,16 @@ export interface Kit {
   sets: Record<string, SetDef>;
   /** Props by kind: art drawn around the origin, and the radius (half height) so it rests on the ground. */
   props: Record<string, { art: (o: { color?: string }) => string; radius: number }>;
+  /**
+   * Vehicles by kind. `scale` is for a cast member of scale 1 (a ridden vehicle is multiplied by its
+   * rider's scale). A vehicle whose rig has a `seat` anchor can be ridden (see DIRECTOR.md, Riding).
+   */
   vehicles?: Record<string, { character: string; scale: number; speed?: number }>;
+  /**
+   * Furniture by kind (chairs, benches, sofas, beds): rigs with a `seat` anchor (where the hip joint
+   * goes when sitting) and/or a `bed` anchor (where the hip goes when lying). `scale` as for vehicles.
+   */
+  furniture?: Record<string, { character: string; scale: number }>;
   width?: number;
   height?: number;
   fps?: number;

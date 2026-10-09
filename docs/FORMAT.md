@@ -277,7 +277,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 | `bones.<id>.rotationMix` | multiplier of the bone's rotation offset and aim (rest 1; e.g. `-0.85` in a pose keeps a head nearly straight) |
 | `bones.<id>.squash` | volume-preserving, relative to the bone: `> 0` stretches along the bone (`×(1+v)`) and thins it (`÷(1+v)`), `< 0` squashes. **Local:** it deforms the bone's own art and moves where children attach, but never scales or shears children |
 | `parts.<id>.variant` | variant name (switch) |
-| `parts.<id>.opacity` | 0..1 multiplier |
+| `parts.<id>.opacity` | 0..1 multiplier; pose values multiply and never go below 0 (`-1` or `0` hides, and two controls hiding the same part keep it hidden) |
 | `parts.<id>.morph.<shape>` | blend weight |
 | `ik.<id>.x`, `ik.<id>.y` | target offset from rest tip |
 | `ik.<id>.mix` | 0..1 |
@@ -413,6 +413,8 @@ Actions are compiled into clip instances and tracks before rendering.
 | `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction |
 | `face` | `direction` (`left` \| `right`) | Flips the actor |
 | `lookAt` | `target` (actor id, prop id, `[x, y]` scene point, or `null`), `control` (first `aim` control) | Aims eyes/head until the next `lookAt`; target changes blend smoothly (0.35 s) and moving targets are tracked |
+| `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing; its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
+| `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight |
 | `say` | `audio?`, `lipsync?` (cues id), `cues?` (inline), `text?` + `duration?`, `control` (first `viseme` control) | Plays audio and lip syncs |
 | `grab` | `prop`, `anchor` | Attaches a prop to an actor anchor |
 | `release` | `prop`, `velocity?` | Releases a grabbed prop |

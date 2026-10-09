@@ -70,7 +70,8 @@ export type BlendMode = "override" | "additive";
 
 function blendNumber(cur: number, v: number, w: number, mode: BlendMode, multiplicative: boolean): number {
   if (mode === "override") return lerp(cur, v, w);
-  return multiplicative ? cur * lerp(1, v, w) : cur + v * w;
+  // Multiplicative (opacity): never below 0, so two controls hiding the same part (-1 × -1) keep it hidden.
+  return multiplicative ? Math.max(0, cur * lerp(1, v, w)) : cur + v * w;
 }
 
 /** Writes a value into a channel, blended with weight `w`. */
@@ -321,6 +322,11 @@ export interface CharacterInput {
   aim?: Record<string, { point: Vec2; weight: number } | null>;
   /** Extra IK target offsets (character space), e.g. feet planted on sloped ground. */
   ikOffset?: Record<string, Vec2>;
+  /**
+   * Absolute IK targets (character space) per chain, e.g. feet on a bicycle's pedals: the chain
+   * aims at `point` with at least `weight` mix, blending from its own target.
+   */
+  ikTarget?: Record<string, { point: Vec2; weight: number }>;
 }
 
 export interface EvaluatedPose {
@@ -427,10 +433,13 @@ export function evaluatePose(
 
   // 7. IK.
   rig.ik.forEach((k, i) => {
-    const mix = clamp(s.ikMix[i], 0, 1);
+    const held = input.ikTarget?.[k.id];
+    const w = held ? clamp(held.weight, 0, 1) : 0;
+    const mix = Math.max(clamp(s.ikMix[i], 0, 1), w);
     if (mix <= 0) return;
     const extra = input.ikOffset?.[k.id];
-    const target: Vec2 = [k.restTarget[0] + s.ikX[i] + (extra?.[0] ?? 0), k.restTarget[1] + s.ikY[i] + (extra?.[1] ?? 0)];
+    let target: Vec2 = [k.restTarget[0] + s.ikX[i] + (extra?.[0] ?? 0), k.restTarget[1] + s.ikY[i] + (extra?.[1] ?? 0)];
+    if (held) target = [target[0] + (held.point[0] - target[0]) * w, target[1] + (held.point[1] - target[1]) * w];
     if (k.bones.length === 2) solveTwoBone(rig, s, world, k.bones[0], k.bones[1], target, k.bend, mix);
     else solveFabrik(rig, s, world, k.bones, target, mix);
   });

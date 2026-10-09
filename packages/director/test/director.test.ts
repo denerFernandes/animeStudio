@@ -97,6 +97,55 @@ describe("director", () => {
     expect(bad).toContain("(the rig has none)");
   });
 
+  it("rides, falls, gets up, sits and lies down", () => {
+    const bike = {
+      format: "toon", version: 1, name: "bike",
+      skeleton: [{ id: "root" }, { id: "frame", parent: "root", from: [0, -20], to: [40, -20] }],
+      parts: [{ id: "frame", type: "rigid", bone: "frame", art: "<rect x='-40' y='-50' width='80' height='40'/>" }],
+      anchors: { seat: { bone: "frame", at: [-10, -60] }, handlebar: { bone: "frame", at: [30, -90] } },
+      clips: { drive: { duration: 1, loop: true, stride: 200, tracks: { "bones.frame.y": [[0, 0], [1, 0]] } } },
+    };
+    const chair = { format: "toon", version: 1, name: "chair", skeleton: [{ id: "root" }], parts: [{ id: "c", type: "rigid", bone: "root", art: "<rect x='-20' y='-50' width='40' height='50'/>" }], anchors: { seat: { bone: "root", at: [0, -50] } } };
+    const holder = { ...stick, ik: [{ id: "handF", bones: ["arm1", "arm2"], mix: 0 }, { id: "handB", bones: ["arm1", "arm2"], mix: 0 }] } as typeof stick;
+    const k: Kit = {
+      ...kit,
+      characters: { a: holder, b: stick, bike: bike as never, chair: chair as never },
+      sets: { ...kit.sets, room: { ...kit.sets.room, marks: { ...kit.sets.room.marks, bench: { x: 400, seat: 60 } } } },
+      vehicles: { bike: { character: "bike", scale: 1 } },
+      furniture: { chair: { character: "chair", scale: 1 } },
+    };
+    const s: Staging = {
+      blocks: [{
+        id: "x", set: "room", from: 0, to: 4,
+        cast: [{ id: "a" }, { id: "b" }],
+        vehicles: [{ id: "bike1", kind: "bike", at: "door" }],
+        furniture: [{ id: "chair1", kind: "chair", at: { mark: "door", dx: -400 } }],
+        beats: [
+          { line: 0, do: "ride", who: "a", vehicle: "bike1", to: { mark: "door", dx: 200 }, until: { line: 0, end: true } },
+          { line: 1, do: "fall", who: "a" },
+          { line: 2, do: "getUp", who: "a" },
+          { line: 2, do: "sit", who: "b", on: "bench" },
+          { line: 3, do: "sit", who: "a", on: "chair1" },
+          { line: 3, do: "lie", who: "b", on: "ground" },
+        ],
+      }],
+    };
+    const out = direct(s, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; on?: string | null; chain?: string; channel?: string }[];
+    expect(script.filter((x) => x.action === "mount" && x.actor === "a").map((x) => x.on)).toEqual(["bike1", null, "chair1"]);
+    expect(script.some((x) => x.action === "reach" && x.actor === "a" && x.chain === "handF")).toBe(true);
+    expect(script.some((x) => x.action === "walkTo" && x.actor === "bike1")).toBe(true);
+    expect(script.some((x) => x.action === "set" && x.actor === "b" && x.channel === "rotation")).toBe(true);
+    expect(describeKit(k).rides).toEqual({ bike: { wear: {} } });
+    expect(describeKit(k).sets.room.seats).toEqual({ bench: { seat: 60 } });
+    const bad = check({ blocks: [{ ...s.blocks[0], beats: [{ line: 0, do: "sit", who: "a", on: "door" }, { line: 1, do: "dismount", who: "b" }] }] }, lines, k).map((i) => i.message).join("\n");
+    expect(bad).toContain('cannot sit on mark "door": it has no "seat" height');
+    expect(bad).toContain("b cannot dismount: not riding anything then");
+    const compiled = compileSequence(out.sequence, { scenes: { x: { doc: out.scenes.x, assets: { characters: k.characters } } } });
+    expect(() => evaluateSequence(compiled, 2.5)).not.toThrow();
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");
