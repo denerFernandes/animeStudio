@@ -92,7 +92,7 @@ never coordinates.
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once) |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
-| `hold` / `release` | `who` (left → right) | Hand in hand (they step together; held objects change hands) |
+| `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
 | `cross` | `who`, `to` (mark), `until` | Cross to the far ground: back view, hand in hand, foreshortened walk, smaller with depth, camera goes along |
 | `pick`, `drop` | `who`, `prop` | Walks to the prop if needed and takes it / puts it down |
 | `throw` | `who`, `prop`, `to?` | Throws it up; it lands in front (or at `to`) |
@@ -132,7 +132,8 @@ plays (at least 1.6 s), or `until` a moment.
 
 `check()` returns `{ severity, where, message }`: anyone acting in a block they are not in (with
 who is present), characters standing on top of each other for more than half a second (not hand
-in hand, not walking past; depth-aware), a speaker out of the frame or at its edge (the camera is
+in hand, not walking past; depth-aware), a hold whose hands cannot meet (an arm would stretch
+more than 60%), a speaker out of the frame or at its edge (the camera is
 evaluated), unknown ids (with the closest valid one),
 unknown actions/marks/props/vehicles/fixtures, a speaker missing from the block where they
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a

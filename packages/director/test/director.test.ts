@@ -54,6 +54,23 @@ describe("director", () => {
     expect(script.some((a) => a.action === "lookAt" && a.actor === "b")).toBe(true);
   });
 
+  it("extends a chain of held hands instead of breaking it", () => {
+    const holder = { ...stick, ik: [{ id: "handF", bones: ["arm1", "arm2"], mix: 0 }, { id: "handB", bones: ["arm1", "arm2"], mix: 0 }] } as typeof stick;
+    const k: Kit = { ...kit, characters: { a: holder, b: holder, c: holder }, cast: { ...kit.cast, c: { name: "Caio", scale: 1.3, rig: rig as never } } };
+    const s: Staging = {
+      blocks: [{
+        id: "x", set: "room", from: 0, to: 4,
+        cast: [{ id: "a" }, { id: "b" }, { id: "c" }],
+        beats: [{ line: 1, do: "hold", who: ["a", "b"] }, { line: 2, do: "hold", who: ["b", "c"] }],
+      }],
+    };
+    const out = direct(s, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; channel?: string }[];
+    // a's arm is re-aimed when b steps towards c, so a and b stay hand in hand.
+    expect(script.filter((x) => x.action === "set" && x.actor === "a" && x.channel === "ik.handF.x").length).toBe(2);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

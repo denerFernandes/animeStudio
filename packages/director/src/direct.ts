@@ -124,6 +124,8 @@ class BlockScene {
   private busy: { actor: string; t0: number; t1: number }[] = [];
   private views: { actor: string; t: number; view: string }[] = [];
   private holds: { actor: string; t0: number; t1: number }[] = [];
+  /** Who holds whose hand (a on the left), so a new hold extends the chain instead of breaking it. */
+  private handPairs: { a: string; b: string; t1: number }[] = [];
   private faces: { actor: string; t: number }[] = [];
   /** When each actor started crossing to the far ground (smaller from then on). */
   private crossed = new Map<string, number>();
@@ -462,6 +464,7 @@ class BlockScene {
         break;
       case "release":
         for (const w of who) this.releaseHands(w, at);
+        this.stepApart(who, at);
         break;
       case "cross":
         this.cross(who, b.to as string, at, until ?? at + 8);
@@ -627,50 +630,114 @@ class BlockScene {
 
   // -------------------------------------------------- hand in hand
   hold(who: string[], at: number, view: "profile" | "back" = "profile") {
-    const order = [...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
-    // Step together first (so the hands can meet) and face right.
-    let x = this.xAt(order[0], at);
-    for (let i = 0; i < order.length; i++) {
-      const id = order[i];
-      if (i > 0) x += ((this.member(order[i - 1])!.rig.extent.front + 80) * this.scaleOf(order[i - 1]) + (this.member(id)!.rig.extent.back + 10) * this.scaleOf(id)) * 0.62;
-      if (Math.abs(this.xAt(id, at) - x) > 6) this.walk(id, x, at - 0.6, 0.6);
-      this.face(id, "right", at);
+    // Anyone already hand in hand with one of them joins: the whole chain steps together.
+    const group = new Set(who);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const p of this.handPairs)
+        if (p.t1 > at && group.has(p.a) !== group.has(p.b)) {
+          group.add(p.a).add(p.b);
+          grew = true;
+        }
     }
+    const order = [...group].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
+    this.gather(order, at, view);
+    for (const id of order) this.face(id, "right", at);
     for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at, view);
   }
+  /** Shoulder of an arm in setup space (the back view moves the shoulders to the sides). */
+  private shoulder(id: string, arm: "F" | "B", view: "profile" | "back"): [number, number] {
+    const rig = this.member(id)!.rig;
+    const s = rig.shoulder[arm];
+    return view === "back" ? [s[0] + rig.backShoulder[arm][0], s[1] + rig.backShoulder[arm][1]] : s;
+  }
+  /**
+   * Distance between two neighbours holding hands (a left of b, scene px): heads (and, from behind,
+   * bodies) side by side without covering each other, unless the arms are too short for that.
+   */
+  holdGap(a: string, b: string, view: "profile" | "back"): number {
+    const sa = this.scaleOf(a), sb = this.scaleOf(b);
+    const A = this.member(a)!.rig, B = this.member(b)!.rig;
+    // From behind the head is centred: half its width on each side.
+    const apart = view === "back"
+      ? (((A.extent.front + A.extent.back) / 2) * sa + ((B.extent.front + B.extent.back) / 2) * sb) * 0.8
+      : (A.extent.front * sa + B.extent.back * sb) * 0.85;
+    const shoulders = this.shoulder(a, "F", view)[0] * sa - this.shoulder(b, "B", view)[0] * sb;
+    const reach = shoulders + (A.armLength.F * sa + B.armLength.B * sb) * 0.94 * 1.3;
+    return Math.max(60, Math.min(apart, reach));
+  }
+  /** Neighbours step together (around their centre) to holding distance, ending at `at`. */
+  private gather(order: string[], at: number, view: "profile" | "back") {
+    const xs = [0];
+    for (let i = 1; i < order.length; i++) xs.push(xs[i - 1] + this.holdGap(order[i - 1], order[i], view));
+    const centre = order.reduce((s, id) => s + this.xAt(id, at - 0.6), 0) / order.length;
+    const mid = xs.reduce((s, x) => s + x, 0) / xs.length;
+    order.forEach((id, i) => {
+      const x = centre - mid + xs[i];
+      if (Math.abs(this.xAt(id, at - 0.6) - x) > 6) this.walk(id, x, at - 0.6, 0.6);
+    });
+  }
+  /** Hand in hand, computed in scene space so each character uses its own scale. */
   private holdPair(a: string, b: string, at: number, view: "profile" | "back") {
     const ik = (id: string, chain: string) => ((this.kit.characters[this.characterOf(id)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
     if (!ik(a, "handF") || !ik(b, "handB")) return this.issue("warning", `${a} and ${b} cannot hold hands (IK chains handF / handB missing)`);
     const A = this.member(a)!.rig, B = this.member(b)!.rig;
-    const sc = this.scaleOf(a);
-    const gap = (this.xAt(b, at) - this.xAt(a, at)) / sc;
-    const sAF: [number, number] = view === "back" ? [A.shoulder.F[0] + A.backShoulder.F[0], A.shoulder.F[1] + A.backShoulder.F[1]] : A.shoulder.F;
-    const sBB: [number, number] = view === "back" ? [B.shoulder.B[0] + B.backShoulder.B[0], B.shoulder.B[1] + B.backShoulder.B[1]] : B.shoulder.B;
-    const sB: [number, number] = [sBB[0] + gap, sBB[1]];
-    const m: [number, number] = view === "back" ? [(sAF[0] + sB[0]) / 2, Math.max(sAF[1], sB[1]) + 62] : [(sAF[0] + sB[0]) / 2, (sAF[1] + sB[1]) / 2 + 42];
+    const sa = this.scaleOf(a), sb = this.scaleOf(b);
+    const pa = this.xAt(a, at), pb = this.xAt(b, at);
+    const shA = this.shoulder(a, "F", view), shB = this.shoulder(b, "B", view);
+    // Shoulders in scene space (y relative to the ground line).
+    const SA: [number, number] = [pa + shA[0] * sa, shA[1] * sa];
+    const SB: [number, number] = [pb + shB[0] * sb, shB[1] * sb];
+    // The hands meet between the shoulders (split by arm length), as low as the arms allow unstretched.
+    const LA = A.armLength.F * sa * 0.94, LB = B.armLength.B * sb * 0.94;
+    const mx = SA[0] + (SB[0] - SA[0]) * (LA / (LA + LB));
+    const top = Math.max(SA[1], SB[1]);
+    const drop = (L: number, dx: number, dy: number) => Math.sqrt(Math.max(0, L * L - dx * dx)) - dy;
+    const low = Math.max(18 * Math.min(sa, sb), Math.min((view === "back" ? 62 : 42) * Math.min(sa, sb), drop(LA, mx - SA[0], top - SA[1]), drop(LB, SB[0] - mx, top - SB[1])));
+    const M: [number, number] = [mx, top + low];
     const arms = [
-      { actor: a, chain: "handF", bones: ["armF1", "armF2"], target: m, rest: A.hand.F, shoulder: sAF, len: A.armLength.F },
-      { actor: b, chain: "handB", bones: ["armB1", "armB2"], target: [m[0] - gap, m[1]] as [number, number], rest: B.hand.B, shoulder: sBB, len: B.armLength.B },
+      { actor: a, chain: "handF", bones: ["armF1", "armF2"], target: [(M[0] - pa) / sa, M[1] / sa] as [number, number], rest: A.hand.F, shoulder: shA, len: A.armLength.F },
+      { actor: b, chain: "handB", bones: ["armB1", "armB2"], target: [(M[0] - pb) / sb, M[1] / sb] as [number, number], rest: B.hand.B, shoulder: shB, len: B.armLength.B },
     ];
     for (const arm of arms) {
       const need = Math.hypot(arm.target[0] - arm.shoulder[0], arm.target[1] - arm.shoulder[1]);
       const stretch = r3(Math.max(0, need / (arm.len * 0.94) - 1));
+      if (stretch > 0.6) this.issue("error", `${a} and ${b} are too far apart to hold hands (${arm.actor}'s arm would stretch ${Math.round(stretch * 100)}%): hold them before they move apart`);
       this.set(arm.actor, `ik.${arm.chain}.x`, r3(arm.target[0] - arm.rest[0]), at);
       this.set(arm.actor, `ik.${arm.chain}.y`, r3(arm.target[1] - arm.rest[1]), at);
       this.set(arm.actor, `ik.${arm.chain}.mix`, 1, at, 0.45, "sineInOut");
-      for (const bone of arm.bones) this.set(arm.actor, `bones.${bone}.squash`, stretch, at, 0.45, "sineInOut");
+      for (const bone of arm.bones) this.set(arm.actor, `bones.${bone}.squash`, Math.min(0.6, stretch), at, 0.45, "sineInOut");
+      const already = this.holds.some((h) => h.actor === arm.actor && h.t1 === Infinity);
       this.holds.push({ actor: arm.actor, t0: at, t1: Infinity });
-      this.play(arm.actor, "hold", at, 60, { fadeIn: 0.4 });
+      if (!already) this.play(arm.actor, "hold", at, 60, { fadeIn: 0.4 });
     }
+    for (const p of this.handPairs) if (p.a === a && p.b === b && p.t1 === Infinity) p.t1 = at;
+    this.handPairs.push({ a, b, t1: Infinity });
     // Whoever holds something in the near hand passes it to the other hand (a "heldHand" switch: near | far).
     const ca = this.kit.characters[this.characterOf(a)];
     if ((ca?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(a, "parts.heldHand.variant", "far", at);
   }
   releaseHands(actor: string, at: number) {
     for (const h of this.holds) if (h.actor === actor && h.t1 === Infinity) h.t1 = at;
+    for (const p of this.handPairs) if ((p.a === actor || p.b === actor) && p.t1 === Infinity) p.t1 = at;
     for (const c of ["handF", "handB"]) this.set(actor, `ik.${c}.mix`, 0, at, 0.4, "sineInOut");
     for (const bone of ["armF1", "armF2", "armB1", "armB2"]) this.set(actor, `bones.${bone}.squash`, 0, at, 0.4);
     if ((this.kit.characters[this.characterOf(actor)]?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(actor, "parts.heldHand.variant", "near", at);
+  }
+
+  /** After letting go, neighbours who stood hand in hand step back to their usual spacing. */
+  private stepApart(who: string[], at: number) {
+    const t = at + 0.25;
+    const order = [...who].sort((a, b) => this.xAt(a, t) - this.xAt(b, t));
+    const xs = [0];
+    for (let i = 1; i < order.length; i++) xs.push(xs[i - 1] + Math.max(this.xAt(order[i], t) - this.xAt(order[i - 1], t), this.pairGap(order[i - 1], order[i], this.facing(order[i - 1], t), this.facing(order[i], t))));
+    const centre = order.reduce((s, id) => s + this.xAt(id, t), 0) / order.length;
+    const mid = xs.reduce((s, x) => s + x, 0) / xs.length;
+    order.forEach((id, i) => {
+      const x = centre - mid + xs[i];
+      const busy = this.walks.some((w) => w.actor === id && w.t1 > t && w.t0 < t + 0.7);
+      if (!busy && Math.abs(this.xAt(id, t) - x) > 6) this.walk(id, x, t, 0.7);
+    });
   }
 
   /** Cross to the far ground walking away from the camera (back view), hand in hand. */
@@ -678,6 +745,9 @@ class BlockScene {
     if (this.setDef.ground.far === undefined) return this.issue("error", `set "${this.block.set}" has no far ground to cross to`);
     const ds = this.setDef.depthScale ?? 0.6;
     const target = this.mark(to).x;
+    // Hand in hand from behind: neighbours first step to holding distance (back-view shoulders).
+    const order = [...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
+    if (order.length > 1) this.gather(order, at - 0.15, "back");
     const centre = who.reduce((a, w) => a + this.xAt(w, at), 0) / who.length;
     for (const w of who) {
       this.crossed.set(w, at);
@@ -688,7 +758,7 @@ class BlockScene {
       this.set(w, "scale", r3(s0 * ds), at, until - at, "linear");
       this.push({ at: this.t(at), actor: w, action: "lookAt", target: null });
     }
-    if (who.length > 1) for (let i = 1; i < who.length; i++) this.holdPair(...([...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at)).slice(i - 1, i + 1) as [string, string]), at - 0.15, "back");
+    for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at - 0.15, "back");
     this.camera({ type: "cross", who }, at);
   }
 
