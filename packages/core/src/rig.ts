@@ -94,7 +94,7 @@ export type RigPart =
       style: PathStyle;
     });
 
-export type BoneProp = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "squash";
+export type BoneProp = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "squash" | "rotationMix";
 
 export type ChannelRef =
   | { kind: "bone"; index: number; prop: BoneProp }
@@ -231,7 +231,7 @@ export function composeWorld(b: RigBone, parentWorld: Mat | undefined, local: Ma
 // Channels
 // ---------------------------------------------------------------------------
 
-const BONE_PROPS: BoneProp[] = ["x", "y", "rotation", "scaleX", "scaleY", "squash"];
+const BONE_PROPS: BoneProp[] = ["x", "y", "rotation", "scaleX", "scaleY", "squash", "rotationMix"];
 
 const known = (what: string, keys: Iterable<string>) => {
   const list = [...keys];

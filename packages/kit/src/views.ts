@@ -36,6 +36,12 @@ export interface ViewSpec {
   mouths?: string[];
   /** Far-arm parts, redrawn in front of the body in the back view. */
   farArm?: string[];
+  /**
+   * Bones kept (almost) straight in a view: their rotation from emotions, aim and clips is scaled
+   * by `STILL_MIX`. A head tilting around the neck reads well in profile but looks broken from the
+   * front or the back. Default: `{ front: ["head"], back: ["head"] }`.
+   */
+  still?: Partial<Record<ViewName, string[]>>;
 }
 
 const angleOf = (doc: Doc, id: string): number => {
@@ -51,6 +57,9 @@ function parentAngle(doc: Doc, id: string): number {
 }
 
 const r = (n: number) => Math.round(n * 100) / 100;
+
+/** Rotation kept by `still` bones in front/back views. */
+export const STILL_MIX = 0.15;
 
 export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
   const doc = structuredClone(base) as Doc;
@@ -96,6 +105,7 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
     if (legF) pose["ik.footF.x"] = legF[0];
     if (legB) pose["ik.footB.x"] = legB[0];
     for (const id of spec.hide[view] ?? []) pose[`parts.${id}.opacity`] = -1;
+    for (const bone of spec.still?.[view] ?? ["head"]) if (doc.skeleton.some((b: Doc) => b.id === bone)) pose[`bones.${bone}.rotationMix`] = STILL_MIX - 1;
     Object.assign(pose, spec.extra?.[view] ?? {});
     poses[view] = pose;
   }

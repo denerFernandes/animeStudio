@@ -150,6 +150,13 @@ describe("pose", () => {
     close(c.state.brot[rig.boneIndex.get("head")!], 20);
   });
 
+  it("scales a bone's rotation with rotationMix", () => {
+    const rig = compileRig(stick);
+    const ch = (channel: string, v: number) => ({ channel, ref: { kind: "bone" as const, index: rig.boneIndex.get("head")!, prop: channel.split(".")[2] as never }, track: normalizeTrack([[0, v]]) });
+    const p = evaluatePose(rig, { time: 0, tracks: [ch("bones.head.rotation", 20), ch("bones.head.rotationMix", -0.85)] });
+    close(p.state.brot[rig.boneIndex.get("head")!], 3);
+  });
+
   it("drives several mouths (one per view) from one viseme control", () => {
     const doc = structuredClone(stick);
     doc.parts!.push({ id: "mouthFront", type: "switch", bone: "head", variants: { A: "mouthA", D: "mouthD", X: "mouthX" }, default: "X" } as never);

@@ -335,7 +335,7 @@ gesture clips, emotions and the director work for every character.
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
 | `gait(g)`, `characterClips(o)` | Walk/run cycles and the shared gesture clips (idle, talk, wave, point, present, clap, cheer, dance, sing, think, shrug, laugh, cry, scared, jump, dribble, toss, teeter, pointUp, flap, hold) |
 | `emotions(extra?)`, `blinkAndBreathe(period?)` | Emotion pose control (neutral, happy, joy, surprised, sad, smug, scared, angry) and behaviours |
-| `withViews(doc, spec)`, `ViewSpec` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); records the view moves in `meta.views` |
+| `withViews(doc, spec)`, `ViewSpec`, `STILL_MIX` | Front / back views on the same skeleton (`view` control, hidden `view` switch, far arm redrawn from behind); bones in `still` (default the head) keep only `STILL_MIX` of their rotation in those views; records the view moves in `meta.views` |
 | `walkInPlace(dur, lift, bob, stride)` | `walkDepth` clip: walking towards/away from the camera with foreshortened legs |
 | `rigInfo(doc, { extent, height })`, `RigInfo` | Measurements read from the skeleton for the director |
 | `withProportions(doc, { head, torso, legs, arms })`, `proportionMeasure(measure, p, hipHeight)` | Build-time body proportions (e.g. a grown-up from a child template: smaller head, longer torso, legs and arms): remaps bones, setup-space art, morph paths, anchors and pose offsets; parts in bone space keep their size |

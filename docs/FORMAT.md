@@ -274,6 +274,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 | `bones.<id>.rotation` | degrees offset |
 | `bones.<id>.x`, `bones.<id>.y` | px offset in parent space |
 | `bones.<id>.scaleX`, `bones.<id>.scaleY` | multiplier (1 = rest) |
+| `bones.<id>.rotationMix` | multiplier of the bone's rotation offset and aim (rest 1; e.g. `-0.85` in a pose keeps a head nearly straight) |
 | `bones.<id>.squash` | volume-preserving, relative to the bone: `> 0` stretches along the bone (`×(1+v)`) and thins it (`÷(1+v)`), `< 0` squashes. **Local:** it deforms the bone's own art and moves where children attach, but never scales or shears children |
 | `parts.<id>.variant` | variant name (switch) |
 | `parts.<id>.opacity` | 0..1 multiplier |

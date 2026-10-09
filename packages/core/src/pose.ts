@@ -30,6 +30,8 @@ export interface PoseState {
   bsx: Float64Array;
   bsy: Float64Array;
   bsq: Float64Array;
+  /** Multiplier of each bone's rotation offset and aim (1 = normal, 0 = held straight). */
+  brotMix: Float64Array;
   variant: (string | undefined)[];
   opacity: Float64Array;
   morph: Record<string, number>[];
@@ -51,6 +53,7 @@ export function createPoseState(rig: Rig): PoseState {
     bsx: new Float64Array(nb).fill(1),
     bsy: new Float64Array(nb).fill(1),
     bsq: new Float64Array(nb),
+    brotMix: new Float64Array(nb).fill(1),
     variant: new Array(np).fill(undefined),
     opacity: new Float64Array(np).fill(1),
     morph: Array.from({ length: np }, () => ({})),
@@ -95,6 +98,9 @@ export function applyChannel(state: PoseState, ref: ChannelRef, value: Value | u
           break;
         case "squash":
           state.bsq[i] = blendNumber(state.bsq[i], value, w, mode, false);
+          break;
+        case "rotationMix":
+          state.brotMix[i] = blendNumber(state.brotMix[i], value, w, mode, false);
           break;
       }
       return;
@@ -412,8 +418,9 @@ export function evaluatePose(
     }
   });
 
-  // 6. Limits + FK.
+  // 6. Rotation mix (e.g. a head kept straight in a front view), limits + FK.
   for (const b of rig.bones) {
+    if (s.brotMix[b.index] !== 1) s.brot[b.index] *= clamp(s.brotMix[b.index], 0, 1);
     if (b.limits) s.brot[b.index] = clamp(s.brot[b.index], b.limits[0], b.limits[1]);
   }
   const world = computeWorld(rig, s);
@@ -450,7 +457,7 @@ export function evaluatePose(
       if (tg.mode === "rotate") {
         const current = matAngle(m) + tg.forward;
         let delta = wrapAngle(angleOf(sub(target, pivot)) - current);
-        delta = clamp(delta, -tg.maxAngle, tg.maxAngle) * tg.weight * aimWeight;
+        delta = clamp(delta, -tg.maxAngle, tg.maxAngle) * tg.weight * aimWeight * clamp(s.brotMix[tg.bone], 0, 1);
         rotateWorld(rig, s, world, tg.bone, delta);
       } else {
         const dir = sub(target, pivot);
