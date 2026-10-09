@@ -148,9 +148,9 @@ class BlockScene {
   private vehicleOf = new Map<string, { kind: string; scale: number }>();
   private fallen = new Set<string>();
   /** Block furniture (id → kind, scale). */
-  private furnitureOf = new Map<string, { kind: string; scale: number }>();
+  private furnitureOf = new Map<string, { kind: string; scale: number; y: number }>();
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
-  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number }[] = [];
+  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean }[] = [];
   private propStates = new Map<string, PropState>();
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
@@ -509,7 +509,7 @@ class BlockScene {
         for (const w of who) this.fallDown(w, at, (b.side ?? b.dir) === "front" ? "front" : "back");
         break;
       case "sit":
-        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at);
+        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at, b.view as string | undefined);
         break;
       case "lie":
         for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at);
@@ -1003,14 +1003,17 @@ class BlockScene {
   // -------------------------------------------------- sitting and lying (furniture, set seats, the ground)
   /** Furniture standing in the block. */
   placeFurniture() {
-    for (const f of this.block.furniture ?? []) {
+    // The set's own furniture (always there) and the block's.
+    for (const f of [...(this.setDef.furniture ?? []), ...(this.block.furniture ?? [])]) {
       const def = this.kit.furniture?.[f.kind];
       if (!def) {
         this.issue("error", `furniture "${f.id}": unknown kind "${f.kind}"${closest(f.kind, Object.keys(this.kit.furniture ?? {}))}`);
         continue;
       }
-      this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
-      this.furnitureOf.set(f.id, { kind: f.kind, scale: def.scale });
+      // Standing on its mark's floor line (e.g. a sofa against the back wall), else the near ground.
+      const y = (typeof f.at === "string" ? this.setDef.marks[f.at]?.y : undefined) ?? this.setDef.ground.near;
+      this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, y, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
+      this.furnitureOf.set(f.id, { kind: f.kind, scale: def.scale, y });
       if (f.wear) this.wear(f.id, f.wear, this.t0);
     }
   }
@@ -1024,7 +1027,7 @@ class BlockScene {
     if (!at) return undefined;
     const s = this.furnitureOf.get(id)!.scale;
     const dir = this.facing(id, this.t0) ? 1 : -1;
-    return [this.xAt(id, this.t0) + at[0] * s * dir, this.groundY(id, this.t0) + at[1] * s];
+    return [this.xAt(id, this.t0) + at[0] * s * dir, this.furnitureOf.get(id)!.y + at[1] * s];
   }
   private hasChain(actor: string, chain: string) {
     return ((this.kit.characters[this.characterOf(actor)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
@@ -1056,7 +1059,7 @@ class BlockScene {
     return void this.issue("error", `${actor} cannot ${kind} on "${on}": not furniture of the block nor a seat of set "${this.block.set}"${closest(on, [...this.furnitureOf.keys(), ...seats])}`);
   }
   /** Sits on furniture (`seat` anchor), a set seat (mark with `seat`) or the ground: hips down, knees up, feet on the floor. */
-  sit(actor: string, on: string | null, at: number) {
+  sit(actor: string, on: string | null, at: number, view?: string) {
     if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot sit: riding then (dismount first)`);
     const rest = this.restAt(actor, at);
     if (rest?.kind === "sit" && rest.on === on) return;
@@ -1069,31 +1072,68 @@ class BlockScene {
     const thigh = ((rig?.legLength?.F ?? (rig?.height ?? 200) * 0.4) / 2) * s;
     const legs = rig?.legLength ? rig.legLength.F * s : undefined;
     const hipY = Math.abs(hip[1]) * s;
+    // Facing the audience (a sofa in front of the TV, a school desk): front view, thighs towards the camera.
+    const front = view === "front" || (view === undefined && this.viewAt(actor, at) === "front");
+    // Someone already sitting there: the next seat (furniture `seat2`, `seat3`…; along a set seat).
+    const taken = on && on !== "ground" ? this.rests.filter((r) => r.kind === "sit" && r.on === on && r.t0 <= at && r.t1 > at).length : 0;
+    let sitX: number, seatY: number, floor: number, dir: number;
     if ("furniture" in place) {
-      const seat = this.furniturePoint(place.furniture, "seat");
-      if (!seat) return this.issue("error", `"${place.furniture}" has no "seat" anchor to sit on`);
-      const dir = this.facing(place.furniture, at) ? 1 : -1;
+      const anchor = taken ? `seat${taken + 1}` : "seat";
+      const seat = this.furniturePoint(place.furniture, anchor);
+      if (!seat) return this.issue("error", taken ? `"${place.furniture}" has no free seat for ${actor} (anchor "${anchor}" missing)` : `"${place.furniture}" has no "seat" anchor to sit on`);
+      dir = this.facing(place.furniture, at) ? 1 : -1;
       if (Math.abs(this.xAt(actor, at - 0.9) - seat[0]) > 30) this.walk(actor, seat[0], at - 0.9, 0.8);
       this.face(actor, dir > 0 ? "right" : "left", at);
-      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor: "seat", point: hip, duration: 0.5 });
-      const floor = this.groundY(place.furniture, at);
-      // Feet on the floor, or (seat too high) dangling: knees bent, shins hanging.
-      this.feetDown(actor, seat[0] + dir * thigh * 0.95, dir, Math.min(floor, seat[1] + (legs ?? floor) * 0.6), at, 0.5);
-      if (legs && floor - seat[1] > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seat[1])} px high, legs ${Math.round(legs)} px): they dangle`);
+      if (front) this.view(actor, "front", at);
+      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: hip, duration: 0.5 });
+      this.shadow(actor, at, { hide: true }, 0.3);
+      [sitX, seatY, floor] = [seat[0], seat[1], this.furnitureOf.get(place.furniture)!.y];
     } else {
-      if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) this.walk(actor, place.x, at - 0.9, 0.8);
-      const dir = this.facing(actor, at) ? 1 : -1;
-      const y = this.groundY(actor, at);
-      const h = place.h * s;
-      // The body goes down until the hips are on the seat (or the ground); the feet stay on the floor ahead.
-      const drop = Math.round(-h + Math.abs(hip[1]) * s * (h > 0 ? 1 : 0.9));
-      this.set(actor, "y", Math.round(y + drop), at, 0.5, "easeOut");
+      const x = place.x !== undefined ? place.x + taken * this.spacing(actor) * (front ? 0.7 : 1) : this.xAt(actor, at);
+      if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) this.walk(actor, x, at - 0.9, 0.8);
+      dir = this.facing(actor, at) ? 1 : -1;
+      if (front) this.view(actor, "front", at);
+      floor = this.groundY(actor, at);
+      const h = place.h;
+      // The body goes down until the hips are on the seat (or the ground); the shadow stays on the floor.
+      const drop = Math.round(-h + hipY * (h > 0 ? 1 : 0.9));
+      this.set(actor, "y", Math.round(floor + drop), at, 0.5, "easeOut");
       this.shadow(actor, at, { drop }, 0.5);
-      this.feetDown(actor, (place.x ?? this.xAt(actor, at)) + dir * thigh * (h > 0 ? 0.95 : 1.3), dir, h > 0 ? Math.min(y, y - h + hipY + (legs ?? 0) * 0.6) : y, at, 0.5);
-      if (legs && h > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(h)} px high, legs ${Math.round(legs)} px): they dangle`);
+      [sitX, seatY] = [x, floor - (h > 0 ? h : hipY * 0.1)];
     }
-    this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: this.groundY(actor, at) });
+    if (legs && floor - seatY > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seatY)} px high, legs ${Math.round(legs)} px): they dangle`);
+    if (front) this.frontLegs(actor, sitX, seatY, floor, dir, at);
+    // Feet on the floor ahead, or (seat too high) dangling: knees bent, shins hanging.
+    else this.feetDown(actor, sitX + dir * thigh * (floor - seatY > hipY * 0.3 ? 0.95 : 1.3), dir, Math.min(floor, seatY + (legs ?? 0) * 0.6), at, 0.5);
+    this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: floor, front });
   }
+  /**
+   * Sitting seen from the front: the thighs point at the camera (foreshortened: shorter and rounder),
+   * the shins hang straight down to the floor under the knees; on the ground both are foreshortened.
+   */
+  private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number) {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } } } };
+    const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
+    const s = this.scaleOf(actor);
+    const drop = floor - seatY;
+    for (const side of ["F", "B"] as const) {
+      const [hipJ, knee, ankle] = [bone(`leg${side}1`), bone(`leg${side}2`), bone(`foot${side}`)];
+      if (!hipJ || !knee || !ankle || !this.hasChain(actor, `foot${side}`)) continue;
+      const thigh = Math.hypot(knee[0] - hipJ[0], knee[1] - hipJ[1]) * s;
+      const shin = Math.hypot(ankle[0] - knee[0], ankle[1] - knee[1]) * s;
+      const ax = (ankle[0] + (doc.meta?.views?.move?.front?.[`leg${side}1`]?.[0] ?? 0)) * s;
+      const footX = Math.round(x + dir * ax);
+      // The thigh points at the camera (seen end-on: short); the shin hangs from the knee, foreshortened
+      // too when the seat is low (knees up), and the foot rests on the floor or dangles.
+      const fore = thigh * 0.4;
+      const shinSq = Math.max(-0.6, Math.min(0, (drop - fore) / shin - 1));
+      this.set(actor, `bones.leg${side}1.squash`, -0.6, at, 0.5, "easeOut");
+      this.set(actor, `bones.leg${side}2.squash`, r3(shinSq), at, 0.5, "easeOut");
+      const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
+      this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
+    }
+  }
+
   /** Lies down face up on furniture (`bed` anchor, else `seat`), a set place (mark with `seat` and `lie`) or the ground; head towards the back. */
   lie(actor: string, on: string | null, at: number) {
     if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot lie down: riding then (dismount first)`);
@@ -1130,7 +1170,7 @@ class BlockScene {
       }
       const y = this.groundY(actor, at);
       this.set(actor, "rotation", -90 * dir, at, 0.6, "sineInOut");
-      this.set(actor, "y", Math.round(y - place.h * s - back * s), at, 0.6, "sineInOut");
+      this.set(actor, "y", Math.round(y - place.h - back * s), at, 0.6, "sineInOut");
       this.shadow(actor, at, { hide: true }, 0.4);
     }
     this.rests.push({ actor, kind: "lie", on, t0: at, t1: Infinity, y: this.groundY(actor, at) });
@@ -1152,6 +1192,7 @@ class BlockScene {
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
     }
     if (l.kind === "sit") for (const c of ["footF", "footB"]) if (this.hasChain(actor, c)) this.push({ at: this.t(at), actor, action: "reach", chain: c, target: null, duration: 0.45 });
+    if (l.front) for (const b of ["legF1", "legF2", "legB1", "legB2"]) this.set(actor, `bones.${b}.squash`, 0, at, 0.45, "easeOut");
     if (l.on && this.furnitureOf.has(l.on)) {
       // Off the seat (or the bed), standing in front of it.
       const dir = this.facing(l.on, at) ? 1 : -1;
@@ -1259,6 +1300,12 @@ class BlockScene {
           const gap = this.xAt(r, t) - this.xAt(l, t);
           // Walking past someone is fine; standing on top of each other is not.
           const moving = this.walks.some((w) => (w.actor === a || w.actor === b) && w.t0 <= t && w.t1 > t);
+          // Side by side on the same sofa or bench is where they belong.
+          const ra = this.restAt(a, t), rb = this.restAt(b, t);
+          if (ra?.on && ra.on === rb?.on) {
+            run = 0;
+            continue;
+          }
           run = !holding && !moving && gap < need * 0.7 ? run + 0.25 : 0;
           const key = `${a}|${b}`;
           if (run > 0.5 && !reported.has(key)) {

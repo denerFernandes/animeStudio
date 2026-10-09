@@ -130,6 +130,14 @@ describe("director", () => {
         ],
       }],
     };
+    // Facing the audience on the set's own sofa (two seats), side by side without overlap errors.
+    const sofa = { ...chair, name: "sofa", anchors: { seat: { bone: "root", at: [0, -50] }, seat2: { bone: "root", at: [-90, -50] } } };
+    const k2: Kit = { ...k, characters: { ...k.characters, a: stick, sofa: sofa as never }, furniture: { ...k.furniture, sofa: { character: "sofa", scale: 1 } }, sets: { ...k.sets, room: { ...k.sets.room, furniture: [{ id: "couch", kind: "sofa", at: "door" }] } } };
+    const front = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], beats: [{ line: 0, do: "sit", who: ["a", "b"], on: "couch", view: "front" }] }] }, lines, k2);
+    expect(front.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const fs = front.scenes.x.script as { action: string; actor?: string; anchor?: string; value?: string; control?: string }[];
+    expect(fs.filter((x) => x.action === "mount").map((x) => x.anchor)).toEqual(["seat", "seat2"]);
+    expect(describeKit(k2).sets.room.furniture).toEqual({ couch: "sofa" });
     const out = direct(s, lines, k);
     expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
     const script = out.scenes.x.script as { action: string; actor?: string; on?: string | null; chain?: string; channel?: string }[];

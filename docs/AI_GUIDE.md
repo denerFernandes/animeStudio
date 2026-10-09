@@ -68,7 +68,8 @@ Lessons from converting a 66-shot storyboard into an episode:
 - **Riding, sitting, lying are staged, not drawn per shot.** Declare the bicycle or the sofa in the
   block and use `ride` / `fall` / `getUp` / `sit` / `lie`; the director seats the hips, puts the
   feet on the pedals or the floor and keeps the far leg behind the bicycle. A beginner wobbles
-  (`wobble`) before falling; nobody walks while sitting.
+  (`wobble`) before falling; nobody walks while sitting. Watching TV or in class, sit facing the
+  audience (`"view": "front"`).
 - **Keep screen direction (the 180° rule).** Who stands left of whom must not change between
   cuts unless the audience sees them move.
 - **Objects keep their history.** A ball held in a hand is grabbed from the first frame of the

@@ -30,6 +30,8 @@ export function describeKit(kit: Kit) {
         {
           marks: Object.keys(s.marks),
           // Places to sit drawn in the set (height above the ground), and the ones to lie on.
+          // Furniture that is part of the set (id → kind): sit / lie on it with `on: id`.
+          furniture: Object.fromEntries((s.furniture ?? []).map((f) => [f.id, f.kind])),
           seats: Object.fromEntries(Object.entries(s.marks).filter(([, m]) => m.seat !== undefined).map(([id, m]) => [id, m.lie ? { seat: m.seat, lie: true } : { seat: m.seat }])),
           depth: s.ground.far !== undefined,
           fixtures: Object.fromEntries(

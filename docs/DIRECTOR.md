@@ -113,7 +113,7 @@ never coordinates.
 | `mount` / `dismount` | `who`, `vehicle` (a block vehicle) | Gets on (walks to it, sits on the seat, feet on the pedals, hands on the handlebar) / gets off and stands beside it |
 | `ride` | `who`, `to`, `until?`, `vehicle?`, `wobble?` (0..1) | Rides to a place (mounts first if needed; `vehicle` defaults to the last one ridden). Pedals turn in step with the ground (`drive` clip `stride`). `wobble` rocks it like a beginner |
 | `fall` | `who`, `side?` (`back` default, `front`) | Riding: the vehicle tips and lies on its side, the rider is thrown clear and lands on the back (or face down). Standing: trips and falls. Stars over the head; until `getUp` |
-| `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground |
+| `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`), `view?` (`"front"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground. `view: "front"` sits facing the audience (sofa in front of the TV, school desk): thighs foreshortened towards the camera, shins hanging. The next one on the same furniture takes `seat2`, `seat3`…; on a set seat they sit side by side |
 | `lie` | `who`, `on?` (furniture id, set mark with `seat` and `lie`, or `"ground"`) | Lies face up, head towards the back of the furniture (on its `pillow`); the ground shadow hides |
 | `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
 
@@ -139,10 +139,14 @@ with a `lying` pose (the vehicle drawn on its side, with its own ground shadow) 
 without it the vehicle is flattened as a fallback. Its wardrobe (e.g. training wheels on/off) works
 with `wear` like a character's.
 
-**Furniture** rigs have a `seat` anchor (where the hip joint goes when sitting), and to lie on them
+**Furniture** rigs have a `seat` anchor (where the hip joint goes when sitting; more seats as
+`seat2`, `seat3`… for sofas and benches), and to lie on them
 `bed` (hips) or better `pillow` (the head rests there, any body length). They face right (seat
-front / foot of the bed on the right). **Set seats** are marks with a height: `{ "x": 700, "seat":
-90 }` (a bench, a log), plus `"lie": true` for places to lie on (grass bank, bed drawn in the set).
+front / foot of the bed on the right; a sofa drawn facing the audience is fine). Furniture that is
+part of the place goes in the set, always there: `SetDef.furniture: [{ id, kind, at, facing? }]`
+(standing on its mark's `y`, e.g. against the back wall); `on` takes its id like block furniture.
+**Set seats** are marks with a height in scene px: `{ "x": 700, "seat": 90 }` (a seat drawn in the
+background art), plus `"lie": true` for places to lie on (grass bank).
 
 Characters need the kit's IK chains (`footF`, `footB`, `handF`, `handB`) and `RigInfo.hip` /
 `legLength` (from `rigInfo`); without leg chains they still sit (legs not bent) and ride. A

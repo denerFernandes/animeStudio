@@ -126,7 +126,7 @@ export interface Staging {
 export interface Mark {
   x: number;
   y?: number;
-  /** A place to sit drawn in the set (bench, log, sofa…): seat height above the ground (px, at scale 1). */
+  /** A place to sit drawn in the set (bench, log…): seat height above the ground line (scene px). */
   seat?: number;
   /** One can also lie on it (bed, sofa, grass bank): its surface is `seat` px high. */
   lie?: boolean;
@@ -139,6 +139,8 @@ export interface SetDef {
   /** Character scale multiplier on the far ground. */
   depthScale?: number;
   marks: Record<string, Mark>;
+  /** Furniture that is part of the place (sofa, bed, benches, school desks), always there: like block furniture. */
+  furniture?: FurnitureEntry[];
   /** Scenery rigs that are always there (traffic light…): a character placed at a mark. */
   fixtures?: { id: string; character: string; mark: string; y?: number; scale?: number; z?: number; flip?: boolean; channel?: string; value?: string }[];
   bounds?: [number, number, number, number];
