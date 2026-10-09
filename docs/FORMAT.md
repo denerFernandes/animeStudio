@@ -363,7 +363,10 @@ blend modes), so it works in browsers and Remotion and stays deterministic.
 | `grade` | Full-frame color grading (`blend`: `multiply`, `screen`, `overlay`, `soft-light`, …) |
 | `vignette` | Darkened frame edges |
 
-Shading follows the actor's opacity (a hidden actor casts no shading). Screen blending lifts blacks, so keep big glows away from line art (or use a separate
+Shading follows the actor's opacity (a hidden actor casts no shading). It costs one extra copy
+of each lit actor's art (referenced by its masks) and two blended fills limited to the actor's
+screen box; without a GPU (headless render farms) it is still the most expensive part of a frame,
+so keep `shading` for scenes that need it. Screen blending lifts blacks, so keep big glows away from line art (or use a separate
 directional key light with `glow: 0` for shading, as above). Actors opt out with `"shading": false`.
 
 **Animating lighting:** channels `lights.<id>.(x|y|angle|color|intensity|radius|glow)` and

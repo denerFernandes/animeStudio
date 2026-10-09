@@ -153,6 +153,8 @@ export function shadingMarkup(
   scale: number,
   width: number,
   height: number,
+  /** Screen box [x0, y0, x1, y1] the actor can cover (masks and fills stay inside it). */
+  bounds?: [number, number, number, number],
 ): string {
   const sh = state.shading;
   if (!key || (sh.opacity <= 0 && sh.rimOpacity <= 0) || key.intensity <= 0) return "";
@@ -171,27 +173,37 @@ export function shadingMarkup(
   if (strength <= 0) return "";
   // Crescent widths are measured from the eroded edge: shift = inset + size.
   const off = (sh.inset + sh.offset) * scale;
-  const box = `maskUnits="userSpaceOnUse" x="0" y="0" width="${width}" height="${height}"`;
-  // Each copy gets its own id namespace: duplicated ids (e.g. clip paths inside the art) make
-  // references ambiguous, and rebuilding the duplicates every frame broke painting in Chrome.
-  let copies = 0;
+  // Masks and fills cover only the actor's screen box, not the whole frame: without a GPU every
+  // blended full-frame rectangle is a full-frame compositing pass.
+  const [bx0, by0, bx1, by1] = bounds
+    ? [Math.max(0, bounds[0] - off), Math.max(0, bounds[1] - off), Math.min(width, bounds[2] + off), Math.min(height, bounds[3] + off)]
+    : [0, 0, width, height];
+  if (bx1 <= bx0 || by1 <= by0) return "";
+  const area = `x="${f(bx0)}" y="${f(by0)}" width="${f(bx1 - bx0)}" height="${f(by1 - by0)}"`;
+  const box = `maskUnits="userSpaceOnUse" ${area}`;
+  // The silhouette is one namespaced copy of the art (duplicated ids, e.g. clip paths inside the
+  // art, would make references ambiguous), drawn by reference in every mask: the actor's art is
+  // in the document twice, not five times.
+  const sil = `sil-${actorId}`;
+  const silhouette = `<defs><g id="${sil}">${namespaceIds(artMarkup, `shade-${actorId}`)}</g></defs>`;
   const use = (filter: string, dx = 0, dy = 0) =>
-    `<g filter="url(#${filter})"${dx || dy ? ` transform="translate(${f(dx)} ${f(dy)})"` : ""}>${namespaceIds(artMarkup, `shade${copies++}-${actorId}`)}</g>`;
+    `<use href="#${sil}" filter="url(#${filter})"${dx || dy ? ` transform="translate(${f(dx)} ${f(dy)})"` : ""}/>`;
   // White silhouette eroded by the outline width: light and shadow never paint over the outline.
   const inner = `toon-in-${actorId}`;
   let out =
+    silhouette +
     `<filter id="${inner}" color-interpolation-filters="sRGB"><feMorphology in="SourceAlpha" operator="erode" radius="${f(sh.inset * scale)}" result="e"/>` +
     `<feFlood flood-color="#fff"/><feComposite in2="e" operator="in"/></filter>`;
   if (sh.opacity > 0) {
     out +=
       `<mask id="shade-${actorId}" ${box}>${use(inner)}${use("toon-black", dir[0] * off, dir[1] * off)}</mask>` +
-      `<rect width="${width}" height="${height}" fill="${esc(sh.color)}" opacity="${f(sh.opacity * Math.min(1, strength))}" mask="url(#shade-${actorId})" style="mix-blend-mode:multiply"/>`;
+      `<rect ${area} fill="${esc(sh.color)}" opacity="${f(sh.opacity * Math.min(1, strength))}" mask="url(#shade-${actorId})" style="mix-blend-mode:multiply"/>`;
   }
   if (sh.rimOpacity > 0) {
     const r = (sh.inset + sh.offset * 0.5) * scale;
     out +=
       `<mask id="rim-${actorId}" ${box}>${use(inner)}${use("toon-black", -dir[0] * r, -dir[1] * r)}</mask>` +
-      `<rect width="${width}" height="${height}" fill="${esc(key.color)}" opacity="${f(sh.rimOpacity * Math.min(1, strength))}" mask="url(#rim-${actorId})" style="mix-blend-mode:screen"/>`;
+      `<rect ${area} fill="${esc(key.color)}" opacity="${f(sh.rimOpacity * Math.min(1, strength))}" mask="url(#rim-${actorId})" style="mix-blend-mode:screen"/>`;
   }
   return out;
 }

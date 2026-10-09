@@ -1218,6 +1218,25 @@ function aimTargets(scene: CompiledScene, actor: CompiledActor, t: number, toCha
   return out;
 }
 
+/**
+ * Screen box an actor can cover in its current pose: its posed bones, widened by a margin for the
+ * art around them (hair, clothes, props) — a third of its height, at least 120 setup px.
+ */
+function screenBox(actor: CompiledActor, pose: EvaluatedPose, m: Mat): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const bone of actor.rig.bones) {
+    const w = pose.world[bone.index];
+    for (const p of [apply(w, [0, 0]), apply(w, [bone.length, 0])]) {
+      x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]);
+      x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
+    }
+  }
+  const pad = Math.max(120, (Math.max(y1, 0) - Math.min(y0, 0)) / 3);
+  const corners: Vec2[] = [[x0 - pad, y0 - pad], [x1 + pad, y0 - pad], [x0 - pad, y1 + pad], [x1 + pad, y1 + pad]];
+  const pts = corners.map((c) => apply(m, c));
+  return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+}
+
 /** Parts of a riding actor drawn just behind the ridden one, and that actor's z. */
 function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { parts: Set<string>; z: number } | undefined {
   if (!actor.mounts) return undefined;
@@ -1434,7 +1453,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       const local: Vec2 = head ? [head.at[0] * 0.5, head.at[1] * 0.5] : [0, -100];
       // The masks get their own copy of the (unfiltered, id-less) actor art.
       const art = nodeToString({ ...actorNode, id: undefined, filter: undefined, opacity: undefined });
-      const markup = shadingMarkup(light, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height);
+      const markup = shadingMarkup(light, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height, screenBox(actor, pose, m));
       if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup: p.opacity < 1 ? `<g opacity="${p.opacity}">${markup}</g>` : markup } });
     }
   }
