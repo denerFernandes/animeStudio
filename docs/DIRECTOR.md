@@ -36,7 +36,7 @@ interface Kit {
   characters: Record<string, ToonDoc>;        // every rig: cast, vehicles, fixtures…
   cast: Record<string, { name; aliases?; scale; rig: RigInfo; speed?: { walk; run; fly? } }>;
   narrators?: string[];
-  sets: Record<string, SetDef>;               // layers, ground {near, far?}, depthScale, marks, fixtures, bounds, lighting
+  sets: Record<string, SetDef>;               // layers, ground {near, far?}, depthScale, marks, fixtures, furniture, bounds, lighting
   props: Record<string, { art(o: { color? }): string; radius: number }>;
   vehicles?: Record<string, { character: string; scale: number; speed? }>;   // drive-bys and vehicles to ride
   furniture?: Record<string, { character: string; scale: number }>;          // chairs, benches, sofas, beds
@@ -119,6 +119,14 @@ never coordinates.
 | `fly` | `who`, `to` (a place, `"offLeft"`, `"offRight"` or `"up"`), `until?` | Crouches, takes off and flies one smooth arc (speed and height change continuously, the body pitching with the climb and the descent) with the wings beating (`fly` clip, else `flap`), lands softly with a little squash; flying away speeds up out of the frame. The shadow stays on the ground, smaller and fainter the higher they are. Only rigs with `meta.canFly` or a `fly` clip |
 | `getUp` | `who` | Stands back up (from a seat, a bed, the ground or a fall). Walking while sitting or lying stands up first automatically |
 
+### Set fixtures
+
+Scenery rigs always in the set (`SetDef.fixtures`: traffic lights, a clock on a tower, a weather
+vane): `{ id, character, mark, y?, scale?, z?, flip?, channel?, value?, parallax?, clip? }`. `value`
+sets a part (or `channel`) from the start and the `fixture` beat changes it; `parallax` puts it at
+the depth of the layer it belongs to (it moves with that layer); `clip` (default the rig's `loop`
+clip) loops from the start (a second hand, a windmill).
+
 ### Riding, sitting, lying
 
 Vehicles to ride and furniture stand in the block, declared next to the cast:
@@ -143,7 +151,10 @@ with `wear` like a character's.
 
 **Furniture** rigs have a `seat` anchor (where the hip joint goes when sitting; more seats as
 `seat2`, `seat3`… for sofas and benches), and to lie on them
-`bed` (hips) or better `pillow` (the head rests there, any body length). They face right (seat
+`bed` (hips) or better `pillow` (the head rests there, any body length). A bed whose rig has
+`meta.cover: { character }` gets that rig as its blanket: drawn over whoever lies there (from the
+neck to the foot, the head out on the pillow), pulled up from the foot when they settle and gone
+when the last one gets up. They face right (seat
 front / foot of the bed on the right; a sofa drawn facing the audience is fine). Furniture that is
 part of the place goes in the set, always there: `SetDef.furniture: [{ id, kind, at, facing? }]`
 (standing on its mark's `y`, e.g. against the back wall); `on` takes its id like block furniture.

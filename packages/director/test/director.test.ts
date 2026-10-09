@@ -185,6 +185,24 @@ describe("director", () => {
     expect(describeKit(k).cast.a.canFly).toBe(true);
   });
 
+  it("covers sleepers with the bed's blanket; fixtures loop their clip at their parallax", () => {
+    const bedRig = { format: "toon", version: 1, name: "bed", meta: { cover: { character: "blanket" } }, skeleton: [{ id: "root" }], parts: [{ id: "b", type: "rigid", bone: "root", art: "<rect width='200' height='40'/>" }], anchors: { bed: { bone: "root", at: [0, -40] } } };
+    const blanket = { format: "toon", version: 1, name: "blanket", skeleton: [{ id: "root" }], parts: [{ id: "c", type: "rigid", bone: "root", art: "<rect width='150' height='30'/>" }] };
+    const clock = { format: "toon", version: 1, name: "clock", skeleton: [{ id: "root" }, { id: "hand", parent: "root", from: [0, 0], to: [0, -20] }], parts: [{ id: "h", type: "rigid", bone: "hand", art: "<path d='M0 0V-20'/>" }], clips: { loop: { duration: 60, loop: true, tracks: { "bones.hand.rotation": [[0, 0, "linear"], [60, 360]] } } } };
+    const k: Kit = {
+      ...kit,
+      characters: { ...kit.characters, bed: bedRig as never, blanket: blanket as never, clock: clock as never },
+      furniture: { bed: { character: "bed", scale: 1 } },
+      sets: { ...kit.sets, room: { ...kit.sets.room, fixtures: [{ id: "tower", character: "clock", mark: "door", parallax: 0.6 }] } },
+    };
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], furniture: [{ id: "bed1", kind: "bed", at: "door" }], beats: [{ line: 1, do: "sleep", who: "a", on: "bed1" }, { line: 3, do: "getUp", who: "a" }] }] }, lines, k);
+    expect(out.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const script = out.scenes.x.script as { action: string; actor?: string; channel?: string; value?: unknown; clip?: string }[];
+    expect(script.filter((x) => x.actor === "bed1Cover" && x.channel === "opacity").map((x) => x.value)).toEqual([0, 1, 0]);
+    expect(script.some((x) => x.actor === "tower" && x.action === "play" && x.clip === "loop")).toBe(true);
+    expect((out.scenes.x.actors as { id: string; parallax?: number }[]).find((x) => x.id === "tower")?.parallax).toBe(0.6);
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");

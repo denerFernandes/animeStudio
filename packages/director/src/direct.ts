@@ -148,7 +148,7 @@ class BlockScene {
   private vehicleOf = new Map<string, { kind: string; scale: number }>();
   private fallen = new Set<string>();
   /** Block furniture (id → kind, scale). */
-  private furnitureOf = new Map<string, { kind: string; scale: number; y: number }>();
+  private furnitureOf = new Map<string, { kind: string; scale: number; y: number; cover?: string }>();
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
   private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean }[] = [];
   private propStates = new Map<string, PropState>();
@@ -298,7 +298,7 @@ class BlockScene {
       }
     }
   }
-  addActor(id: string, x: number, o: { flip?: boolean; emotion?: string; y?: number; scale?: number; character?: string; z?: number; palette?: Record<string, string> } = {}) {
+  addActor(id: string, x: number, o: { flip?: boolean; emotion?: string; y?: number; scale?: number; character?: string; z?: number; palette?: Record<string, string>; parallax?: number } = {}) {
     const cast = !!this.kit.cast[id];
     this.actors.push({
       id,
@@ -309,6 +309,7 @@ class BlockScene {
       flip: !!o.flip,
       z: o.z ?? 2,
       ...(o.palette ? { palette: o.palette } : {}),
+      ...(o.parallax !== undefined ? { parallax: o.parallax } : {}),
     });
     this.x0[id] = x;
     this.facing0[id] = !o.flip;
@@ -1128,7 +1129,18 @@ class BlockScene {
       // Standing on its mark's floor line (e.g. a sofa against the back wall), else the near ground.
       const y = (typeof f.at === "string" ? this.setDef.marks[f.at]?.y : undefined) ?? this.setDef.ground.near;
       this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, y, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
-      this.furnitureOf.set(f.id, { kind: f.kind, scale: def.scale, y });
+      // A blanket (`meta.cover`: its own rig, drawn over whoever lies there), hidden until then.
+      const cover = (this.kit.characters[def.character]?.meta as { cover?: { character: string } } | undefined)?.cover;
+      let coverId: string | undefined;
+      if (cover) {
+        if (!this.kit.characters[cover.character]) this.issue("error", `furniture "${f.id}": its cover rig "${cover.character}" is not in the kit`);
+        else {
+          coverId = `${f.id}Cover`;
+          this.addActor(coverId, this.placeX(f.at ?? "center", this.t0), { character: cover.character, scale: def.scale, y, z: 2.01, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
+          this.set(coverId, "opacity", 0, this.t0);
+        }
+      }
+      this.furnitureOf.set(f.id, { kind: f.kind, scale: def.scale, y, ...(coverId ? { cover: coverId } : {}) });
       if (f.wear) this.wear(f.id, f.wear, this.t0);
     }
   }
@@ -1316,6 +1328,7 @@ class BlockScene {
         if (!bed) return this.issue("error", `"${place.furniture}" has no "bed" or "seat" anchor to lie on`);
         if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
         this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: [0, 0], duration: 0.5 });
+        this.coverUp(place.furniture, at);
       } else {
         if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) this.walk(actor, place.x, at - 0.9, 0.8);
         if (place.h) this.set(actor, "y", Math.round(this.groundY(actor, at) - place.h), at, 0.5, "sineInOut");
@@ -1347,6 +1360,7 @@ class BlockScene {
       this.bendNeck(actor, g.neck, at, 0.6);
       this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point, duration: 0.6 });
       this.shadow(actor, at, { hide: true }, 0.4);
+      this.coverUp(place.furniture, at);
     } else {
       const dir = this.facing(actor, at) ? 1 : -1;
       const g = this.lying(actor, dir, "back");
@@ -1365,6 +1379,22 @@ class BlockScene {
     const r = { actor, kind: "lie" as const, on, t0: at, t1: Infinity, y: this.groundY(actor, at) };
     this.rests.push(r);
     if (sleep) this.fallAsleep(actor, r, at);
+  }
+  /** The blanket of a bed comes over whoever lies down (pulled up after they settle). */
+  private coverUp(furniture: string, at: number) {
+    const c = this.furnitureOf.get(furniture)?.cover;
+    if (!c) return;
+    // Pulled up from the foot of the bed: in quickly, sliding into place.
+    const x = this.xAt(furniture, at), foot = this.facing(furniture, at) ? 1 : -1;
+    this.set(c, "x", Math.round(x + foot * 70 * this.furnitureOf.get(furniture)!.scale), at + 0.4, 0);
+    this.set(c, "opacity", 1, at + 0.4, 0.12, "easeOut");
+    this.set(c, "x", Math.round(x), at + 0.4, 0.45, "easeOut");
+  }
+  /** …and goes when the last one gets up. */
+  private uncover(furniture: string, actor: string, at: number) {
+    const c = this.furnitureOf.get(furniture)?.cover;
+    const others = this.rests.some((r) => r.kind === "lie" && r.on === furniture && r.actor !== actor && r.t0 <= at && r.t1 > at);
+    if (c && !others) this.set(c, "opacity", 0, at, 0.3, "easeIn");
   }
   /** A rig with a `tuck` pose control (poses `out` / `in`) tucks in to lie down or sleep. */
   private tucks(actor: string) {
@@ -1400,6 +1430,7 @@ class BlockScene {
     const l = this.restAt(actor, at);
     if (!l) return this.issue("warning", `${actor} is not sitting or lying to get up`);
     l.t1 = at + 0.6;
+    if (l.kind === "lie" && l.on) this.uncover(l.on, actor, at);
     if (l.sleep && this.hasControl(actor, "emotion")) this.push({ at: this.t(at), actor, action: "pose", control: "emotion", value: "happy", duration: 0.3 });
     if (l.tuck) {
       this.push({ at: this.t(at), actor, action: "pose", control: "tuck", value: "out", duration: 0.4 });
@@ -1617,8 +1648,14 @@ class BlockScene {
     // Fixtures (traffic lights…).
     for (const f of this.setDef.fixtures ?? []) {
       const m = this.mark(f.mark);
-      this.addActor(f.id, m.x, { character: f.character, y: f.y ?? m.y ?? this.setDef.ground.far ?? this.setDef.ground.near, scale: f.scale ?? 1, z: f.z ?? 0, flip: f.flip });
+      this.addActor(f.id, m.x, { character: f.character, y: f.y ?? m.y ?? this.setDef.ground.far ?? this.setDef.ground.near, scale: f.scale ?? 1, z: f.z ?? 0, flip: f.flip, parallax: f.parallax });
       if (f.value) this.set(f.id, f.channel ?? "parts.light.variant", f.value, this.t0);
+      // Moving scenery (clock hands, a weather vane, a windmill): its clip loops from the start.
+      const loop = f.clip ?? (this.kit.characters[f.character]?.clips?.loop ? "loop" : undefined);
+      if (loop) {
+        if (this.kit.characters[f.character]?.clips?.[loop]) this.push({ at: 0, actor: f.id, action: "play", clip: loop, loop: true, fadeIn: 0 });
+        else this.issue("error", `fixture "${f.id}": its rig has no clip "${loop}"`);
+      }
     }
     // Props.
     for (const p of this.block.props ?? []) {

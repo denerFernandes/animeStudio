@@ -142,7 +142,21 @@ export interface SetDef {
   /** Furniture that is part of the place (sofa, bed, benches, school desks), always there: like block furniture. */
   furniture?: FurnitureEntry[];
   /** Scenery rigs that are always there (traffic light…): a character placed at a mark. */
-  fixtures?: { id: string; character: string; mark: string; y?: number; scale?: number; z?: number; flip?: boolean; channel?: string; value?: string }[];
+  fixtures?: {
+    id: string;
+    character: string;
+    mark: string;
+    y?: number;
+    scale?: number;
+    z?: number;
+    flip?: boolean;
+    channel?: string;
+    value?: string;
+    /** Same depth as the layer it is drawn on (e.g. a clock on a tower in a parallax 0.6 layer). */
+    parallax?: number;
+    /** Clip looping from the start (a clock's second hand, a weather vane); default the rig's `loop` clip. */
+    clip?: string;
+  }[];
   bounds?: [number, number, number, number];
   background?: string;
   lighting?: Record<string, unknown>;
