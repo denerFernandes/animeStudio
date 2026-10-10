@@ -263,8 +263,9 @@ A cut (`cuts: [{ line, word?, until?, transition? … }]`) shows a window of an 
 `until`, default the end of the line), with `muteSpeech` so mouths stay still under other audio.
 Use them for cold opens, recaps and songs.
 
-A cut starts at its moment (one at a block's first line starts with the block: no sliver of the
-live action before it) and comes back to the live action with a straight cut, or with
+A block's shot starts on its first line (its lead before that line is inside the scene, not on
+screen early: cuts land on the beat). A cut starts at its moment (one near a block's first line is
+on it: no sliver of the live action before it) and comes back to the live action with a straight cut, or with
 `transitionOut`; its `transition` is the way in only (a replay flashes back by default). Between live
 blocks the cut is straight unless the block says otherwise (`transition` on the block: `fade`,
 `flash`, `crossfade`, `iris`, `wipe`). Shots under 0.4 s are merged into their neighbours, and

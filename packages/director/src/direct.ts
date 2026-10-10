@@ -3151,11 +3151,14 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   // Timeline: live blocks, with replay cuts spliced in.
   type Seg = { t0: number; t1: number; scene: string; from: number; mute?: boolean; transition?: string; speed?: number; overlay?: "vhs" };
   // Between live blocks: a straight cut, unless the block asks for a transition.
-  const segs: Seg[] = live.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < live.length ? starts[live[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 ? b.transition : undefined }));
-  // A cut at the first line of a block starts with the block (its lead before that line), and one
-  // ending just before a block or the end runs to it: no sliver of a shot either side.
+  // A block's shot starts at its first line (the cut on the beat); its lead before that line is in the
+  // scene (the shot starts inside it), not on screen early.
+  const cutAt = (b: Block) => (b.from <= 0 ? 0 : time.at({ line: b.from }));
+  const segs: Seg[] = live.map((b, i) => ({ t0: i === 0 ? 0 : cutAt(b), t1: i + 1 < live.length ? cutAt(live[i + 1]) : time.end, scene: b.id, from: i === 0 ? 0 : cutAt(b) - starts[b.id], transition: i > 0 ? b.transition : undefined }));
+  // A cut near a block's first line is on it, and one ending just before a block or the end runs to
+  // it: no sliver of a shot either side.
   const snap = (t: number) => {
-    for (const b of live) if (Math.abs(starts[b.id] + LEAD - t) < 0.3 || Math.abs(starts[b.id] - t) < 0.3) return starts[b.id];
+    for (const b of live) if (Math.abs(cutAt(b) - t) < 0.3) return cutAt(b);
     if (Math.abs(time.end - t) < 0.7) return time.end;
     return t;
   };
@@ -3200,9 +3203,8 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
         issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `"${c.insert}" is not an insert block (a block with insert: true)${closest(c.insert, blocks.filter((b) => b.insert).map((b) => b.id))}` });
         continue;
       }
-      // (Cut in at the insert's first line: from its very start, its lead included.)
-      const into = t0 - starts[ins.id];
-      const cut: Seg = { t0, t1, scene: ins.id, from: into <= LEAD + 0.01 ? 0 : into, transition: c.transition ?? "cut" };
+      // In step with the lines (cut in at the insert's first line: its lead is skipped, on the beat).
+      const cut: Seg = { t0, t1, scene: ins.id, from: Math.max(0, t0 - starts[ins.id]), transition: c.transition ?? "cut" };
       const out: Seg[] = [];
       for (const s of segs) {
         if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
