@@ -671,7 +671,12 @@ class BlockScene {
     const t0 = g.from ? this.time.at(g.from) : this.t0, t1 = g.until ? this.time.at(g.until) : this.t1;
     const s = g.scale ?? 1, rot = g.rotation ?? 0;
     const [x, y] = g.at;
-    this.props.push({ id: g.id, art: make ? make({ color: g.color }) : g.art, x, y, z: 1000 + (g.z ?? 0), parallax: 0, opacity: 0, scale: s, rotation: rot });
+    const art = make ? make({ color: g.color }) : g.art;
+    // Heavy vector art (long extruded text, many filters) may be captured half painted by a browser
+    // rendering in parallel: rasterize it, or give the render more time to paint.
+    const filters = (art.match(/<fe(Morphology|GaussianBlur|DisplacementMap|Turbulence)\b/g) ?? []).length;
+    if (art.length > 80000 || filters > 3) this.issue("warning", `graphic "${g.id}" is heavy (${Math.round(art.length / 1000)} kB of SVG, ${filters} costly filters): a browser rendering in parallel may capture it half painted — rasterize it (an <image>) or raise the composition's paintSettle`);
+    this.props.push({ id: g.id, art, x, y, z: 1000 + (g.z ?? 0), parallax: 0, opacity: 0, scale: s, rotation: rot });
     const ch: Record<string, [number, number, string?][]> = { x: [], y: [], scale: [], rotation: [], opacity: [] };
     const key = (c: string, at: number, v: number, ease?: string) => ch[c].push([this.t(at), r3(v), ...(ease ? [ease] : [])] as [number, number, string?]);
     const off: Record<string, [number, number]> = { slideLeft: [-W * 0.6, 0], slideRight: [W * 0.6, 0], slideUp: [0, -H * 0.6], slideDown: [0, H * 0.6] };
@@ -951,6 +956,7 @@ class BlockScene {
       const side = this.hand(prop).side as "F" | "B";
       this.arm3d(actor, target, fitAt, 0.4, side);
       this.armRest(actor, until, 0.45, side);
+      this.armBusy.push({ actor, side, t0: fitAt, t1: until });
       this.inUse.set(prop, { actor, fit: list as Record<string, unknown>[], target, until });
       if (this.hasPart(actor, `hand${side}`)) this.set(actor, `parts.hand${side}.variant`, "grip", fitAt - 0.1);
     } else if (this.hasChain(actor, "handF")) {
@@ -986,10 +992,13 @@ class BlockScene {
     const dist = from ? Math.hypot(target[0] - from[0], target[1] - from[1], target[2] - from[2]) : 0;
     if (from && dur > 0 && dist > 10) {
       const n = 3;
+      const start = guess;
       for (let i = 1; i <= n; i++) {
         const u = i / (n + 1), bulge = Math.sin(u * Math.PI) * dist * 0.25;
         const p: [number, number, number] = [from[0] + (target[0] - from[0]) * u, from[1] + (target[1] - from[1]) * u, from[2] + (target[2] - from[2]) * u + bulge];
-        apply(solve(p), at - dur + (dur * (i - 1)) / (n + 1), dur / (n + 1), i === 1 ? "easeIn" : "linear");
+        // (Towards a known pose — back to rest, into a clip's first pose — the angles turn the short
+        // way to it, continuously; towards a free target the hand's arc is solved.)
+        apply(final ? blendValues(start, final, u) : solve(p), at - dur + (dur * (i - 1)) / (n + 1), dur / (n + 1), i === 1 ? "easeIn" : "linear");
       }
       apply(final ?? solve(target), at - dur / (n + 1), dur / (n + 1), "easeOut");
     } else apply(final ?? solve(target), at - dur, dur, "easeInOut");
@@ -1262,6 +1271,9 @@ class BlockScene {
           // Seated on a 2.5D rig the arms are set by the sit (a clip cannot move them): its arm keys
           // are played as moves of the arms instead.
           if (this.is3d(w) && this.pose3d.has(w) && this.gestureSeated(w, b.clip as string, at, until)) continue;
+          // Standing on a 2.5D rig: the clip moves the arms (its angles add to the 3D poses, so those
+          // are held at rest meanwhile, and nothing else moves those arms).
+          if (this.is3d(w)) this.clearArms(w, b.clip as string, at, until);
           const fg = FRONT_GESTURES[b.clip as string];
           // From the front, these are hand positions (resolved on the posed face after staging).
           if (fg && this.viewAt(w, at) === "front") this.pendingGestures.push({ actor: w, clip: b.clip as string, at, until: until ?? at + fg.hold });
@@ -3073,14 +3085,28 @@ class BlockScene {
     const arms = Object.entries(c.tracks).filter(([k]) => /^bones\.arm[FB][12]\.(rotation|turn|spread)$/.test(k));
     if (!arms.length) return false;
     const end = until ?? at + c.duration;
-    for (const side of ["F", "B"] as const) if (arms.some(([k]) => k.startsWith(`bones.arm${side}`))) this.cutArm(actor, side, at, end);
+    for (const side of ["F", "B"] as const) if (arms.some(([k]) => k.startsWith(`bones.arm${side}`))) this.cutArm(actor, side, at - 0.3, end);
+    // Into the clip's first pose: the hand along an arc to where it puts it (no snap, no swing round).
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as Parameters<typeof rig3dPose>[0];
+    for (const side of ["F", "B"] as const) {
+      const first: Rig3dValues = {};
+      for (const [ch, keys] of arms) {
+        const m = /^bones\.(arm[FB][12])\.(\w+)$/.exec(ch)!;
+        if (!m[1].startsWith(`arm${side}`) || typeof keys[0]?.[1] !== "number") continue;
+        (first[m[1]] ??= {})[m[2] as "rotation"] = keys[0][1] as number;
+      }
+      if (!Object.keys(first).length) continue;
+      const hand = rig3dPose(doc, { ...(this.pose3d.get(actor) ?? {}), ...first })[`arm${side}2`]?.to;
+      const full: Rig3dValues = Object.fromEntries([`arm${side}1`, `arm${side}2`].map((b) => [b, { rotation: 0, turn: 0, spread: 0, ...(first[b] ?? {}) }]));
+      if (hand) this.arm3d(actor, hand, at, 0.3, side, full);
+    }
     for (let t0 = at; t0 < end - 0.05; t0 += c.duration) {
       for (const [ch, keys] of arms) {
         let prev = 0;
         for (const [kt, v] of keys) {
           const t = t0 + kt;
           if (t > end) break;
-          this.set(actor, ch, v, t0 + prev, Math.max(0, kt - prev), "sineInOut");
+          if (t > at + 1e-6) this.set(actor, ch, v, t0 + prev, Math.max(0, kt - prev), "sineInOut");
           prev = kt;
         }
       }
@@ -3126,6 +3152,18 @@ class BlockScene {
       this.shadow(baby, until, { hide: false }, 0.3);
     }
   }
+  /** The arms a clip moves held at rest (no 3D pose under it) while it plays, kept for it. */
+  private clearArms(actor: string, clip: string, at: number, until?: number) {
+    const c = (this.kit.characters[this.characterOf(actor)]?.clips as Record<string, { duration: number; tracks: Record<string, unknown> }> | undefined)?.[clip];
+    if (!c) return;
+    const end = (until ?? at + c.duration) + 0.1;
+    for (const side of ["F", "B"] as const) {
+      if (!Object.keys(c.tracks).some((k) => k.startsWith(`bones.arm${side}`))) continue;
+      this.cutArm(actor, side, at - 0.1, end);
+      for (const b of [`arm${side}1`, `arm${side}2`]) for (const k of ["rotation", "turn", "spread"]) this.set(actor, `bones.${b}.${k}`, 0, at - 0.1, 0.2, "easeInOut");
+      this.armBusy.push({ actor, side, t0: at - 0.1, t1: end });
+    }
+  }
   /** Talking hands while seated: the near hand up in front of the chest and back, a beat every ~1.6 s. */
   private talkSeated(actor: string, s: number, e: number) {
     const chest = this.point3d(actor, "chest");
@@ -3136,16 +3174,20 @@ class BlockScene {
     const busy = this.armBusy.length;
     for (let k = 0; k < n; k++) {
       const t0 = s + 0.15 + (k * d) / n, span = d / n;
-      // Not while the arm does something else (holding a glass up, taking a cigarette…).
-      if (this.armBusy.some((b) => b.actor === actor && b.side === "F" && b.t0 < t0 + span + 0.5 && b.t1 > t0 - 0.5)) continue;
+      // Not with an arm doing something else (holding a phone, a glass…): the other one, else none.
+      const free = (sd: string) => !this.armBusy.some((b) => b.actor === actor && b.side === sd && b.t0 < t0 + span + 0.5 && b.t1 > t0 - 0.5);
+      const hand: "F" | "B" | undefined = free("F") ? "F" : free("B") ? "B" : undefined;
+      if (!hand) continue;
       const up = Math.min(0.45, span * 0.3);
       // In front of the chest, a little lower and out, varying from beat to beat.
       const side = k % 2 ? 1 : -1;
-      this.arm3d(actor, [chest[0] + side * 6, chest[1] + 28 + (k % 3) * 6, chest[2] - 4], t0 + up, up);
-      if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "open", t0);
-      this.armRest(actor, t0 + Math.max(up + 0.3, span * 0.75), Math.min(0.5, span * 0.25));
+      // (The far hand mirrors the chest point; its gesture smaller, lower.)
+      const x = hand === "F" ? chest[0] + side * 6 : -chest[0] + side * 4, lower = hand === "F" ? 0 : 14;
+      this.arm3d(actor, [x, chest[1] + 28 + lower + (k % 3) * 6, chest[2] - 4], t0 + up, up, hand);
+      if (this.hasPart(actor, `hand${hand}`)) this.set(actor, `parts.hand${hand}.variant`, "open", t0);
+      this.armRest(actor, t0 + Math.max(up + 0.3, span * 0.75), Math.min(0.5, span * 0.25), hand);
     }
-    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "fist", e + 0.2);
+    for (const hand of ["F", "B"]) if (this.hasPart(actor, `hand${hand}`) && !this.armBusy.some((b) => b.actor === actor && b.side === hand && b.t0 <= e && b.t1 > e)) this.set(actor, `parts.hand${hand}.variant`, "fist", e + 0.2);
     this.armBusy.length = busy;
   }
   /** Walking at a moment (or about to: a walk starting within `pad` seconds). */
@@ -3175,7 +3217,9 @@ class BlockScene {
         const clip = l.song || norm(l.speaker) === "song" ? "sing" : "talk";
         // Seated on a 2.5D rig the arms rest where the sit put them (a clip cannot move them): talking
         // hands come up from the lap in 3D, in beats along the line.
-        if (!busy && this.is3d(id) && this.pose3d.has(id)) this.talkSeated(id, l.s, l.e);
+        // On a 2.5D rig the arms are posed in 3D (a clip's angles would add to them): talking hands
+        // come up in 3D too, never the hand holding something.
+        if (!busy && this.is3d(id) && this.point3d(id, "chest")) this.talkSeated(id, l.s, l.e);
         else if (!busy && this.hasClip(id, clip)) this.push({ at: this.t(l.s - 0.15), actor: id, action: "play", clip, duration: r3(l.e - l.s + 0.2), fadeIn: 0.3, fadeOut: 0.4, weight: 0.7 });
       }
       if (speakers.length !== 1 || l.song || norm(l.speaker) === "song") continue;
@@ -3740,6 +3784,20 @@ function motionIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: Ki
     }
   }
   return issues;
+}
+
+/** Channel values blended (each angle the short way from `a` towards `b`). */
+function blendValues(a: Rig3dValues, b: Rig3dValues, u: number): Rig3dValues {
+  const out: Rig3dValues = {};
+  for (const bone of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const v: Record<string, number> = {};
+    for (const k of ["rotation", "turn", "spread"] as const) {
+      const x = a[bone]?.[k] ?? 0, y0 = b[bone]?.[k] ?? 0, y = y0 + 360 * Math.round((x - y0) / 360);
+      v[k] = x + (y - x) * u;
+    }
+    out[bone] = v;
+  }
+  return out;
 }
 
 /** A prop's place at a moment (scene px). */

@@ -37,6 +37,12 @@ export type ToonCompositionProps = {
   muted?: boolean;
   /** Debug render: per-node sentinels + frame barcode, readable by `toon doctor`. */
   debug?: boolean;
+  /**
+   * How long each frame waits for Chrome to finish painting before capture: animation frames and
+   * then milliseconds (default 4 and 60; heavy SVG — long extruded text, morphology filters —
+   * rendered with high concurrency may need more).
+   */
+  paintSettle?: { frames?: number; ms?: number };
 };
 
 /**
@@ -44,12 +50,12 @@ export type ToonCompositionProps = {
  * Every frame is evaluated from scratch (`pose = f(scene, time)`), so parallel and
  * out-of-order rendering is safe. Rigid bodies are baked once per tab before rendering.
  */
-export function ToonComposition({ scene, assets, resolveAudio = staticFile, muted, debug }: ToonCompositionProps) {
+export function ToonComposition({ scene, assets, resolveAudio = staticFile, muted, debug, paintSettle }: ToonCompositionProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const compiled = useMemo(() => compileScene(scene, assets), [scene, assets]);
   const ready = usePreparedScene(compiled);
-  usePaintSettled(frame);
+  usePaintSettled(frame, paintSettle?.frames, paintSettle?.ms);
   const rendered = useMemo(() => {
     if (!ready) return null;
     const f = evaluateScene(ready, frame / fps);
@@ -84,7 +90,7 @@ const frameKey = (frame: number) => (getRemotionEnvironment().isRendering ? fram
  * content is rasterized asynchronously by Chrome; capturing immediately sometimes missed those
  * layers, making elements flicker in the video.
  */
-function usePaintSettled(frame: number, frames = 3, ms = 40) {
+function usePaintSettled(frame: number, frames = 4, ms = 60) {
   useLayoutEffect(() => {
     const handle = delayRender(`Paint settle (frame ${frame})`);
     let raf = 0;
@@ -142,13 +148,15 @@ export type ToonSequenceCompositionProps = {
   muted?: boolean;
   /** Debug render: per-node sentinels + frame barcode, readable by `toon doctor`. */
   debug?: boolean;
+  /** How long each frame waits for the paint before capture (see `ToonCompositionProps`). */
+  paintSettle?: { frames?: number; ms?: number };
 };
 
 /**
  * Renders a multi-shot sequence (cuts, crossfades, fades, irises, wipes, flashes) in Remotion.
  * Audio of each shot is cut at the shot boundary.
  */
-export function ToonSequenceComposition({ sequence, scenes, resolveAudio = staticFile, muted, debug }: ToonSequenceCompositionProps) {
+export function ToonSequenceComposition({ sequence, scenes, resolveAudio = staticFile, muted, debug, paintSettle }: ToonSequenceCompositionProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const compiled = useMemo(() => compileSequence(sequence, { scenes }), [sequence, scenes]);
@@ -159,7 +167,7 @@ export function ToonSequenceComposition({ sequence, scenes, resolveAudio = stati
     return debug ? withDebugOverlay(f, { frameIndex: frame, time: frame / fps }) : f;
   }, [ready, frame, fps, debug]);
   const audio = useMemo(() => (ready ? sequenceAudio(ready) : []), [ready]);
-  usePaintSettled(frame);
+  usePaintSettled(frame, paintSettle?.frames, paintSettle?.ms);
   if (!ready || !rendered) return null;
   return (
     <AbsoluteFill>

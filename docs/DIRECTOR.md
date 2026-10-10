@@ -255,8 +255,10 @@ and says so (warnings), and `check` lists what still shows wrong in the picture:
   body (never an angle blend that swings it round); one move at a time (a later one takes over while
   it lasts); limb angles go the short way round; a held object stays in the same hand when its holder
   turns round (and on the same ear), changing hands only by a beat.
-- **Talking**: a speaker sitting on a 2.5D rig gestures with the near hand (the arm a clip cannot
-  move there), unless that arm is busy with a beat.
+- **Talking**: a speaker on a 2.5D rig gestures with a free hand in 3D (a clip's angles would add to
+  the arms' 3D poses), never the hand holding something; a gesture clip holds the arms it moves at rest
+  under it (no 3D pose adds to it) and keeps them for itself while it plays; seated, a clip's arm keys
+  are played as moves of the arms, coming into its first pose the short way.
 
 ### Cuts
 

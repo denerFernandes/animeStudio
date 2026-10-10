@@ -1557,7 +1557,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       // Where a reached hand never goes: into the torso (a hand's half thickness out of it) or the head.
       keepOut: [
         { bone: "body", at: [0, r(-b.T * 0.48), r(belly * 0.4)], radii: [r(Math.max(b.W, b.H) * (look.female ? 0.95 : 1) + belly * 0.4 + b.hand * 0.6), r(b.T * 0.56), r(b.D * (1 + (look.heavy ?? 0) * 0.6) + b.hand * 0.6)] },
-        { bone: "head", at: [0, r(m.y.head - m.y.neckTop), 0], radii: [r(u * 1.02), r(u * 1.12), r(u * 1.02)] },
+        // (Only the head's core: a hand may rest on the face, on an ear, at the mouth.)
+        { bone: "head", at: [0, r(m.y.head - m.y.neckTop - u * 0.15), r(-u * 0.1)], radii: [r(u * 0.6), r(u * 0.7), r(u * 0.6)] },
       ],
       // Where the director's 3D reaches go: the mouth, the near ear, in front of the chest (a held
       // thing, a little to the near side).

@@ -315,7 +315,7 @@ applied in **screen space**: renderers wrap the node in a `<g style="filter:…"
 
 | Export | Description |
 |---|---|
-| `<ToonComposition scene assets resolveAudio? muted? debug?>` | Composition component: evaluates the scene at `useCurrentFrame() / fps`, plays scene audio in `<Sequence>`s, bakes rigid bodies with `delayRender`, holds each capture for a few animation frames so filtered/masked layers finish painting, and mounts a fresh SVG tree per frame while rendering (reuses it in the Studio/Player) |
+| `<ToonComposition scene assets resolveAudio? muted? debug? paintSettle?>` | Composition component: evaluates the scene at `useCurrentFrame() / fps`, plays scene audio in `<Sequence>`s, bakes rigid bodies with `delayRender`, holds each capture for a few animation frames so filtered/masked layers finish painting (`paintSettle: { frames: 4, ms: 60 }`; heavy SVG rendered with high concurrency may need more — the director warns about heavy graphics: rasterize them), and mounts a fresh SVG tree per frame while rendering (reuses it in the Studio/Player) |
 | `toonMetadata(scene)` | `{ durationInFrames, fps, width, height }` for `<Composition>` / `calculateMetadata` |
 | `<ToonSequenceComposition sequence scenes resolveAudio? muted? debug?>` | Multi-shot sequence with transitions; shot audio is cut at shot boundaries. `debug` renders the instrumentation strip read by `toon doctor` |
 | `toonSequenceMetadata(sequence, scenes)` | Composition metadata for a sequence |
