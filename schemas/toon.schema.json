@@ -188,6 +188,33 @@
                         }
                       }
                     ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -261,6 +288,33 @@
                         }
                       }
                     ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -345,6 +399,33 @@
                         }
                       }
                     ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -448,6 +529,33 @@
                         }
                       }
                     ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -560,6 +668,436 @@
                         }
                       }
                     ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "fill": {
+                "type": "string"
+              },
+              "stroke": {
+                "type": "string"
+              },
+              "strokeWidth": {
+                "type": "number"
+              },
+              "attrs": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              "type": {
+                "type": "string",
+                "const": "hull"
+              },
+              "points": {
+                "minItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bone": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "description": "Setup space"
+                    },
+                    "r": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Radius around the point"
+                    }
+                  },
+                  "required": [
+                    "bone",
+                    "at",
+                    "r"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "points"
+            ],
+            "additionalProperties": false,
+            "description": "A soft shape stretched over points of the skeleton (the rounded convex hull of circles): a skirt over the waist and the knees, a cape, a belly"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "part",
+                  "variant"
+                ],
+                "additionalProperties": false,
+                "description": "Only show this part while another switch part shows one of these variants"
+              },
+              "type": {
+                "type": "string",
+                "const": "solid"
+              },
+              "step": {
+                "description": "Grid size of the drawing in character units (default 2)",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "bodies": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fill": {
+                      "description": "No fill: an occluder (hides the bodies behind it, draws nothing)",
+                      "type": "string"
+                    },
+                    "shade": {
+                      "description": "Colour of the side turned away from the light",
+                      "type": "string"
+                    },
+                    "stroke": {
+                      "type": "string"
+                    },
+                    "strokeWidth": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "blend": {
+                      "description": "Smooth union of the shapes over this distance",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "shapes": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "from": {
+                            "type": "object",
+                            "properties": {
+                              "bone": {
+                                "type": "string",
+                                "description": "A bone of the rig3d"
+                              },
+                              "t": {
+                                "description": "Along the 3D bone: 0 = its joint (default), 1 = its tip",
+                                "type": "number"
+                              },
+                              "at": {
+                                "description": "Offset [x, y, z] in body space (rest pose), turned with the bone",
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ],
+                                "items": false,
+                                "minItems": 3,
+                                "maxItems": 3
+                              }
+                            },
+                            "required": [
+                              "bone"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "to": {
+                            "description": "The other end of a cone (none: a sphere)",
+                            "type": "object",
+                            "properties": {
+                              "bone": {
+                                "type": "string",
+                                "description": "A bone of the rig3d"
+                              },
+                              "t": {
+                                "description": "Along the 3D bone: 0 = its joint (default), 1 = its tip",
+                                "type": "number"
+                              },
+                              "at": {
+                                "description": "Offset [x, y, z] in body space (rest pose), turned with the bone",
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ],
+                                "items": false,
+                                "minItems": 3,
+                                "maxItems": 3
+                              }
+                            },
+                            "required": [
+                              "bone"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "r": {
+                            "description": "Radius, or [at from, at to]",
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  {
+                                    "type": "number",
+                                    "minimum": 0
+                                  }
+                                ],
+                                "items": false,
+                                "minItems": 2,
+                                "maxItems": 2
+                              }
+                            ]
+                          },
+                          "box": {
+                            "description": "A box of these half sizes [x, y, z] centred on `from`, turned with its bone",
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              },
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              },
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 3,
+                            "maxItems": 3
+                          },
+                          "round": {
+                            "description": "Rounding of a box's edges",
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "from"
+                        ],
+                        "additionalProperties": false,
+                        "description": "A cone between two points of the skeleton (a sphere without `to`), or a rounded box"
+                      }
+                    }
+                  },
+                  "required": [
+                    "shapes"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "bodies"
+            ],
+            "additionalProperties": false,
+            "description": "Volumes on the bones of a 2.5D rig (rig3d), drawn each frame from the view: cel shaded, composited per pixel by depth (legs, a lap, a skirt)"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "z": {
+                "type": "number"
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "visible": {
+                "type": "boolean"
+              },
+              "visibleWhen": {
+                "type": "object",
+                "properties": {
+                  "part": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "and": {
+                    "description": "A second switch condition that must hold too",
+                    "type": "object",
+                    "properties": {
+                      "part": {
+                        "type": "string"
+                      },
+                      "variant": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "part",
+                      "variant"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -655,6 +1193,12 @@
             "minItems": 2,
             "maxItems": 2,
             "description": "Setup space"
+          },
+          "turn": {
+            "description": "How much a prop held at this anchor turns with the bone (0 = stays upright, 1 = turns with the hand)",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         },
         "required": [
@@ -1386,6 +1930,123 @@
         ],
         "additionalProperties": false
       }
+    },
+    "rig3d": {
+      "description": "A 2.5D rig: its bones posed in 3D (rotations about the body's sideways axis, plus `turn` and `spread`) and projected for the current view each frame",
+      "type": "object",
+      "properties": {
+        "bones": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "to": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Bones posed in 3D: rest joint and tip in body space (the front view: x right, y down, z towards the viewer)"
+        },
+        "views": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Each view of the `view` control → the yaw (degrees) its drawings were made at"
+        },
+        "pitch": {
+          "description": "How far above the drawings are seen from (degrees, default 0)",
+          "type": "number"
+        },
+        "chains": {
+          "description": "Limbs drawn in front of or behind the body by their depth",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bones": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "bones",
+              "parts"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "front": {
+          "description": "Part before which a limb nearer than the body is drawn",
+          "type": "string"
+        },
+        "back": {
+          "description": "Part after which a limb farther than the body is drawn",
+          "type": "string"
+        },
+        "body": {
+          "description": "Bones whose depth is the body's (default body, neck)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "bones",
+        "views"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

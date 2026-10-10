@@ -93,6 +93,13 @@ export function viewPoint(p: V3, yaw: number, pitch: number): V3 {
 export interface Rig3dFrame {
   /** Depth (view space) of each 3D bone's joint and tip. */
   depth: Map<number, number>;
+  /** Posed 3D bones (in `CompiledRig3d.bones` order): joint position and rotation (row-major 3×3), body space. */
+  pos: V3[];
+  rot: number[][];
+  /** The view (radians) and the screen offset of the projection (view x, y + `off` = character space). */
+  yaw: number;
+  pitch: number;
+  off: Vec2;
 }
 
 /**
@@ -144,7 +151,9 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       pos[i] = B.from;
     } else {
       const P = r3.byIndex.get(B.parent)!;
-      rot[i] = mul(rot[P], local);
+      // A bone that does not inherit its parent's rotation (a foot staying level) turns with the
+      // body (the first 3D bone) only.
+      rot[i] = mul(rig.bones[B.index].inheritRotation ? rot[P] : rot[0], local);
       pos[i] = add3(pos[P], mv(rot[P], sub3(B.from, r3.bones[P].from)));
     }
   }
@@ -154,6 +163,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
   const p0 = viewPoint(pos[0], yaw, pitch);
   const off: Vec2 = [anchor[0] - p0[0], anchor[1] - p0[1]];
   const depth = new Map<number, number>();
+  const limbs = new Set(r3.chains.flatMap((c) => c.bones));
   // Desired world (unsquashed basis + squash) of each 3D bone, set into the 2D state in rig order.
   const basis = new Map<number, Mat>(), full = new Map<number, Mat>();
   for (let i = 0; i < n; i++) {
@@ -167,7 +177,9 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     const dx = t[0] - a[0], dy = t[1] - a[1];
     const len = Math.hypot(dx, dy);
     const rest = bone.length || Math.hypot(...sub3(B.to, B.from));
-    const sq = rest > 1e-6 ? clamp(len / rest, 0.1, 3) : 1;
+    // Only limbs (the chains' bones) foreshorten: a torso or a head is a drawing of a volume, the
+    // same seen tilted (squashed, it would bare the scalp's edges under the hair).
+    const sq = rest > 1e-6 && limbs.has(B.index) ? clamp(len / rest, 0.1, 3) : 1;
     const ang = len > 1e-6 ? Math.atan2(dy, dx) / DEG : matAngle(world[B.index]);
     // The 2D parent's world: a 3D bone's (as set here) or the current one.
     const p = bone.parent;
@@ -177,7 +189,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       const lp = apply(invert(pw), o);
       s.bx[B.index] = lp[0] - bone.x;
       s.by[B.index] = lp[1] - bone.y;
-      s.brot[B.index] = wrapAngle(ang - matAngle(pb) - bone.rotation);
+      s.brot[B.index] = wrapAngle(ang - (bone.inheritRotation ? matAngle(pb) : 0) - bone.rotation);
     } else {
       s.bx[B.index] = o[0] - bone.x;
       s.by[B.index] = o[1] - bone.y;
@@ -189,7 +201,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     basis.set(B.index, bm);
     full.set(B.index, [c * sq, sn * sq, -sn / sq, c / sq, o[0], o[1]]);
   }
-  return { depth };
+  return { depth, pos, rot, yaw, pitch, off };
 }
 
 /**

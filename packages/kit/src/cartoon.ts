@@ -914,78 +914,88 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
 
 // ------------------------------------------------------------------ shoes, sleeves, shorts
 
-function shoeArt(look: CartoonLook, k: number) {
-  const s = (d: string) => d.replace(/-?\d+(\.\d+)?/g, (n) => String(r(Number(n) * k)));
-  const sole = `<path d="${s("M-20 4 H44")}" stroke="palette(sole)" stroke-width="${r(5 * k)}" stroke-linecap="round"/>`;
-  const sneaker = s("M-18 -18 C-10 -26 12 -24 24 -14 C38 -10 48 -4 46 4 L-20 4 C-24 -4 -22 -12 -18 -18 Z");
-  switch (look.shoes) {
-    case "studded":
-      return `<path d="${sneaker}" fill="palette(shoes)" ${stc("shoes", 2.6)}/>${sole}` + [-12, 0, 12, 24, 36].map((x) => `<circle cx="${r(x * k)}" cy="${r(9 * k)}" r="${r(2.6 * k)}" fill="palette(sole)" ${stc("shoes", 1.2)}/>`).join("") + `<path d="${s("M6 -20 L16 -10 M12 -22 L22 -12")}" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>`;
-    case "canvas":
-      return `<path d="${sneaker}" fill="palette(shoes)" ${stc("shoes", 2.6)}/><path d="${s("M28 -12 C40 -8 48 -2 46 4 L26 4 C28 -2 28 -8 28 -12 Z")}" fill="palette(sole)" ${stc("shoes", 2)}/>${sole}`;
-    case "flipflops":
-      return `<path d="${s("M-16 -14 C-8 -20 22 -16 36 -8 C44 -4 44 2 38 2 L-16 2 C-20 -4 -20 -10 -16 -14 Z")}" fill="palette(skin)" ${stc("skin", 2.4)}/><path d="${s("M-20 3 H44")}" stroke="palette(shoes)" stroke-width="${r(6 * k)}" stroke-linecap="round"/><path d="${s("M4 -14 L22 0")}" stroke="palette(shoes)" stroke-width="${r(4 * k)}" stroke-linecap="round"/>`;
-    case "dress":
-      return `<path d="${s("M-16 -16 C-6 -22 16 -18 28 -10 C40 -6 46 0 42 4 L-18 4 C-22 -4 -20 -12 -16 -16 Z")}" fill="palette(shoes)" ${stc("shoes", 2.6)}/><path d="${s("M8 -14 Q16 -10 22 -10")}" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="2.4" stroke-linecap="round"/>`;
-    case "heels":
-      return `<path d="${s("M-14 -12 C-6 -18 18 -12 30 -4 C38 0 40 4 36 6 L4 6 L-2 -2 L-8 14 L-14 14 L-14 -12 Z")}" fill="palette(shoes)" ${stc("shoes", 2.6)}/>`;
-    case "sandals":
-      return `<path d="${s("M-16 -14 C-8 -20 20 -16 34 -8 C42 -4 42 2 36 2 L-16 2 C-20 -4 -20 -10 -16 -14 Z")}" fill="palette(skin)" ${stc("skin", 2.4)}/><path d="${s("M-20 3 H42")}" stroke="palette(shoes)" stroke-width="${r(6 * k)}" stroke-linecap="round"/><path d="${s("M-6 -16 L-4 0 M10 -14 L14 0 M26 -10 L28 0")}" stroke="palette(shoes)" stroke-width="${r(5 * k)}" stroke-linecap="round"/>`;
-    default:
-      return `<path d="${sneaker}" fill="palette(shoes)" ${stc("shoes", 2.6)}/>${sole}<path d="${s("M2 -22 L10 -12 M8 -24 L16 -14")}" stroke="palette(sole)" stroke-width="2.4" stroke-linecap="round"/>`;
-  }
-}
-
-/** A capsule along a bone segment from `a` to `b` (rounded at both ends), half width `w`. */
-function pill(a: P, b: P, w: number, fill: string) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
-  const p = (t: number, s: number): P2 => [a[0] + dx * t + nx * w * s, a[1] + dy * t + ny * w * s];
-  const e0: P2 = [a[0] - ux * w * 1.2, a[1] - uy * w * 1.2], e1: P2 = [b[0] + ux * w * 1.3, b[1] + uy * w * 1.3];
-  const q = [p(0, 1), p(1, 1), p(1, -1), p(0, -1)];
-  return `<path d="M${r(q[0][0])} ${r(q[0][1])} L${r(q[1][0])} ${r(q[1][1])} Q${r(e1[0] + nx * w)} ${r(e1[1] + ny * w)} ${r(e1[0])} ${r(e1[1])} Q${r(e1[0] - nx * w)} ${r(e1[1] - ny * w)} ${r(q[2][0])} ${r(q[2][1])} L${r(q[3][0])} ${r(q[3][1])} Q${r(e0[0] - nx * w)} ${r(e0[1] - ny * w)} ${r(e0[0])} ${r(e0[1])} Q${r(e0[0] + nx * w)} ${r(e0[1] + ny * w)} ${r(q[0][0])} ${r(q[0][1])} Z" fill="${fill}" stroke="${LINE(fill)}" stroke-width="2.6" stroke-linejoin="round"/>`;
-}
-
-/** Shoes seen from the front (pointing at the camera): the toe box, the sole, the laces. */
-function shoeFrontArt(look: CartoonLook, k: number) {
-  const s = (d: string) => d.replace(/-?\d+(\.\d+)?/g, (n) => String(r(Number(n) * k)));
-  const box = s("M-15 -16 C-18 -2 -15 5 0 6 C15 5 18 -2 15 -16 C9 -22 -9 -22 -15 -16 Z");
-  switch (look.shoes) {
-    case "flipflops":
-    case "sandals":
-      return `<path d="${s("M-11 -14 C-14 -2 -11 4 0 5 C11 4 14 -2 11 -14 C6 -18 -6 -18 -11 -14 Z")}" fill="palette(skin)" ${stc("skin", 2.4)}/><path d="${s("M-14 6 H14")}" stroke="palette(shoes)" stroke-width="${r(5 * k)}" stroke-linecap="round"/><path d="${s("M-8 -10 L0 -2 L8 -10")}" fill="none" stroke="palette(shoes)" stroke-width="${r(4 * k)}" stroke-linecap="round"/>`;
-    case "heels":
-    case "dress":
-      return `<path d="${s("M-12 -14 C-15 -2 -12 4 0 5 C12 4 15 -2 12 -14 C7 -18 -7 -18 -12 -14 Z")}" fill="palette(shoes)" ${stc("shoes", 2.4)}/>`;
-    default:
-      return `<path d="${box}" fill="palette(shoes)" ${stc("shoes", 2.6)}/><path d="${s("M-16 5 H16")}" stroke="palette(sole)" stroke-width="${r(5 * k)}" stroke-linecap="round"/>` +
-        `<path d="${s("M-5 -15 L5 -11 M-5 -11 L5 -7")}" stroke="palette(sole)" stroke-width="2" stroke-linecap="round"/>`;
-  }
-}
-
-/** A tube piece around a bone segment from `a` towards `b` (sleeves, shorts legs, socks). */
-function cuff(a: P, b: P, from: number, to: number, w0: number, w1: number, fill: string, sw = 3, stripes = 0) {
-  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
-  const p = (t: number, w: number, s: number): P2 => [a[0] + dx * t + nx * w * s, a[1] + dy * t + ny * w * s];
-  const q = [p(from, w0, 1), p(to, w1, 1), p(to, w1, -1), p(from, w0, -1)];
-  // A rounded top (the shoulder), straight sides, a straight opening.
-  const cap = p(from - (w0 * 1.3) / len, 0, 0);
-  return `<path d="M${r(q[0][0])} ${r(q[0][1])} L${r(q[1][0])} ${r(q[1][1])} L${r(q[2][0])} ${r(q[2][1])} L${r(q[3][0])} ${r(q[3][1])} Q${r(cap[0])} ${r(cap[1])} ${r(q[0][0])} ${r(q[0][1])} Z" fill="${fill}" stroke="${LINE(fill)}" stroke-width="${sw}" stroke-linejoin="round"/>` +
-    // Thin stripes along the tube (a striped shirt's sleeve).
-    Array.from({ length: stripes }, (_, k) => {
-      const f = -1 + (2 * (k + 1)) / (stripes + 1);
-      const s0 = p(from + 0.06, w0 * f, 1), s1 = p(to - 0.02, w1 * f, 1);
-      return `<path d="M${r(s0[0])} ${r(s0[1])} L${r(s1[0])} ${r(s1[1])}" stroke="palette(stripe)" stroke-width="1.8"/>`;
-    }).join("");
-}
-
 // ------------------------------------------------------------------ the builder
 
 /**
  * Options of `cartoonCharacter`: `pitch` (degrees) — how far above the camera sees the character
  * (a room camera's pitch, `viewAt`): every drawing is made at that angle.
  */
+/**
+ * The legs, the hips and the skirt as a solid on the 3D skeleton: each leg a thigh and a shin cone
+ * (a round knee between them), shorts or socks over them, the hips between the hip joints, a skirt
+ * draped over the lap. The torso is an occluder (the torso's drawing is under the solid).
+ */
+function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>): Record<string, unknown> {
+  void j;
+  const { b } = m;
+  const heavy = look.heavy ?? 0;
+  const bare = look.bottom !== "pants";
+  const shorts = look.bottom === "shorts" || look.bottom === "bermuda";
+  const skirted = look.bottom === "skirt" || look.bottom === "longSkirt";
+  const shortsTo = look.bottom === "bermuda" ? 0.9 : 0.45;
+  const thigh: [number, number] = [r(b.leg[0] * 0.8 * (1 + heavy * 0.35)), r(b.leg[0] * 0.6)];
+  const shin: [number, number] = [r(b.leg[0] * 0.52), r(b.leg[1] * 0.5)];
+  const pt = (bone: string, t = 0, at?: V3) => ({ bone, ...(t ? { t } : {}), ...(at ? { at: at.map(r) } : {}) });
+  const paint = (key: string) => ({ fill: `palette(${key})`, shade: `palette(${key}Shade)`, stroke: `palette(${key}Line)`, strokeWidth: SW });
+  const bodies: Record<string, unknown>[] = [];
+  // The torso hides what is behind it (a box a little inside its drawing, cut at the hip joints).
+  const T = b.T, L = b.L, D = b.D * (1 + heavy * 0.6);
+  const halfW = Math.min(b.S, b.W, Math.max(b.W * 0.98, b.H * 0.95)) * (look.female ? 0.86 : 1) * 0.92;
+  const top = -L - T * 0.92, bottom = -L + 3;
+  bodies.push({ shapes: [{ from: pt("body", 0, [0, (top + bottom) / 2 + L, heavy * b.D * 0.3]), box: [r(halfW), r((bottom - top) / 2), r(D * 0.85)], round: r(D * 0.5) }] });
+  // The hips: between the hip joints, a little back (the seat).
+  const hipsKey = look.top === "dress" ? "top" : bare && !shorts && !skirted ? "skin" : "bottom";
+  bodies.push({ ...paint(hipsKey), blend: 6, shapes: [{ from: pt("legF1", 0, [0, -4, -6]), to: pt("legB1", 0, [0, -4, -6]), r: r(b.H * 0.5 * (1 + heavy * 0.15)) }] });
+  for (const side of ["B", "F"] as const) {
+    const legKey = bare ? "skin" : "bottom";
+    bodies.push({ ...paint(legKey), blend: 5, shapes: [
+      { from: pt(`leg${side}1`), to: pt(`leg${side}1`, 1), r: thigh },
+      { from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.97), r: shin },
+    ] });
+    if (shorts) bodies.push({ ...paint("bottom"), shapes: [{ from: pt(`leg${side}1`, -0.04), to: pt(`leg${side}1`, shortsTo), r: [thigh[0] + 3, r(thigh[0] + (thigh[1] - thigh[0]) * shortsTo + 3)] }] });
+    if (look.socks) bodies.push({ ...paint("socks"), strokeWidth: 2.4, shapes: [{ from: pt(`leg${side}2`, 0.8), to: pt(`leg${side}2`, 0.97), r: [r(shin[1] + 1.5), r(shin[1] + 2)] }] });
+  }
+  // Shoes: an upper from the heel to the toe on a sole, flat on the floor standing.
+  // (Never thinner than the ankle: thick limbs get bigger shoes.)
+  const k = Math.max(b.shoe, shin[1] / 9.5);
+  const v = (x: number, y: number, z: number): V3 => [r(x * k), r(y * k), r(z * k)];
+  for (const side of ["B", "F"] as const) {
+    const foot = `foot${side}`;
+    const sole = (key: string, h = 2.5, at = v(0, 10, 13)) => ({ ...paint(key), strokeWidth: 2.4, shapes: [{ from: pt(foot, 0, at), box: v(10, h, 25), round: r(Math.min(h, 2.5) * k) }] });
+    if (look.shoes === "flipflops" || look.shoes === "sandals") {
+      bodies.push(sole("shoes", 1.6, v(0, 10.5, 13)));
+      bodies.push({ ...paint("skin"), strokeWidth: 2.4, blend: 3, shapes: [{ from: pt(foot, 0, v(0, 2, -5)), to: pt(foot, 0, v(0, 4.5, 30)), r: [r(8 * k), r(6.5 * k)] }] });
+      bodies.push({ ...paint("shoes"), strokeWidth: 2, shapes: look.shoes === "flipflops"
+        ? [{ from: pt(foot, 0, v(-7, 2, 14)), to: pt(foot, 0, v(0, -1, 20)), r: r(2.6 * k) }, { from: pt(foot, 0, v(7, 2, 14)), to: pt(foot, 0, v(0, -1, 20)), r: r(2.6 * k) }]
+        : [-2, 12, 24].map((z) => ({ from: pt(foot, 0, v(-8, 2, z)), to: pt(foot, 0, v(8, 2, z)), r: r(3 * k) })) });
+    } else if (look.shoes === "heels") {
+      bodies.push({ ...paint("shoes"), strokeWidth: 2.4, blend: 3, shapes: [
+        { from: pt(foot, 0, v(0, -1, -5)), to: pt(foot, 0, v(0, 6, 30)), r: [r(9.5 * k), r(7 * k)] },
+        { from: pt(foot, 0, v(0, 6, -5)), box: v(3, 6, 3), round: r(1.5 * k) },
+      ] });
+    } else {
+      bodies.push(sole(look.shoes === "dress" ? "shoes" : "sole"));
+      bodies.push({ ...paint("shoes"), strokeWidth: 2.4, blend: 4, shapes: [{ from: pt(foot, 0, v(0, 1, -7)), to: pt(foot, 0, v(0, 3.5, 32)), r: [r(10.5 * k), r(9 * k)] }] });
+    }
+  }
+  if (skirted) {
+    // Cloth from the hips over both thighs (the torso drawing has its top), wider at the hem: an
+    // A-line standing, over the lap seated.
+    const long = look.bottom === "longSkirt";
+    // The cloth hugs the thighs (a valley between the knees) and ends just above them: seated,
+    // the knees show under the hem.
+    const kneeR = long ? thigh[1] + b.H * 0.16 : thigh[1] + 4;
+    bodies.push({ ...paint(look.top === "dress" ? "top" : "bottom"), blend: r(b.H * 0.25), shapes: [
+      { from: pt("legF1", 0, [0, -6, -4]), to: pt("legB1", 0, [0, -6, -4]), r: r(b.H * 0.62 * (1 + heavy * 0.15)) },
+      ...(["F", "B"] as const).flatMap((side) => [
+        { from: pt(`leg${side}1`, 0.05), to: pt(`leg${side}1`, long ? 1 : 0.86), r: [r(thigh[0] + 5), r(kneeR)] },
+        ...(long ? [{ from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.72), r: [r(kneeR), r(kneeR + b.H * 0.3)] }] : []),
+      ]),
+    ] });
+  }
+  return { id: "legs", type: "solid", step: 2, bodies };
+}
+
 export interface CartoonOptions { pitch?: number }
 
 export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): ToonDoc {
@@ -1043,8 +1053,6 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     }];
   })) as Record<ViewKey, Record<"ear" | "mouth" | "eye" | "top", P2>>;
   const art: Record<string, string> = {
-    shoe: shoeArt(look, b.shoe),
-    shoeFront: shoeFrontArt(look, b.shoe),
     ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.2, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
     ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.16, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
   };
@@ -1097,53 +1105,16 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "shadow", type: "rigid", bone: "ground", art: `<ellipse cx="4" cy="2" rx="${r(b.H * 1.6 + 20)}" ry="${r(8 + b.H * 0.08)}" fill="#000" opacity="0.18"/>` },
     ...(tail ? [{ id: "tailBack", type: "rigid", bone: "tail", art: "tailBack" }] : []),
     { id: "hairBack", type: "rigid", bone: "hair", art: "hairBack" },
-    // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
-    { id: "thighB", type: "hose", bones: ["legB1"], width: [r(b.leg[0] * 1.55), r(b.leg[0] * 1.22)], fill: bareLegs && !shorts ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    { id: "legB", type: "hose", bones: ["legB1", "legB2"], width: b.leg, fill: bareLegs ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    ...(look.socks ? [wrap("sockB", "legB2", j.kneeB, j.footB, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
-    { id: "shoeB", type: "switch", bone: "footB", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     { id: "armB", type: "hose", bones: ["armB1", "armB2"], width: b.arm, fill: longSleeves ? "palette(top2Shade)" : "palette(skinShade)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
     ...(look.watch ? [wrap("watchB", "armB2", j.elbowB, j.handB, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "l" } })] : []),
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
     ...(shortSleeves ? [sleeve("sleeveB", "armB1", j.shoulderB, j.elbowB, "palette(topShade)")] : []),
-    // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
-    { id: "thighF", type: "hose", bones: ["legF1"], width: [r(b.leg[0] * 1.55), r(b.leg[0] * 1.22)], fill: bareLegs && !shorts ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    // The hips (the seat of the trousers): a hull over both hip joints and the tops of the thighs,
-    // drawn over the legs' tops, so seated the lap is one mass from the hips, from any angle.
-    {
-      id: "pelvis", type: "hull", strokeWidth: SW, attrs: { "stroke-linejoin": "round" },
-      fill: look.top === "dress" ? "palette(top)" : bareLegs && !shorts && !skirted ? "palette(skin)" : "palette(bottom)",
-      stroke: look.top === "dress" ? "palette(topLine)" : bareLegs && !shorts && !skirted ? "palette(skinLine)" : "palette(bottomLine)",
-      points: (["F", "B"] as const).flatMap((side) => {
-        const hip = side === "F" ? j.hipF : j.hipB, knee = side === "F" ? j.kneeF : j.kneeB;
-        return [
-          { bone: `leg${side}1`, at: hip, r: r(b.H * 0.52 * (1 + (look.heavy ?? 0) * 0.15)) },
-          { bone: `leg${side}1`, at: [r(hip[0] + (knee[0] - hip[0]) * 0.38), r(hip[1] + (knee[1] - hip[1]) * 0.38)], r: r(b.leg[0] * 0.66 * (1 + (look.heavy ?? 0) * 0.35)) },
-        ];
-      }),
-    },
-    ...(look.socks ? [wrap("sockF", "legF2", j.kneeF, j.footF, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
-    { id: "shoeF", type: "switch", bone: "footF", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
-    // A skirt or a dress hangs from the waist over the knees (a hull over the posed points), so it
-    // drapes over the lap seated and swings with the legs, from any angle.
-    ...(skirted ? [{
-      id: "skirt", type: "hull", fill: look.top === "dress" ? "palette(top)" : "palette(bottom)", stroke: look.top === "dress" ? "palette(topLine)" : "palette(bottomLine)", strokeWidth: SW,
-      attrs: { "stroke-linejoin": "round" },
-      points: [
-        { bone: "hips", at: [0, r(m.y.waist + b.T * 0.04)], r: r(Math.max(b.W, b.H) * 1.06) },
-        ...(["F", "B"] as const).flatMap((side) => {
-          const knee = side === "F" ? j.kneeF : j.kneeB, foot = side === "F" ? j.footF : j.footB;
-          const hem = look.bottom === "longSkirt" ? 0.72 : 0.12;
-          return [
-            { bone: `leg${side}1`, at: knee, r: r(b.leg[0] * 0.95 + b.H * 0.15) },
-            { bone: `leg${side}2`, at: [r(knee[0] + (foot[0] - knee[0]) * hem), r(knee[1] + (foot[1] - knee[1]) * hem)], r: r(b.leg[0] * 0.9 + b.H * (look.bottom === "longSkirt" ? 0.45 : 0.25)) },
-          ];
-        }),
-      ],
-    }] : []),
+    // The legs, the hips and a skirt: volumes on the 3D skeleton, drawn from the view every frame
+    // (cel shaded, a knee over its shin, one thigh over the other), over the torso only where they
+    // are nearer than it.
+    legsSolid(m, look, j),
     { id: "earsBack", type: "rigid", bone: "head", art: "earsBack" },
     { id: "head", type: "rigid", bone: "head", art: "head" },
     { id: "nose", type: "rigid", bone: "head", art: "nose" },
@@ -1260,12 +1231,13 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
         armB1: { from: j3.shoulderB, to: j3.elbowB }, armB2: { from: j3.elbowB, to: j3.handB },
         legF1: { from: j3.hipF, to: j3.kneeF }, legF2: { from: j3.kneeF, to: j3.footF },
         legB1: { from: j3.hipB, to: j3.kneeB }, legB2: { from: j3.kneeB, to: j3.footB },
+        // The feet point forward (level: they turn with the body, not the shin).
+        footF: { from: j3.footF, to: [j3.footF[0], j3.footF[1], r(34 * b.shoe)] },
+        footB: { from: j3.footB, to: [j3.footB[0], j3.footB[1], r(34 * b.shoe)] },
       },
       views: Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, r((VIEWS[v] * 180) / Math.PI)])),
       pitch: opts.pitch ?? 0,
       chains: [
-        { bones: ["legB1", "legB2"], parts: ["thighB", "legB", "sockB", "shoeB"] },
-        { bones: ["legF1", "legF2"], parts: ["thighF", "legF", "pelvis", "sockF", "shoeF", "skirt"] },
         { bones: ["armF1", "armF2"], parts: ["armF", "watch", "handF", "sleeveF"] },
         { bones: ["armB1", "armB2"], parts: ["armB", "watchB", "handB", "sleeveB"] },
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
@@ -1338,10 +1310,11 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     const s = SUFFIX[v];
     const before = (id: string, part: Record<string, unknown>) => ({ before: id, part });
     const list = [
-      ...(tail ? [before("legB", { id: `tailBack${s}`, type: "rigid", bone: "tail", art: `tailBack${s}` })] : []),
-      before("legB", { id: `hairBack${s}`, type: "rigid", bone: "hair", art: `hairBack${s}` }),
-      before("armF", { id: `neck${s}`, type: "rigid", bone: "neck", art: `neck${s}` }),
-      before("armF", { id: `torso${s}`, type: "rigid", bone: "body", art: `torso${s}` }),
+      ...(tail ? [before("armB", { id: `tailBack${s}`, type: "rigid", bone: "tail", art: `tailBack${s}` })] : []),
+      before("armB", { id: `hairBack${s}`, type: "rigid", bone: "hair", art: `hairBack${s}` }),
+      // The torso under the legs' solid (it is drawn over the torso where the legs are nearer).
+      before("legs", { id: `neck${s}`, type: "rigid", bone: "neck", art: `neck${s}` }),
+      before("legs", { id: `torso${s}`, type: "rigid", bone: "body", art: `torso${s}` }),
       before("armF", { id: `earsBack${s}`, type: "rigid", bone: "head", art: `earsBack${s}` }),
       before("armF", { id: `head${s}`, type: "rigid", bone: "head", art: `head${s}` }),
       before("armF", { id: `nose${s}`, type: "rigid", bone: "head", art: `nose${s}` }),
@@ -1385,8 +1358,6 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     hide: Object.fromEntries(others.map((v) => [v, face])),
     parts: Object.fromEntries(others.map((v) => [v, viewParts(v)])),
     move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v], v)])),
-    // Seen from the front or from behind, the shoes point at (or away from) the camera.
-    extra: Object.fromEntries(others.filter((v) => v !== "side").map((v) => [v, { "parts.shoeF.variant": "front", "parts.shoeB.variant": "front" }])),
     mouths: ["teeth", "tongue", ...others.filter((v) => views[v].face.visible).flatMap((v) => ["mouth", "teeth", "tongue"].map((k) => `${k}${SUFFIX[v]}`))],
     order: Object.keys(VIEWS),
   };

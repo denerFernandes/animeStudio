@@ -1,6 +1,7 @@
 import { type Mat, type Vec2, apply, formatNumber, isIdentity, matToString, multiply } from "./math";
 import { type CubicPath, hoseOutline, pathPoints, pathToString, withPoints } from "./paths";
 import { type EvaluatedPose, currentVariant } from "./pose";
+import { drawSolid } from "./solid";
 import { type PathStyle, type Rig, type RigPart, namespaceIds } from "./rig";
 
 /** Framework-agnostic render tree, consumed by the React and string renderers. */
@@ -98,6 +99,12 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
         }
       }
       return { kind: "path", key, opacity: op, d: hullPath(pts), attrs: styleAttrs(part.style) };
+    }
+    case "solid": {
+      if (!rig.rig3d || !pose.frame3d) return null;
+      const paths = drawSolid(part.bodies, part.step, rig.rig3d, pose.frame3d);
+      if (!paths.length) return null;
+      return { kind: "group", key, opacity: op, children: paths.map((p, i) => ({ kind: "path", key: `${key}.${i}`, d: p.d, attrs: p.attrs })) };
     }
     case "morph": {
       const weights = s.morph[part.index];

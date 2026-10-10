@@ -5,6 +5,11 @@ import {
   apply,
   bakePhysics,
   compileRig,
+  drawSolid,
+  makeTrack,
+  nodeToString,
+  renderCharacter,
+  resolveChannel,
   compileScene,
   cuesFromText,
   evaluatePose,
@@ -398,3 +403,69 @@ describe("riding (mount + reach)", () => {
     expect(() => compileScene(bad2, { characters: { stick, bike: bike as never } })).toThrow(/no anchor "saddle"/);
   });
 });
+
+describe("solids", () => {
+  // A leg on a 2.5D rig: a thigh and a shin as a solid, a torso drawn flat with an occluder for it.
+  const doc = {
+    format: "toon", version: 1, name: "leg",
+    skeleton: [
+      { id: "root" },
+      { id: "body", parent: "root", from: [0, -100], to: [0, -200] },
+      { id: "thigh", parent: "body", from: [0, -100], to: [0, -50] },
+      { id: "shin", parent: "thigh", from: [0, -50], to: [0, 0] },
+    ],
+    parts: [
+      { id: "torso", type: "rigid", bone: "body", art: `<rect x="-30" y="-200" width="60" height="100" fill="#00f"/>` },
+      {
+        id: "leg", type: "solid", step: 2,
+        bodies: [
+          { shapes: [{ from: { bone: "body", t: 0.5 }, box: [25, 45, 15] }] },
+          { fill: "#fc0", shade: "#a80", stroke: "#530", strokeWidth: 2, blend: 4, shapes: [{ from: { bone: "thigh" }, to: { bone: "thigh", t: 1 }, r: [12, 9] }, { from: { bone: "shin" }, to: { bone: "shin", t: 1 }, r: [9, 7] }] },
+        ],
+      },
+    ],
+    rig3d: {
+      bones: { body: { from: [0, -100, 0], to: [0, -200, 0] }, thigh: { from: [0, -100, 0], to: [0, -50, 0] }, shin: { from: [0, -50, 0], to: [0, 0, 0] } },
+      views: { front: 0, side: 90 },
+    },
+  };
+  const rig = compileRig(doc as never);
+  const pose = (view: string) => evaluatePose(rig, { controls: { view } } as never);
+  it("draws its bodies from the 3D pose: a fill, a cel shadow and an outline", () => {
+    const p = pose("front");
+    expect(p.frame3d).toBeDefined();
+    const nodes = (renderCharacterNodes(rig, p));
+    expect(nodes).toMatch(/fill="#fc0"/);
+    expect(nodes).toMatch(/fill="#a80"/);
+    expect(nodes).toMatch(/stroke="#530"/);
+  });
+  it("needs a rig3d, and bones of it", () => {
+    const flat = { ...doc, rig3d: undefined };
+    expect(() => compileRig(flat as never)).toThrow(/needs a rig3d/);
+    const bad = { ...doc, rig3d: { ...doc.rig3d, bones: { body: doc.rig3d.bones.body, thigh: doc.rig3d.bones.thigh } } };
+    expect(() => compileRig(bad as never)).toThrow(/not a rig3d bone/);
+  });
+  it("hides what the occluder covers: a thigh pointing at the camera shows only in front of the torso", () => {
+    const sit = evaluatePose(rig, { time: 0, tracks: [
+      { channel: "controls.view", ref: { kind: "control", name: "view" }, track: makeTrack([{ t: 0, v: "front" }]) },
+      { channel: "bones.thigh.rotation", ref: resolveChannel(rig, "bones.thigh.rotation"), track: makeTrack([{ t: 0, v: -90 }]) },
+      { channel: "bones.shin.rotation", ref: resolveChannel(rig, "bones.shin.rotation"), track: makeTrack([{ t: 0, v: 90 }]) },
+    ] } as never);
+    const part = rig.parts.find((q) => q.id === "leg")! as Extract<(typeof rig.parts)[number], { type: "solid" }>;
+    const paths = drawSolid(part.bodies, part.step, rig.rig3d!, sit.frame3d!);
+    expect(paths.length).toBeGreaterThan(0);
+    // The same pose again comes from the cache (the same objects).
+    expect(drawSolid(part.bodies, part.step, rig.rig3d!, sit.frame3d!)).toBe(paths);
+    // Seen from the side the thigh is level, from the front it is foreshortened: a shorter drawing.
+    const height = (ps: { d: string }[]) => {
+      const ys = [...ps[0].d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => Number(m[2]));
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    const stand = drawSolid(part.bodies, part.step, rig.rig3d!, pose("front").frame3d!);
+    expect(height(paths)).toBeLessThan(height(stand) * 0.75);
+  });
+});
+
+function renderCharacterNodes(rig: ReturnType<typeof compileRig>, p: ReturnType<typeof evaluatePose>) {
+  return renderCharacter(rig, p).map(nodeToString).join("");
+}

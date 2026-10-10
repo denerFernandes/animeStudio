@@ -133,6 +133,7 @@ part shows one of these variants; `and: { part, variant }` adds a second conditi
 | `skinned` | Path whose points are deformed by several bones (bending limbs) | `path`, `bones`, `weights?`, `falloff`, style |
 | `hose` | Procedural "rubber hose" limb through a bone chain | `bones`, `width`, `cap`, `smooth`, style |
 | `hull` | A soft shape stretched over points of the skeleton: the rounded convex hull of circles (a skirt over the waist and the knees, a cape) | `points: [{ bone, at, r }]` (setup space), style |
+| `solid` | Volumes on the bones of a 2.5D rig, drawn from the view every frame: cel shaded, composited per pixel by depth (legs, a lap, a skirt) | `bodies: [{ fill?, shade?, stroke?, strokeWidth?, blend?, shapes }]`, `step?` |
 | `morph` | Blend shapes on a path (expressions, squish) | `bone`, `base`, `shapes: {name → path}`, `space`, style |
 
 Style fields (for path-based parts): `fill`, `stroke`, `strokeWidth`, `attrs` (extra SVG
@@ -151,6 +152,30 @@ one entry per bone.
 smoothed with Catmull-Rom (`smooth`, 0..1, default 1). `width` is a number, `[start, end]`,
 or one value per joint, scaled with the first bone's scale but not its squash (a squashed,
 foreshortened thigh does not thin the limb). `cap`: `"round"` (default) or `"butt"`.
+
+**`solid`** — needs a `rig3d`; every bone it names must be a 3D bone. Each body is a smooth union
+(`blend`: over this distance) of shapes: a cone `{ from, to, r }` between two points of the skeleton
+(`r` a radius or `[at from, at to]`; no `to`: a sphere) or a rounded box `{ from, box: [hx, hy, hz],
+round? }` turned with its bone. A point is `{ bone, t?, at? }`: along the 3D bone (`t`: 0 = its
+joint, 1 = its tip) plus an offset `[x, y, z]` in body space at rest, turned with the bone. Every
+frame the shapes are posed and seen from the view, ray cast on a grid of `step` units (default 2)
+and composited per cell by depth: the nearest body wins and is outlined where it passes in front of
+another (a knee over its shin, a thigh over the other). A body is drawn as its `fill`, a `shade`
+(the side turned away from the light, upper left) and a `stroke` outline. A body without a `fill`
+is an **occluder**: it hides the bodies behind it and draws nothing, so what was drawn before the
+solid shows through. Put the solid after a flat drawing of the torso with an occluder roughly inside
+it (a little smaller: a larger one would cut holes): the legs are drawn over the torso only where
+they are nearer (a lap facing the camera), and hidden behind a body turned away. A held pose is
+drawn once (cached).
+
+```json
+{ "id": "legs", "type": "solid", "bodies": [
+  { "shapes": [{ "from": { "bone": "body", "at": [0, -70, 0] }, "box": [40, 75, 28], "round": 14 }] },
+  { "fill": "palette(skin)", "shade": "palette(skinShade)", "stroke": "palette(skinLine)", "strokeWidth": 2.8, "blend": 5,
+    "shapes": [{ "from": { "bone": "legF1" }, "to": { "bone": "legF1", "t": 1 }, "r": [19, 14] },
+               { "from": { "bone": "legF2" }, "to": { "bone": "legF2", "t": 0.97 }, "r": [12, 10] }] }
+] }
+```
 
 **`morph`** — every shape must describe the same figure; paths are normalized to cubic Béziers
 and resampled to matching segment counts. Result = `base + Σ weightᵢ · (shapeᵢ − base)`.
@@ -197,7 +222,9 @@ z towards the viewer). Every frame, before IK, the bones are posed in 3D — a b
 it about the body's sideways axis (the plane of a side view: what a clip authored in profile means),
 `turn` about the vertical axis, `spread` about the forward axis — and projected with the yaw of the
 current `view` (`views`, degrees: 0 faces the camera) and `pitch`; the 2D bones are set to match
-(place, direction, foreshortening as a squash). Leg IK (feet planted while walking) is solved in the
+(place, direction, and for the chains' bones — limbs — foreshortening as a squash; a torso or a
+head is a drawing of a volume and is never squashed). A bone that does not inherit its parent's
+rotation (`inheritRotation: false`: a foot staying level) turns with the body, not its parent. Leg IK (feet planted while walking) is solved in the
 side plane first, so walks foreshorten from the front. Limbs (`chains`) clearly nearer than the body
 are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
 clearly farther ones just after the `back` part.

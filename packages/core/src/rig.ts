@@ -1,4 +1,5 @@
 import { type CompiledRig3d, compileRig3d } from "./pose3d";
+import type { SolidBody, SolidShape } from "./solid";
 import type {
   BehaviorDef,
   ControlDef,
@@ -87,6 +88,7 @@ export type RigPart =
     })
   | (RigPartBase & { type: "hose"; bones: number[]; widths: number[]; cap: "round" | "butt"; smooth: number; style: PathStyle })
   | (RigPartBase & { type: "hull"; points: { bone: number; at: Vec2; r: number }[]; style: PathStyle })
+  | (RigPartBase & { type: "solid"; step: number; bodies: SolidBody[] })
   | (RigPartBase & {
       type: "morph";
       bone: number;
@@ -489,6 +491,22 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
       }
       case "hull":
         return { ...base, type: "hull", points: def.points.map((q) => ({ bone: boneRef(q.bone, path), at: q.at as Vec2, r: q.r })), style: style(def) };
+      case "solid": {
+        const pt = (q: { bone: string; t?: number; at?: [number, number, number] }) => ({ bone: boneRef(q.bone, path), t: q.t ?? 0, at: q.at ?? ([0, 0, 0] as [number, number, number]) });
+        const bodies: SolidBody[] = def.bodies.map((bd) => ({
+          fill: color(bd.fill),
+          shade: color(bd.shade),
+          stroke: color(bd.stroke),
+          strokeWidth: bd.strokeWidth ?? 0,
+          blend: bd.blend ?? 0,
+          shapes: bd.shapes.map((sh): SolidShape => {
+            if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box) };
+            const r = sh.r ?? 0;
+            return { kind: "cone", from: pt(sh.from), to: pt(sh.to ?? sh.from), r: typeof r === "number" ? [r, r] : r };
+          }),
+        }));
+        return { ...base, type: "solid", step: def.step ?? 2, bodies };
+      }
       case "hose": {
         const hb = def.bones.map((b) => boneRef(b, path));
         return {
@@ -670,6 +688,17 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
 
   const colliders = (doc.colliders ?? []).map((c, i) => ({ bone: boneRef(c.bone, `colliders[${i}]`), radius: c.radius }));
 
+  const rig3d = doc.rig3d ? compileRig3d({ bones, boneIndex, partIndex }, doc.rig3d as never) : undefined;
+  // Solids are posed by the 3D skeleton: their bones must be 3D bones.
+  for (const p of parts) {
+    if (p.type !== "solid") continue;
+    if (!rig3d) throw new RigError(`solid part "${p.id}" needs a rig3d (its shapes are posed in 3D)`, `parts.${p.id}`);
+    for (const b of p.bodies)
+      for (const sh of b.shapes)
+        for (const q of sh.kind === "cone" ? [sh.from, sh.to] : [sh.at])
+          if (!rig3d.byIndex.has(q.bone)) throw new RigError(`solid part "${p.id}": bone "${bones[q.bone].id}" is not a rig3d bone`, `parts.${p.id}`);
+  }
+
   return {
     name: doc.name,
     doc,
@@ -679,7 +708,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
     parts,
     partIndex,
     drawOrder,
-    ...(doc.rig3d ? { rig3d: compileRig3d({ bones, boneIndex, partIndex }, doc.rig3d as never) } : {}),
+    ...(rig3d ? { rig3d } : {}),
     anchors,
     ik,
     physics,

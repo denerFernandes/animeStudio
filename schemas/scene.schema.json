@@ -292,6 +292,17 @@
               "description": "Keep shading this many scene px inside the silhouette edge, so outlines stay crisp (default 3.5)",
               "type": "number",
               "minimum": 0
+            },
+            "crowd": {
+              "description": "With more lit actors than this on screen, only the shadow crescent is drawn (no rim light): half the cost in crowd shots",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "minHeight": {
+              "description": "Actors shorter than this on screen (px) get no shading (default 90: too small to see it)",
+              "type": "number",
+              "minimum": 0
             }
           },
           "additionalProperties": false
@@ -1340,6 +1351,173 @@
               },
               "action": {
                 "type": "string",
+                "const": "mount"
+              },
+              "on": {
+                "description": "Actor to ride (a bicycle, a horse…): this actor follows its anchor, rotation and facing; null gets off",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "anchor": {
+                "description": "Anchor of the ridden actor that carries this one (default \"seat\")",
+                "type": "string"
+              },
+              "point": {
+                "description": "Point of this actor (character space, e.g. the hip joint) placed on the anchor (default the origin)",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "duration": {
+                "description": "Blend from the previous placement (default 0.3 s)",
+                "type": "number",
+                "minimum": 0
+              },
+              "behind": {
+                "description": "Parts of this actor drawn just behind the ridden actor (e.g. the far leg behind a bicycle's frame)",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "on"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "reach"
+              },
+              "chain": {
+                "type": "string",
+                "description": "IK chain id (e.g. footF, handF)"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "actor": {
+                        "type": "string"
+                      },
+                      "anchor": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "actor",
+                      "anchor"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "prop": {
+                        "type": "string"
+                      },
+                      "point": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "[x, y]"
+                      },
+                      "from": {
+                        "description": "Where the forearm comes from at that point, degrees in the reaching actor's frame (0 = forward, 90 = from below): the elbow goes there, the upper arm foreshortened if needed",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "prop",
+                      "point"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[x, y]"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Anchor of another actor (followed every frame: pedals, handlebar), a point of a prop (its grip, even one fitted to this actor's own body), a scene point, or null to let go"
+              },
+              "duration": {
+                "description": "Blend in/out (default 0.3 s)",
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action",
+              "chain",
+              "target"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
                 "const": "lookAt"
               },
               "target": {
@@ -1475,6 +1653,74 @@
               },
               "anchor": {
                 "type": "string"
+              },
+              "fit": {
+                "description": "Fit the prop to the body: its first point on the first anchor, turned so its second point points at the second anchor (a phone: ear on the ear, mouthpiece towards the mouth) or in a direction (`angle`: a bottle's bottom up and forward); one point keeps the prop turning with that anchor's bone",
+                "minItems": 1,
+                "maxItems": 2,
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "point": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "description": "A point of the prop's art"
+                        },
+                        "anchor": {
+                          "type": "string",
+                          "description": "An anchor of the actor"
+                        }
+                      },
+                      "required": [
+                        "point",
+                        "anchor"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "point": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "description": "[x, y]"
+                        },
+                        "angle": {
+                          "type": "number",
+                          "description": "Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone"
+                        }
+                      },
+                      "required": [
+                        "point",
+                        "angle"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
               }
             },
             "required": [
@@ -1714,6 +1960,14 @@
                 "type": "number",
                 "minimum": 0
               },
+              "on": {
+                "description": "frame: what to keep in shot — whole bodies (default) or faces (the posed \"face\" anchor, else \"head\": close-ups that follow a sitting or moving character)",
+                "type": "string",
+                "enum": [
+                  "body",
+                  "face"
+                ]
+              },
               "minZoom": {
                 "type": "number",
                 "exclusiveMinimum": 0
@@ -1721,6 +1975,21 @@
               "maxZoom": {
                 "type": "number",
                 "exclusiveMinimum": 0
+              },
+              "band": {
+                "description": "frame: fixed vertical extent [top, bottom] (scene y): the targets are framed horizontally only, so a jump or a flight does not move the camera up and down",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
               },
               "blend": {
                 "description": "follow/frame: transition time in and out (default 0.6 s)",
@@ -1896,7 +2165,15 @@
                   "gloom",
                   "notes",
                   "stars",
-                  "lightbulb"
+                  "lightbulb",
+                  "birds",
+                  "focusLines",
+                  "speedLines",
+                  "impactFrame",
+                  "burst",
+                  "aura",
+                  "ghost",
+                  "caption"
                 ],
                 "description": "Cartoon effect"
               },
@@ -1946,6 +2223,24 @@
               "fill": {
                 "description": "Secondary color (drops, hearts, sparkles…)",
                 "type": "string"
+              },
+              "text": {
+                "description": "caption: the text",
+                "type": "string"
+              },
+              "style": {
+                "description": "caption: title | impact | ko | place",
+                "type": "string",
+                "enum": [
+                  "title",
+                  "impact",
+                  "ko",
+                  "place"
+                ]
+              },
+              "angle": {
+                "description": "speedLines: direction of travel in degrees (0 = to the right)",
+                "type": "number"
               }
             },
             "required": [

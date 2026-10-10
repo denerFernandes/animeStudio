@@ -1776,6 +1776,9 @@ class BlockScene {
     const dir = this.facing(id, this.t0) ? 1 : -1;
     return [this.xAt(id, this.t0) + at[0] * s * dir, this.furnitureOf.get(id)!.y + at[1] * s];
   }
+  private hasBone(actor: string, id: string) {
+    return !!(this.kit.characters[this.characterOf(actor)] as { skeleton?: { id: string }[] } | undefined)?.skeleton?.some((b) => b.id === id);
+  }
   private hasChain(actor: string, chain: string) {
     return ((this.kit.characters[this.characterOf(actor)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
   }
@@ -1945,17 +1948,19 @@ class BlockScene {
       if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 0, at, 0.3);
     }
     if (how.legs === "crossed") {
-      // The far thigh over the near knee, its shin hanging across.
+      // The far thigh over the near knee, its shin hanging in front of the other one.
       set("bones.legB1.rotation", -104 - up);
-      set("bones.legB1.turn", -26);
-      set("bones.legB2.rotation", 62 + up);
+      set("bones.legB1.turn", -28);
+      set("bones.legB2.rotation", 80 + up);
     }
     set("bones.body.rotation", 4);
-    // Hands on the knees (forearms forward along the thighs) or in the lap.
+    // Hands on the knees (forearms forward along the thighs) or in the lap (elbows back, forearms
+    // down onto the thighs, turned in).
     const lap = how.hands === "lap" || how.legs === "crossed";
     for (const side of ["F", "B"]) {
-      set(`bones.arm${side}1.rotation`, lap ? -10 : -20);
-      set(`bones.arm${side}2.rotation`, lap ? -88 : -80);
+      set(`bones.arm${side}1.rotation`, lap ? 18 : -20);
+      set(`bones.arm${side}2.rotation`, lap ? -100 : -80);
+      set(`bones.arm${side}2.turn`, lap ? (side === "F" ? 25 : -25) : 0);
       set(`bones.arm${side}1.spread`, side === "F" ? 6 : -6);
     }
   }
@@ -1988,6 +1993,8 @@ class BlockScene {
         set(`bones.leg${side}1.rotation`, -86);
         set(`bones.leg${side}1.spread`, out(side) * 6);
         set(`bones.leg${side}2.rotation`, 4);
+        // Toes up (a foot stays level with the body unless turned).
+        if (this.hasBone(actor, `foot${side}`)) set(`bones.foot${side}.rotation`, -70);
         // Leaning back on the hands, behind the hips.
         set(`bones.arm${side}1.rotation`, 38);
         set(`bones.arm${side}2.rotation`, -8);
@@ -2005,6 +2012,8 @@ class BlockScene {
         set(`bones.${b}.spread`, 0);
       }
       set(`bones.arm${side}1.spread`, 0);
+      set(`bones.arm${side}2.turn`, 0);
+      if (this.hasBone(actor, `foot${side}`)) set(`bones.foot${side}.rotation`, 0);
       if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 1, at + 0.3, 0.3);
     }
     set("bones.body.rotation", 0);

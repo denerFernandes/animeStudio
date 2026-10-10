@@ -134,6 +134,40 @@ export const HullPartSchema = z.strictObject({
     .min(2),
 }).describe("A soft shape stretched over points of the skeleton (the rounded convex hull of circles): a skirt over the waist and the knees, a cape, a belly");
 
+const SolidPointSchema = z.strictObject({
+  bone: z.string().describe("A bone of the rig3d"),
+  t: z.number().optional().describe("Along the 3D bone: 0 = its joint (default), 1 = its tip"),
+  at: z.tuple([z.number(), z.number(), z.number()]).optional().describe("Offset [x, y, z] in body space (rest pose), turned with the bone"),
+});
+
+export const SolidShapeSchema = z
+  .strictObject({
+    from: SolidPointSchema,
+    to: SolidPointSchema.optional().describe("The other end of a cone (none: a sphere)"),
+    r: z.union([z.number().min(0), z.tuple([z.number().min(0), z.number().min(0)])]).optional().describe("Radius, or [at from, at to]"),
+    box: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("A box of these half sizes [x, y, z] centred on `from`, turned with its bone"),
+    round: z.number().min(0).optional().describe("Rounding of a box's edges"),
+  })
+  .describe("A cone between two points of the skeleton (a sphere without `to`), or a rounded box");
+
+export const SolidPartSchema = z.strictObject({
+  ...PartBase,
+  type: z.literal("solid"),
+  step: z.number().positive().optional().describe("Grid size of the drawing in character units (default 2)"),
+  bodies: z
+    .array(
+      z.strictObject({
+        fill: z.string().optional().describe("No fill: an occluder (hides the bodies behind it, draws nothing)"),
+        shade: z.string().optional().describe("Colour of the side turned away from the light"),
+        stroke: z.string().optional(),
+        strokeWidth: z.number().min(0).optional(),
+        blend: z.number().min(0).optional().describe("Smooth union of the shapes over this distance"),
+        shapes: z.array(SolidShapeSchema).min(1),
+      }),
+    )
+    .min(1),
+}).describe("Volumes on the bones of a 2.5D rig (rig3d), drawn each frame from the view: cel shaded, composited per pixel by depth (legs, a lap, a skirt)");
+
 export const MorphPartSchema = z.strictObject({
   ...PartBase,
   ...PathStyle,
@@ -150,6 +184,7 @@ export const PartSchema = z.discriminatedUnion("type", [
   SkinnedPartSchema,
   HosePartSchema,
   HullPartSchema,
+  SolidPartSchema,
   MorphPartSchema,
 ]);
 

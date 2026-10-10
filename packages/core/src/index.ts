@@ -7,6 +7,8 @@ export * from "./paths";
 export * from "./rig";
 export * from "./pose";
 export * from "./pose3d";
+export * from "./field";
+export * from "./solid";
 export * from "./physics";
 export * from "./render";
 export * from "./lipsync";

@@ -372,6 +372,8 @@ export interface EvaluatedPose {
   world: Mat[];
   /** This frame's draw order when it differs from the rig's (2.5D rigs: limbs in front of the body). */
   drawOrder?: RigPart[];
+  /** The 2.5D projection of this frame (posed 3D bones and the view): solids are drawn from it. */
+  frame3d?: Rig3dFrame;
 }
 
 /**
@@ -542,7 +544,7 @@ export function evaluatePose(
     }
   }
 
-  return { state: s, world, ...(frame3d ? { drawOrder: rig3dDrawOrder(rig, rig.rig3d!, frame3d) } : {}) };
+  return { state: s, world, ...(frame3d ? { drawOrder: rig3dDrawOrder(rig, rig.rig3d!, frame3d), frame3d } : {}) };
 }
 
 // ---------------------------------------------------------------------------

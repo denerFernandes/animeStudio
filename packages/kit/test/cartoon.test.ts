@@ -57,7 +57,7 @@ describe("sitcom characters", () => {
     expect(info.height).toBeGreaterThan(380);
     expect(info.legLength!.F).toBeGreaterThan(150);
   });
-  it("poses in 3D: a seated pose reads from every angle, the skirt drapes over the knees", () => {
+  it("poses in 3D: a seated pose reads from every angle, the legs are a solid", () => {
     const lady = cartoonCharacter({ ...kid, name: "lady", bottom: "skirt" }, { pitch: 18 });
     const rig = compileRig(lady);
     const seated = (view: string) => {
@@ -74,15 +74,19 @@ describe("sitcom characters", () => {
     expect(knee("side")[0] - hip("side")[0]).toBeGreaterThan(60);
     expect(Math.abs(knee("front")[0] - hip("front")[0])).toBeLessThan(15);
     expect(knee("front")[1] - hip("front")[1]).toBeLessThan(60);
-    // The thigh comes in front of the body when it points at the camera.
-    const order = seated("front").drawOrder!.map((p) => p.id);
-    expect(order.indexOf("thighF")).toBeGreaterThan(order.indexOf("torsoF"));
-    const skirt = (lady.parts as { id: string; type: string }[]).find((p) => p.id === "skirt")!;
-    expect(skirt.type).toBe("hull");
+    // The legs are a solid drawn over the torso (where they are nearer than it: an occluder), the
+    // skirt one of its bodies.
+    const order = (seated("front").drawOrder ?? rig.drawOrder).map((p) => p.id);
+    expect(order.indexOf("legs")).toBeGreaterThan(order.indexOf("torsoF"));
+    const legs = (lady.parts as { id: string; type: string; bodies: { fill?: string }[] }[]).find((p) => p.id === "legs")!;
+    expect(legs.type).toBe("solid");
+    expect(legs.bodies[0].fill).toBeUndefined();
+    expect(legs.bodies.some((b) => b.fill === "palette(bottom)")).toBe(true);
     expect((lady.anchors as Record<string, { turn?: number }>).hand.turn).toBe(1);
-    // Shoes point at the camera from the front.
-    const front = (lady.controls as Record<string, { poses: Record<string, Record<string, unknown>> }>).view.poses.front;
-    expect(front["parts.shoeF.variant"]).toBe("front");
+    // Shoes are volumes on 3D feet (level: turning with the body, not the shin).
+    expect((lady.rig3d as { bones: Record<string, unknown> }).bones.footF).toBeDefined();
+    const w = (v: string, b: string) => seated(v).world[rig.boneIndex.get(b)!];
+    expect(Math.abs(Math.atan2(w("side", "footF")[1], w("side", "footF")[0]))).toBeLessThan(0.3);
   });
   it("gives every colour a shadow tone and a line tone", () => {
     const p = doc.palette as Record<string, string>;
