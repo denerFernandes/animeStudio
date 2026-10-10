@@ -291,6 +291,33 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
   return [...fills, ...lines];
 }
 
+/**
+ * Depth (view space) of the nearest surface of a solid's occluders (bodies without a fill) at a
+ * point of the character's picture, or −Infinity where none is: whether something there is hidden
+ * by the body.
+ */
+export function occluderDepthAt(bodies: SolidBody[], r3: CompiledRig3d, frame: Rig3dFrame, x: number, y: number): number {
+  let best = -Infinity;
+  for (const b of bodies) {
+    if (b.fill) continue;
+    const shapes = poseShapes(b, r3, frame);
+    if (!shapes.length) continue;
+    const bounds = shapes.map(shapeBounds);
+    if (!bounds.some((q) => x >= q[0] && x <= q[2] && y >= q[1] && y <= q[3])) continue;
+    const f = bodySdf(shapes, b.blend);
+    const z1 = Math.max(...bounds.map((q) => q[5])), z0 = Math.min(...bounds.map((q) => q[4]));
+    for (let z = z1; z > z0; ) {
+      const d = f(x, y, z);
+      if (d <= 0) {
+        best = Math.max(best, z);
+        break;
+      }
+      z -= Math.max(0.5, d * 0.9);
+    }
+  }
+  return best;
+}
+
 /** The screen box of a solid this frame (for tests and debugging). */
 export function solidBounds(bodies: SolidBody[], r3: CompiledRig3d, frame: Rig3dFrame): [number, number, number, number] {
   const b = bodies.flatMap((x) => poseShapes(x, r3, frame).map(shapeBounds));

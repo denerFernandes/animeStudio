@@ -2059,6 +2059,10 @@
                 "description": "How much nearer or farther than the body to move (default 25)",
                 "type": "number",
                 "minimum": 0
+              },
+              "behind": {
+                "description": "A solid part: drawn behind the body when the last bone's tip is hidden by that solid's occluders (a hand behind the hips)",
+                "type": "string"
               }
             },
             "required": [
@@ -2081,6 +2085,61 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "keepOut": {
+          "description": "Ellipsoids on bones (offset from the joint, body space; radii) a reached hand never goes into: the torso, the head",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bone": {
+                "type": "string"
+              },
+              "at": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "radii": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "bone",
+              "at",
+              "radii"
+            ],
+            "additionalProperties": false
           }
         },
         "points": {

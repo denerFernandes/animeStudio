@@ -120,6 +120,7 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `fx` | `type`, `who`, `prop` (following it), or `at` (a mark or a scene point `[x, y]`), `scale?` | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
 | (2.5D rigs) | | The `phone`, `smoke` and `drink` gestures with a held prop bring the near hand up in 3D to the ear or the mouth (no 2D clip: its arm swing would go round the front), the 2D reach only placing the grip |
+| `cradle` | `who` (the adult), `target` (a baby: a small rig), `until?` | Holds the little one in both arms in front of the belly (arms reached in 3D; the baby sits on them, drawn in front), until `until`, then puts them down |
 | `take` | `who`, `prop` (hung on `who` by `use … hands: false`) | 2.5D rigs: the near hand goes to where it hangs (the mouth: `rig3d.points`), takes it by its `grip` (else a third of the way along it) and brings it in front of the chest (`points.chest`), standing up between the fingers — the arm reached in 3D, so it never crosses the body, sitting (sofa, floor) or standing |
 | `hold` | `who`, `prop`, `until?` | With a prop: held up in front of the chest (taken from the body first if it hangs there) until `until`, then the arm goes back to where it rests |
 | `putBack` | `who`, `prop` | The prop back where it hung (the same fit as its `use … hands: false`), the hand lets go and the arm goes back to rest (the knees, the floor behind, hanging) |
@@ -278,6 +279,20 @@ tracking band, colour fringes, ◀◀ REW), until `until`; then the live action 
 A cut with `insert: "<block>"` shows an insert block in step with the lines: a block with
 `insert: true` is built on the same lines as the others but is not part of the live action — a
 montage between verses (icons, a logo, another place), shown only where a cut puts it.
+
+### Photo albums
+
+A block's `album` lies open in its set: `{ id, at: [x, y] (the spine's middle), page: [w, h],
+spreads: [{ left?, right? }] (the first left is the inside of the cover), cover (a kit.graphics name
+or SVG markup over a right page's area), binding? (colour, default brown leather), flips?: [When…],
+close?: When, turn? (s, 0.7) }`. A side has `photos` and `notes` (handwritten text on the page). A
+photo is a moment of another block (an `insert: true` block staged for it, any set and cast):
+`{ id?, block, at: When, place: [x, y] (on the page), size: [w, h], frame: "print" | "polaroid",
+age: 0…1, look?: "faded" | "sepia" | "flash" | "plain", caption?, rotation?, crop? }` — drawn as
+that block's camera saw it, cropped, aged, on paper with photo corners or as a Polaroid, the caption
+handwritten. Each `flip` turns a page (the right side narrows to the spine, the next left side opens
+out from it: the `page` sound); `close` folds the left side over and shows the cover (`close`
+sound). `camera` `{ type: "on", who: <album id | photo id | "<album id>-cover"> }` glides over to it.
 
 ### Motion graphics
 

@@ -125,6 +125,8 @@ export interface Block {
   insert?: boolean;
   /** How this block comes in after the previous one (default a straight cut): `fade`, `flash`, `crossfade`, `iris`, `wipe`. */
   transition?: string;
+  /** A photo album lying open in the set: pages with photos of other blocks, turning, closing. */
+  album?: import("./album").Album;
   /** Motion graphics on the screen (a logo, stickers, an icon, flying letters): see `Graphic`. */
   graphics?: Graphic[];
   /** Vehicles standing in the block that the cast can ride (a bicycle, a scooter…). */

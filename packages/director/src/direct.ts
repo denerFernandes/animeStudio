@@ -6,6 +6,9 @@ import {
   actorPlacement,
   actorPose,
   cameraAt,
+  evaluateScene,
+  nodeToString,
+  prefixFrame,
   viewMatrix,
   anchorPosition,
   apply,
@@ -21,10 +24,11 @@ import {
   validateScene,
   validateSequence,
 } from "@animestudio/core";
+import { type Album, photoMarkup, sideMarkup } from "./album";
 import type { Beat, Block, CastMember, Graphic, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
-type Key = [number, number | string, string?];
+type Key = [number, number | string | [number, number], string?];
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const norm = (s: string) =>
@@ -143,7 +147,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack", "snap", "dropOn"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack", "snap", "dropOn", "cradle"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -237,6 +241,8 @@ class BlockScene {
     readonly time: Timeline,
     readonly issues: Issue[],
     first = false,
+    /** A moment of another block as a frozen frame (for photos). */
+    readonly photoOf: (block: string, when: When, key: string) => string | undefined = () => undefined,
   ) {
     // The first block starts the episode (whatever cuts show before its first line).
     this.t0 = first ? 0 : time.blockStart(block);
@@ -569,6 +575,89 @@ class BlockScene {
     this.props.push({ id, art: def.art({ color }), x: Math.round(x), y: Math.round(y), z });
     this.propKinds.set(id, kind);
     this.propStates.set(id, { id, radius: def.radius, x: [], y: [], scale: [], rotation: [], heldBy: [] });
+  }
+  /** Where each photo of the album is (scene px: its centre and size), for the camera. */
+  private photoSpots = new Map<string, { x: number; y: number; w: number; h: number }>();
+  /**
+   * A photo album lying open (its spine at `at`): page sides with photos (moments of other blocks),
+   * pages turning at `flips` (the right page lifts and comes down on the left), closed at `close` (the
+   * left side folds over onto the right, showing the cover). Props of the set: the camera moves over
+   * it (`camera` `on` an album or a photo).
+   */
+  private album(a: Album) {
+    const [w, h] = a.page;
+    const [x, y] = a.at;
+    const turn = a.turn ?? 0.7;
+    const n = a.spreads.length;
+    let pid = 0;
+    const draw = (side: { photos?: import("./album").AlbumPhoto[] } | undefined, left: boolean, key: string) => {
+      const photos = (side?.photos ?? []).map((ph) => {
+        const id = `${key}-p${pid++}`;
+        const frame = this.photoOf(ph.block, ph.at, id);
+        if (frame === undefined) {
+          this.issue("error", `album "${a.id}": photo of unknown block "${ph.block}"`);
+          return "";
+        }
+        const { markup, size } = photoMarkup(frame, ph, id);
+        const px = (left ? -w : 0) + ph.place[0], py = ph.place[1];
+        if (ph.id) this.photoSpots.set(ph.id, { x: x + px + size[0] / 2, y: y - h / 2 + py + size[1] / 2, w: size[0], h: size[1] });
+        return `<g transform="translate(${r3(px)} ${r3(py)}) rotate(${ph.rotation ?? 0} ${r3(size[0] / 2)} ${r3(size[1] / 2)})">${markup}</g>`;
+      });
+      return sideMarkup(side as never, a.page, left, photos, key);
+    };
+    const binding = a.binding ?? "#5a3620";
+    const put = (id: string, art: string, z: number, shown: boolean) => this.props.push({ id, art: `<g transform="translate(0 ${r3(-h / 2)})">${art}</g>`, x, y, z, opacity: shown ? 1 : 0, scale: [1, 1] });
+    // The open covers under the pages, and its shadow on the table.
+    put(`${a.id}-base`, `<rect x="${r3(-w - 14)}" y="-8" width="${r3(w * 2 + 34)}" height="${r3(h + 22)}" rx="10" fill="#000" opacity="0.28"/><rect x="${r3(-w - 12)}" y="-10" width="${r3(w * 2 + 24)}" height="${r3(h + 20)}" rx="8" fill="${binding}"/>`, -1, true);
+    // Right sides stacked (the first on top), the left sides each shown once turned to.
+    for (let k = n - 1; k >= 0; k--) put(`${a.id}-r${k}`, draw(a.spreads[k].right, false, `${a.id}-r${k}`), (n - k) * 0.01, true);
+    for (let k = 0; k < n; k++) put(`${a.id}-l${k}`, draw(a.spreads[k].left, true, `${a.id}-l${k}`), k * 0.01, k === 0);
+    const coverArt = this.kit.graphics?.[a.cover]?.({}) ?? a.cover;
+    put(`${a.id}-cover`, `<rect x="0" y="-10" width="${r3(w + 12)}" height="${r3(h + 20)}" rx="8" fill="${binding}"/>${coverArt}`, 1, false);
+    const ch: Record<string, [number, unknown, string?][]> = {};
+    // (A page is there or not: its opacity switches, never fades.)
+    const key = (id: string, c: string, t: number, v: unknown, ease?: string) => (ch[`props.${id}.${c}`] ??= []).push([this.t(t), v, ...(ease ? [ease] : c === "opacity" ? ["step"] : [])] as [number, unknown, string?]);
+    // A turn: the right page narrows to the spine (seen edge on), then the next left side opens out
+    // from it — lifted a little as it turns (taller).
+    (a.flips ?? []).forEach((f, k) => {
+      if (k + 1 >= n) return this.issue("error", `album "${a.id}": flip ${k + 1} but only ${n} spreads`);
+      const t = this.time.at(f), half = turn / 2;
+      key(`${a.id}-r${k}`, "scale", t, [1, 1]);
+      key(`${a.id}-r${k}`, "scale", t + half, [0.02, 1.04], "sineIn");
+      key(`${a.id}-r${k}`, "opacity", t + half, 1);
+      key(`${a.id}-r${k}`, "opacity", t + half + 0.001, 0);
+      key(`${a.id}-l${k + 1}`, "opacity", t + half - 0.001, 0);
+      key(`${a.id}-l${k + 1}`, "opacity", t + half, 1);
+      key(`${a.id}-l${k + 1}`, "scale", t + half, [0.02, 1.04]);
+      key(`${a.id}-l${k + 1}`, "scale", t + turn, [1, 1], "sineOut");
+      this.sfx("page", t);
+    });
+    if (a.close) {
+      // Closing: every left side folds over to the spine; the cover comes down over the right side.
+      const t = this.time.at(a.close), half = turn / 2;
+      for (let k = 0; k < n; k++) {
+        key(`${a.id}-l${k}`, "scale", t, [1, 1]);
+        key(`${a.id}-l${k}`, "scale", t + half, [0.02, 1.04], "sineIn");
+        key(`${a.id}-l${k}`, "opacity", t + half + 0.001, 0);
+      }
+      key(`${a.id}-base`, "scale", t + half, [1, 1]);
+      key(`${a.id}-base`, "opacity", t + half, 1);
+      key(`${a.id}-base`, "opacity", t + half + 0.001, 0);
+      key(`${a.id}-cover`, "opacity", t + half - 0.001, 0);
+      key(`${a.id}-cover`, "opacity", t + half, 1);
+      key(`${a.id}-cover`, "scale", t + half, [0.02, 1.04]);
+      key(`${a.id}-cover`, "scale", t + turn, [1, 1], "sineOut");
+      this.sfx("close", t + turn);
+    }
+    // (Each animated channel starts from the prop's own value.)
+    for (const [c, keys] of Object.entries(ch)) {
+      const [, id, prop] = c.split(".");
+      const def = this.props.find((q) => q.id === id) as Record<string, unknown> | undefined;
+      keys.push([0, (def?.[prop] ?? (prop === "scale" ? [1, 1] : 1)) as unknown]);
+      this.tracks[c] = (keys as Key[]).sort((p, q) => p[0] - q[0]);
+    }
+    this.photoSpots.set(a.id, { x, y, w: w * 2 + 24, h: h + 20 });
+    this.photoSpots.set(`${a.id}-cover`, { x: x + w / 2, y, w: w + 12, h: h + 20 });
   }
   /**
    * A motion graphic: a screen-fixed prop (parallax 0, above the set) with its entrance, idle motion
@@ -1065,7 +1154,7 @@ class BlockScene {
     const all = (b.who === undefined ? [] : Array.isArray(b.who) ? b.who : [b.who]) as string[];
     // The camera can frame anything in the scene (cast, fixtures, vehicles, props); the other
     // actions are for the cast present in the block.
-    const valid = b.do === "camera" ? [...this.actors.map((a) => a.id as string), ...this.propStates.keys()] : b.do === "wear" ? [...this.present, ...this.vehicleOf.keys(), ...this.furnitureOf.keys()] : this.present;
+    const valid = b.do === "camera" ? [...this.actors.map((a) => a.id as string), ...this.propStates.keys(), ...this.photoSpots.keys()] : b.do === "wear" ? [...this.present, ...this.vehicleOf.keys(), ...this.furnitureOf.keys()] : this.present;
     for (const w of all) {
       if (valid.includes(w)) continue;
       const known = b.do === "camera" || this.kit.cast[w] ? "" : " and not in the kit";
@@ -1170,6 +1259,9 @@ class BlockScene {
         for (const w of who) {
           // Phone, smoke, drink with a held prop that has contact points: fitted to the body.
           if (this.useForGesture(w, b.clip as string, at, until)) continue;
+          // Seated on a 2.5D rig the arms are set by the sit (a clip cannot move them): its arm keys
+          // are played as moves of the arms instead.
+          if (this.is3d(w) && this.pose3d.has(w) && this.gestureSeated(w, b.clip as string, at, until)) continue;
           const fg = FRONT_GESTURES[b.clip as string];
           // From the front, these are hand positions (resolved on the posed face after staging).
           if (fg && this.viewAt(w, at) === "front") this.pendingGestures.push({ actor: w, clip: b.clip as string, at, until: until ?? at + fg.hold });
@@ -1198,6 +1290,9 @@ class BlockScene {
         break;
       case "carry":
         if (one) this.carry(one, b.target as string, at, until);
+        break;
+      case "cradle":
+        if (one) this.cradle(one, b.target as string, at, until);
         break;
       case "hide":
         for (const w of who) this.hide(w, b.behind as string, at, until);
@@ -2762,7 +2857,7 @@ class BlockScene {
     const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w));
     const abs = this.t(at);
     // Nobody to frame (an insert of graphics, an empty set): the camera stays on the set.
-    if (!who.length && c.type !== "shake") {
+    if (!who.length && c.type !== "shake" && c.type !== "on") {
       this.push({ at: abs, action: "camera", x: Math.round((this.kit.width ?? 1920) / 2), y: Math.round((this.kit.height ?? 1080) / 2), zoom: 1 });
       return;
     }
@@ -2826,6 +2921,19 @@ class BlockScene {
         }
         const pad = (bottom - top) * 0.08;
         this.push({ at: abs, action: "camera", frame: cast, padding: 140, minZoom: 1, maxZoom: 2.4, blend: 1.2, ...(Number.isFinite(top) ? { band: [Math.round(top - pad), Math.round(bottom + pad)] } : {}) });
+        break;
+      }
+      // Onto an album, a photo of it or its cover (by id): framed with a margin, a slow glide there.
+      case "on": {
+        const id = Array.isArray(c.who) ? c.who[0] : c.who;
+        const spot = id ? this.photoSpots.get(id) : undefined;
+        if (!spot) {
+          this.issue("error", `camera on "${id}": no album, photo or cover with that id${closest(String(id), [...this.photoSpots.keys()])}`);
+          break;
+        }
+        const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080;
+        const zoom = Math.min(W / (spot.w * 1.25), H / (spot.h * 1.25));
+        this.push({ at: abs, action: "camera", x: Math.round(spot.x), y: Math.round(spot.y), zoom: r3(zoom), duration: r3(c.duration ?? 1.2), ease: "sineInOut" });
         break;
       }
       // A slow move in (from where the camera is to a tighter shot of `who`) or out (from a close-up
@@ -2955,6 +3063,69 @@ class BlockScene {
     if (Math.abs(dx) < 20) return;
     this.push({ at: this.t(abs), actor, action: "face", direction: dx > 0 ? "right" : "left" });
   }
+  /**
+   * A gesture clip's arms, for someone seated on a 2.5D rig: its arm keys looped from `at` to
+   * `until` (else once) as sets, then back to rest.
+   */
+  private gestureSeated(actor: string, clip: string, at: number, until?: number): boolean {
+    const c = (this.kit.characters[this.characterOf(actor)]?.clips as Record<string, { duration: number; loop?: boolean; tracks: Record<string, [number, unknown, string?][]> }> | undefined)?.[clip];
+    if (!c) return false;
+    const arms = Object.entries(c.tracks).filter(([k]) => /^bones\.arm[FB][12]\.(rotation|turn|spread)$/.test(k));
+    if (!arms.length) return false;
+    const end = until ?? at + c.duration;
+    for (const side of ["F", "B"] as const) if (arms.some(([k]) => k.startsWith(`bones.arm${side}`))) this.cutArm(actor, side, at, end);
+    for (let t0 = at; t0 < end - 0.05; t0 += c.duration) {
+      for (const [ch, keys] of arms) {
+        let prev = 0;
+        for (const [kt, v] of keys) {
+          const t = t0 + kt;
+          if (t > end) break;
+          this.set(actor, ch, v, t0 + prev, Math.max(0, kt - prev), "sineInOut");
+          prev = kt;
+        }
+      }
+      if (!c.loop) break;
+    }
+    for (const side of ["F", "B"] as const) if (arms.some(([k]) => k.startsWith(`bones.arm${side}`))) {
+      this.armBusy.push({ actor, side, t0: at, t1: end });
+      this.armRest(actor, end, 0.45, side);
+    }
+    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "open", at);
+    return true;
+  }
+  /**
+   * Holding a baby (or anyone small) in the arms: both arms in front of the chest in 3D, the little
+   * one sitting on them (riding the near hand), drawn in front; until `until`, then put down beside.
+   */
+  cradle(adult: string, baby: string, at: number, until?: number) {
+    if (!this.present.includes(baby)) return this.issue("error", `${adult} cannot cradle "${baby}": not in the block`);
+    if (!this.is3d(adult) || !this.point3d(adult, "chest")) return this.issue("error", `${adult} cannot cradle: needs a 2.5D rig with a chest point (rig3d.points.chest)`);
+    const chest = this.point3d(adult, "chest")!;
+    // (The forearms across the belly, a seat for the little one.)
+    this.arm3d(adult, [chest[0] - 6, chest[1] + 70, chest[2] + 22], at, 0.5, "F");
+    this.arm3d(adult, [chest[0] + 26, chest[1] + 64, chest[2] + 16], at, 0.5, "B");
+    // The little one sits: thighs forward, shins down.
+    for (const side of ["F", "B"]) {
+      this.set(baby, `bones.leg${side}1.rotation`, -90, at - 0.3, 0.3);
+      this.set(baby, `bones.leg${side}2.rotation`, 80, at - 0.3, 0.3);
+      if (this.hasChain(baby, `foot${side}`)) this.set(baby, `ik.foot${side}.mix`, 0, at - 0.3, 0.2);
+    }
+    this.face(baby, this.facing(adult, at) ? "right" : "left", at);
+    this.push({ at: this.t(at), actor: baby, action: "mount", on: adult, anchor: "hand", point: this.hipOf(baby), duration: 0.5, facing: "own" });
+    const a = this.actors.find((x) => x.id === adult) as { z?: number } | undefined, c = this.actors.find((x) => x.id === baby) as { z?: number } | undefined;
+    if (c) c.z = (a?.z ?? 0) + 0.5;
+    this.shadow(baby, at, { hide: true }, 0.3);
+    if (until !== undefined) {
+      this.push({ at: this.t(until), actor: baby, action: "mount", on: null, duration: 0.5 });
+      for (const side of ["F", "B"] as const) this.armRest(adult, until, 0.45, side);
+      for (const side of ["F", "B"]) {
+        this.set(baby, `bones.leg${side}1.rotation`, 0, until, 0.4);
+        this.set(baby, `bones.leg${side}2.rotation`, 0, until, 0.4);
+        if (this.hasChain(baby, `foot${side}`)) this.set(baby, `ik.foot${side}.mix`, 1, until + 0.3, 0.2);
+      }
+      this.shadow(baby, until, { hide: false }, 0.3);
+    }
+  }
   /** Talking hands while seated: the near hand up in front of the chest and back, a beat every ~1.6 s. */
   private talkSeated(actor: string, s: number, e: number) {
     const chest = this.point3d(actor, "chest");
@@ -3055,6 +3226,7 @@ class BlockScene {
     this.applyMood(this.block.mood ?? this.setDef.mood ?? "day", this.t0, 0);
     // Props.
     for (const g of this.block.graphics ?? []) this.graphic(g);
+    if (this.block.album) this.album(this.block.album);
     for (const p of this.block.props ?? []) {
       const holder = p.heldBy;
       const x = holder ? this.xAt(holder, this.t0) : this.placeX(p.at ?? "center", this.t0);
@@ -3138,12 +3310,33 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const scenes: Record<string, SceneDoc> = {};
   const starts: Record<string, number> = {};
   const blocks = [...staging.blocks].sort((a, b) => a.from - b.from);
-  for (const [i, block] of blocks.entries()) {
-    if (scenes[block.id]) issues.push({ severity: "error", where: `block ${block.id}`, message: "duplicate block id" });
-    const bs = new BlockScene(block, kit, time, issues, i === 0);
+  const ids = new Set<string>();
+  for (const b of blocks) {
+    if (ids.has(b.id)) issues.push({ severity: "error", where: `block ${b.id}`, message: "duplicate block id" });
+    ids.add(b.id);
+  }
+  // Blocks are built in order; one photographed for an album is built first, when asked for.
+  const building = new Set<string>();
+  const build = (block: Block) => {
+    if (scenes[block.id] || building.has(block.id)) return;
+    building.add(block.id);
+    const bs = new BlockScene(block, kit, time, issues, blocks[0] === block, photo);
     scenes[block.id] = bs.build();
     starts[block.id] = bs.t0;
-  }
+  };
+  /** A moment of a block as a frozen frame's markup (its camera's picture). */
+  const frames = new Map<string, ReturnType<typeof compileScene>>();
+  const photo = (id: string, when: When, key: string): string | undefined => {
+    const block = blocks.find((b) => b.id === id);
+    if (!block) return undefined;
+    build(block);
+    if (!scenes[id]) return undefined;
+    if (!frames.has(id)) frames.set(id, compileScene(scenes[id], { characters: kit.characters } as never));
+    const sc = frames.get(id)!;
+    const f = prefixFrame(evaluateScene(sc, Math.max(0, Math.min(sc.duration - 0.01, time.at(when) - starts[id]))), key);
+    return (f.background ? `<rect width="${f.width}" height="${f.height}" fill="${f.background}"/>` : "") + (f.defs ? `<defs>${f.defs}</defs>` : "") + f.nodes.map(nodeToString).join("");
+  };
+  for (const block of blocks) build(block);
   // Coverage: the live blocks (not inserts) must follow each other.
   const live = blocks.filter((b) => !b.insert);
   for (let i = 1; i < live.length; i++) if (live[i].from !== live[i - 1].to) issues.push({ severity: "warning", where: `block ${live[i].id}`, message: `starts at line ${live[i].from}, the previous block ends at ${live[i - 1].to}` });

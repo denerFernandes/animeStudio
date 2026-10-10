@@ -14,6 +14,7 @@ import type { Mat, Vec2 } from "./math";
 import { DEG, apply, clamp, invert, matAngle, wrapAngle } from "./math";
 import type { PoseState } from "./pose";
 import type { Rig, RigPart } from "./rig";
+import { occluderDepthAt } from "./solid";
 
 export type V3 = [number, number, number];
 type M3 = number[]; // row-major 3×3
@@ -24,13 +25,13 @@ export interface CompiledRig3d {
   byIndex: Map<number, number>;
   views: Record<string, number>;
   pitch: number;
-  chains: { bones: number[]; parts: number[]; tip?: boolean; margin?: number }[];
+  chains: { bones: number[]; parts: number[]; tip?: boolean; margin?: number; behind?: number }[];
   front?: number;
   back?: number;
   body: number[];
 }
 
-export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
+export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
   const listed = new Set(Object.keys(def.bones));
   const bones: CompiledRig3d["bones"] = [];
   const byIndex = new Map<number, number>();
@@ -47,7 +48,7 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     byIndex,
     views: def.views,
     pitch: def.pitch ?? 0,
-    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined), ...(c.tip ? { tip: true } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}) })),
+    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined), ...(c.tip ? { tip: true } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}), ...(c.behind && rig.partIndex.get(c.behind) !== undefined ? { behind: rig.partIndex.get(c.behind) } : {}) })),
     front: def.front ? rig.partIndex.get(def.front) : undefined,
     back: def.back ? rig.partIndex.get(def.back) : undefined,
     body: (def.body ?? ["body", "neck"]).map(bi).filter((x): x is number => x !== undefined),
@@ -94,6 +95,8 @@ export interface Rig3dFrame {
   /** Depth (view space) of each 3D bone: the middle of it, and its tip. */
   depth: Map<number, number>;
   tipDepth: Map<number, number>;
+  /** Each 3D bone's tip in the picture (character space) and its depth. */
+  tipView: Map<number, V3>;
   /** Posed 3D bones (in `CompiledRig3d.bones` order): joint position and rotation (row-major 3×3), body space. */
   pos: V3[];
   rot: number[][];
@@ -163,7 +166,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
   const anchor: Vec2 = [world[first.index][4], world[first.index][5]];
   const p0 = viewPoint(pos[0], yaw, pitch);
   const off: Vec2 = [anchor[0] - p0[0], anchor[1] - p0[1]];
-  const depth = new Map<number, number>(), tipDepth = new Map<number, number>();
+  const depth = new Map<number, number>(), tipDepth = new Map<number, number>(), tipView = new Map<number, V3>();
   const limbs = new Set(r3.chains.flatMap((c) => c.bones));
   // Desired world (unsquashed basis + squash) of each 3D bone, set into the 2D state in rig order.
   const basis = new Map<number, Mat>(), full = new Map<number, Mat>();
@@ -175,6 +178,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     const hz = (q: V3) => -q[0] * Math.sin(yaw) + q[2] * Math.cos(yaw);
     depth.set(B.index, (hz(pos[i]) + hz(tip)) / 2);
     tipDepth.set(B.index, hz(tip));
+    tipView.set(B.index, [t[0] + off[0], t[1] + off[1], t[2]]);
     const o: Vec2 = [a[0] + off[0], a[1] + off[1]];
     const dx = t[0] - a[0], dy = t[1] - a[1];
     const len = Math.hypot(dx, dy);
@@ -203,7 +207,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     basis.set(B.index, bm);
     full.set(B.index, [c * sq, sn * sq, -sn / sq, c / sq, o[0], o[1]]);
   }
-  return { depth, tipDepth, pos, rot, yaw, pitch, off };
+  return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off };
 }
 
 /**
@@ -226,6 +230,13 @@ export function rig3dDrawOrder(rig: Rig, r3: CompiledRig3d, frame: Rig3dFrame): 
     if (!ds.length) continue;
     const d = Math.max(...ds) - bd;
     const margin = ch.margin ?? 25;
+    // (A hand hidden by the body — its wrist behind the solid's occluders there — goes behind it.)
+    const cover = ch.behind !== undefined ? rig.parts[ch.behind] : undefined;
+    const last = ch.bones[ch.bones.length - 1], tv = frame.tipView.get(last);
+    if (cover?.type === "solid" && tv && occluderDepthAt(cover.bodies, r3, frame, tv[0], tv[1]) > tv[2] + 2) {
+      if (backKey !== undefined) moves.push({ parts: ch.parts, slot: backKey, depth: -1e6 });
+      continue;
+    }
     // In front of the body: in the chains' order (legs, then the arms resting on them).
     if (d > margin && frontKey !== undefined) moves.push({ parts: ch.parts, slot: frontKey, depth: 1e6 + ci });
     else if (d < -margin && backKey !== undefined) moves.push({ parts: ch.parts, slot: backKey, depth: d });
@@ -244,7 +255,7 @@ export type Rig3dValues = Record<string, { rotation?: number; turn?: number; spr
 
 interface Rig3dDocLike {
   skeleton: { id: string; parent?: string; inheritRotation?: boolean }[];
-  rig3d?: { bones: Record<string, { from: V3; to: V3 }>; points?: Record<string, { bone: string; at: V3 }> };
+  rig3d?: { bones: Record<string, { from: V3; to: V3 }>; points?: Record<string, { bone: string; at: V3 }>; keepOut?: { bone: string; at: V3; radii: V3 }[] };
 }
 
 /** Where a named point of a document's `rig3d` (`points`) is in a pose (body space), or undefined. */
@@ -337,6 +348,19 @@ const T3 = (m: M3): M3 => [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]
 export function reach3d(doc: Rig3dDocLike, upper: string, lower: string, target: V3, values: Rig3dValues, pole: V3, near?: Rig3dValues): Rig3dValues {
   const def = doc.rig3d!.bones;
   const posed = rig3dPose(doc, { ...values, [upper]: {}, [lower]: {} });
+  // A hand never goes into the body: a target inside a keep-out volume (an ellipsoid on a bone, as
+  // posed) is moved out to its surface, straight out from its middle.
+  for (const k of doc.rig3d!.keepOut ?? []) {
+    const b = rig3dPose(doc, values)[k.bone];
+    if (!b) continue;
+    const c = add3(b.from, mv(b.rot, k.at));
+    const local = mv(T3(b.rot), sub3(target, c));
+    const q = Math.hypot(local[0] / k.radii[0], local[1] / k.radii[1], local[2] / k.radii[2]);
+    if (q >= 1) continue;
+    const dir = q < 1e-6 ? ([0, 0, 1] as V3) : local;
+    const s = 1 / (Math.hypot(dir[0] / k.radii[0], dir[1] / k.radii[1], dir[2] / k.radii[2]) || 1);
+    target = add3(c, mv(b.rot, [dir[0] * s, dir[1] * s, dir[2] * s]));
+  }
   const U = posed[upper];
   // The upper bone's parent frame (its rotation with no channel of its own).
   const Rp = U.rot;

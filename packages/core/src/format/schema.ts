@@ -333,12 +333,16 @@ export const ToonSchema = z.strictObject({
       views: z.record(z.string(), z.number()).describe("Each view of the `view` control → the yaw (degrees) its drawings were made at"),
       pitch: z.number().optional().describe("How far above the drawings are seen from (degrees, default 0)"),
       chains: z
-        .array(z.strictObject({ bones: z.array(z.string()), parts: z.array(z.string()), tip: z.boolean().optional().describe("Ranked by the depth of the last bone's tip (a hand), not the bones' middles"), margin: z.number().min(0).optional().describe("How much nearer or farther than the body to move (default 25)") }))
+        .array(z.strictObject({ bones: z.array(z.string()), parts: z.array(z.string()), tip: z.boolean().optional().describe("Ranked by the depth of the last bone's tip (a hand), not the bones' middles"), margin: z.number().min(0).optional().describe("How much nearer or farther than the body to move (default 25)"), behind: z.string().optional().describe("A solid part: drawn behind the body when the last bone's tip is hidden by that solid's occluders (a hand behind the hips)") }))
         .optional()
         .describe("Limbs drawn in front of or behind the body by their depth"),
       front: z.string().optional().describe("Part before which a limb nearer than the body is drawn"),
       back: z.string().optional().describe("Part after which a limb farther than the body is drawn"),
       body: z.array(z.string()).optional().describe("Bones whose depth is the body's (default body, neck)"),
+      keepOut: z
+        .array(z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]), radii: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]) }))
+        .optional()
+        .describe("Ellipsoids on bones (offset from the joint, body space; radii) a reached hand never goes into: the torso, the head"),
       points: z
         .record(z.string(), z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]).describe("Offset from the bone's rest joint, body space") }))
         .optional()

@@ -124,3 +124,25 @@ describe("cuts", () => {
     expect(shots.filter((x) => x.transition?.type === "fade")).toEqual([]);
   });
 });
+
+describe("albums", () => {
+  it("photos of a block on the pages, pages turning, closing on the cover; the camera on a photo", () => {
+    const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 1.6, e: 3, text: "b", speaker: "n" }, { i: 2, s: 3.1, e: 5, text: "c", speaker: "n" }];
+    const photo = { id: "p1", block: "pic", at: { line: 0 }, place: [40, 40] as [number, number], size: [200, 150] as [number, number], frame: "polaroid" as const, caption: "Praia, 1992", age: 0.6 };
+    const s = { blocks: [
+      { id: "pic", set: "s", from: 0, to: 3, insert: true, cast: [{ id: "kid", at: "a" }] },
+      { id: "x", set: "s", from: 0, to: 3, cast: [], album: { id: "alb", at: [960, 540], page: [600, 800], cover: "<rect width='600' height='800'/>", spreads: [{ right: { photos: [photo] } }, { left: { notes: [{ text: "oi", at: [50, 50] }] }, right: {} }], flips: [{ line: 1 }], close: { line: 2 } },
+        beats: [{ line: 1, do: "camera", type: "on", who: "p1" }] },
+    ] } as unknown as Staging;
+    const d = direct(s, ls, kit);
+    expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const props = d.scenes.x.props as { id: string; art: string }[];
+    const r0 = props.find((p) => p.id === "alb-r0")!;
+    expect(r0.art).toContain("Praia, 1992");
+    expect(r0.art).toContain("<svg"); // the frozen frame
+    const tracks = d.scenes.x.tracks as Record<string, unknown[]>;
+    expect(tracks["props.alb-r0.scale"]).toBeDefined();
+    expect(tracks["props.alb-cover.opacity"]).toBeDefined();
+    expect((d.scenes.x.script as { action: string; zoom?: number }[]).some((a) => a.action === "camera" && (a.zoom ?? 1) > 2)).toBe(true);
+  });
+});

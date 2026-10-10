@@ -237,6 +237,10 @@ are drawn just before the `front` part (in the chains' order: legs, then arms re
 clearly farther ones just after the `back` part. `points` names points on the 3D bones
 (`{ "mouth": { "bone": "head", "at": [0, -40, 44] } }`: an offset from the bone's rest joint) — where
 the director's 3D reaches go (a hand taking something from the mouth, holding it at the chest).
+`keepOut: [{ bone, at, radii }]` are ellipsoids (posed with their bone) a reached hand never goes into
+(the torso, the head). A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
+wrist), `margin` and `behind: "<solid part>"`: drawn behind the body when that tip is hidden by the
+solid's occluders (a hand behind the hips).
 
 ### 2.7 `ik`
 
