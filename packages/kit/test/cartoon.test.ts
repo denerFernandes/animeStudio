@@ -58,10 +58,10 @@ describe("sitcom characters", () => {
     const parts = lady.parts as { id: string; type: string; bones?: string[]; variants?: Record<string, string> }[];
     // Seated facing the camera: a drawing of the hips, thighs and knees (open or crossed), the knees
     // in the rig's meta for the director.
-    expect(Object.keys(parts.find((p) => p.id === "seatLegs")!.variants!)).toEqual(["off", "open", "crossed"]);
+    expect(Object.keys(parts.find((p) => p.id === "seatLegs")!.variants!)).toEqual(["off", "open", "crossed", "openHalf", "crossedHalf"]);
     const sitFront = (lady.meta as { sitFront: { knees: { F: number[]; B: number[] } } }).sitFront;
     expect(sitFront.knees.F[0]).toBeLessThan(0);
-    expect(Object.keys((lady.controls as Record<string, { poses: Record<string, unknown> }>).seat.poses)).toEqual(["none", "front", "crossed"]);
+    expect(Object.keys((lady.controls as Record<string, { poses: Record<string, unknown> }>).seat.poses)).toEqual(["none", "front", "crossed", "half", "halfCrossed"]);
     const skirt = parts.filter((p) => p.id.startsWith("skirt_"));
     expect(skirt.length).toBeGreaterThan(1);
     expect(skirt.every((p) => p.type === "skinned" && p.bones!.includes("legF1"))).toBe(true);

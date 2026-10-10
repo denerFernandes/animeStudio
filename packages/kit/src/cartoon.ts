@@ -15,7 +15,7 @@ import { type P, cartoonHands, characterClips, emotions, fluid, limbBones, limbI
 import { type RigInfo, rigInfo } from "./info";
 import { type ViewSpec, withViews } from "./views";
 import {
-  type Box3, type Cast, type Grid, type P2, type Sdf, type V3,
+  type Box3, type Cast, type Grid, type P2, type Sdf, type V3, type ViewLike, toCam,
   above, blend, box, bumpy, capsule, cast, contours, depthOf, ellipsoid, fieldPath, grow, gridFor, intersect, normal, onSurface, project, surfaceZ,
   smoothPath, smoothstep, sphere, taper, union,
 } from "./volume";
@@ -538,9 +538,9 @@ const LIGHT: V3 = (() => {
 /** Cel shading: surfaces turned away from the light more than this are in shadow. */
 const SHADE_AT = -0.02;
 
-interface PieceOpts {
+export interface PieceOpts {
   sdf: Sdf;
-  theta: number;
+  theta: ViewLike;
   /** Colour region of a surface point (palette key), else `base`. */
   color?: (p: V3) => string;
   base: string;
@@ -562,12 +562,11 @@ interface PieceOpts {
  * A volume drawn flat, the way a cartoon is painted: the fill, its colour regions, cel shading
  * (the side turned away from the light, cast shadows) and an outline in a dark tone of its colour.
  */
-function piece(c: Cast, g: Grid, o: PieceOpts): string {
+export function piece(c: Cast, g: Grid, o: PieceOpts): string {
   const field = o.field ?? c.val;
   const outline = fieldPath(field, g);
   if (!outline) return "";
   const n = g.w * g.h;
-  const ct = Math.cos(o.theta), sn = Math.sin(o.theta);
   const key: string[] = new Array(n);
   const light = new Float32Array(n).fill(1);
   const keys = new Set<string>([o.base]);
@@ -577,8 +576,8 @@ function piece(c: Cast, g: Grid, o: PieceOpts): string {
     key[i] = o.color ? o.color(p) : o.base;
     keys.add(key[i]);
     const nm = normal(o.sdf, p, o.smooth);
-    const nx = nm[0] * ct + nm[2] * sn, nz = -nm[0] * sn + nm[2] * ct;
-    light[i] = nx * LIGHT[0] + nm[1] * LIGHT[1] + nz * LIGHT[2] - SHADE_AT;
+    const [nx, ny, nz] = toCam(nm, o.theta);
+    light[i] = nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2] - SHADE_AT;
     if (o.shadow?.(i)) light[i] = Math.min(light[i], -0.3);
   }
   let out = `<path d="${outline}" fill="palette(${o.base})" fill-rule="evenodd"/>`;
@@ -956,7 +955,7 @@ const SEAT_PITCH = (22 * Math.PI) / 180;
  * near knee and its shin hangs in front. Returns the art (hips bone, setup space) and where the knees
  * are, for the director to hang the shins and put the hands.
  */
-function seatedLegs(m: Model, look: CartoonLook, j: Record<string, P>, crossed: boolean): { art: string; knees: { F: P; B: P } } {
+function seatedLegs(m: Model, look: CartoonLook, j: Record<string, P>, crossed: boolean, yaw = 0): { art: string; knees: { F: P; B: P } } {
   const { b } = m;
   const hy = m.y.hip, heavy = look.heavy ?? 0;
   const skirted = look.bottom === "skirt" || look.bottom === "longSkirt";
@@ -986,22 +985,26 @@ function seatedLegs(m: Model, look: CartoonLook, j: Record<string, P>, crossed: 
         box([0, hy + R * 0.2, tl * 0.5], [hx * spread + R * 0.4, R * 0.95, tl * 0.48], R * 0.6),
         taper(Math.min(kF[1], kB[1]) - R * 0.3, hem, [hx * spread + R * 1.3, R * 0.9], [hx * spread + R * 1.8, R * 1.0], tl * 0.95))
     : undefined;
-  // Seen from a little above: every volume is pitched around the hips.
-  const c = Math.cos(SEAT_PITCH), sn = Math.sin(SEAT_PITCH);
-  const pitch = (f: Sdf): Sdf => (x, y, z) => f(x, hy + (y - hy) * c - z * sn, (y - hy) * sn + z * c);
-  const unpitch = (p: V3): V3 => [p[0], hy + (p[1] - hy) * c - p[2] * sn, (p[1] - hy) * sn + p[2] * c];
-  const toScreen = (p: V3): P => [r(p[0]), r(hy + (p[1] - hy) * c + p[2] * sn)];
+  // Seen from a little above (and turned by `yaw` for a three-quarter seat), around the hips.
+  const view = { yaw, pitch: SEAT_PITCH };
+  const pitch = (f: Sdf): Sdf => (x, y, z) => f(x, y + hy, z);
+  const unpitch = (p: V3): V3 => [p[0], p[1] + hy, p[2]];
+  const toScreen = (p: V3): P => {
+    const q = project([p[0], p[1] - hy, p[2]], view);
+    return [r(q[0]), r(q[1] + hy)];
+  };
   const legKey = (p: V3): string => {
     if (look.bottom === "pants") return "bottom";
     if (look.bottom === "shorts" || look.bottom === "bermuda") return p[2] < tl * (look.bottom === "bermuda" ? 0.85 : 0.5) ? "bottom" : "skin";
     return "skin";
   };
-  const box3: Box3 = { x: [-hx * 2.4 - R * 3, hx * 2.4 + R * 3], y: [waist - R, hem + sl], z: [-b.D * 1.2, tl * 1.3 + R * 2] };
-  const g = gridFor([box3], 0, 1.6);
+  const box3: Box3 = { x: [-hx * 2.4 - R * 3, hx * 2.4 + R * 3], y: [waist - R - hy, hem + sl - hy], z: [-b.D * 1.2, tl * 1.3 + R * 2] };
+  const g = gridFor([box3], view, 1.6);
   const draw = (f: Sdf, base: string, color?: (p: V3) => string, keep?: (y: number) => boolean) => {
     const pf = pitch(f);
-    const cc = cast(pf, g, 0);
-    return piece(cc, g, { sdf: pf, theta: 0, base, color: color && ((q) => color(unpitch(q))), edges: ["bottom", "top"], keep: keep && ((i, jj) => keep(g.y0 + jj * g.step)) });
+    const cc = cast(pf, g, view);
+    // `keep` takes a height of the drawing (setup space).
+    return piece(cc, g, { sdf: pf, theta: view, base, color: color && ((q) => color(unpitch(q))), edges: ["bottom", "top"], keep: keep && ((i, jj) => keep(g.y0 + jj * g.step + hy)) });
   };
   const legBase = look.bottom === "pants" ? "bottom" : look.bottom === "shorts" || look.bottom === "bermuda" ? "bottom" : "skin";
   // Thighs: the far one first, the near one over it (the crease between them); their outline is
@@ -1019,9 +1022,9 @@ function seatedLegs(m: Model, look: CartoonLook, j: Record<string, P>, crossed: 
   if (crossed) {
     // The crossing foot's shoe, pointing at the camera and a little outwards.
     const a = toScreen(ankleB);
-    art += `<g transform="translate(${a[0]} ${r(a[1] + R * 0.5)}) rotate(16)">${shoeFrontArt(look, b.shoe)}</g>`;
+    art += `<g transform="translate(${a[0]} ${r(a[1] + R * 0.5 - hy)}) rotate(${r(16 + ((yaw * 180) / Math.PI) * 0.6)})">${shoeFrontArt(look, b.shoe)}</g>`;
   }
-  return { art, knees: { F: toScreen(kF), B: toScreen(kB) } };
+  return { art: `<g transform="translate(0 ${r(hy)})">${art}</g>`, knees: { F: toScreen(kF), B: toScreen(kB) } };
 }
 
 /** A capsule along a bone segment from `a` to `b` (rounded at both ends), half width `w`. */
@@ -1103,6 +1106,8 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   const shortsTo = look.bottom === "bermuda" ? 0.9 : 0.45;
 
   const seatOpen = seatedLegs(m, look, j, false), seatCrossed = seatedLegs(m, look, j, true);
+  // Seated in three-quarter (a sofa turned towards the TV): the same drawing from the half view's angle.
+  const seatOpenH = seatedLegs(m, look, j, false, VIEWS.half * 1.6), seatCrossedH = seatedLegs(m, look, j, true, VIEWS.half * 1.6);
   // Points of the head for props fitted to the body (a phone at the ear, a cigarette at the mouth),
   // where each drawn angle puts them: the near ear, the middle of the mouth, between the eyes, the top.
   const headPoints = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => {
@@ -1172,7 +1177,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     { id: "shoeF", type: "switch", bone: "footF", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     ...(shorts ? [{ id: "shortsF", type: "rigid", bone: "legF1", art: cuff(j.hipF, j.kneeF, -0.15, shortsTo, b.leg[0] * 0.5 + 5, b.leg[0] * 0.5 + 6, "palette(bottom)") }] : []),
     // Seated facing the camera: the hips, thighs and knees drawn from volumes (drawing substitution).
-    { id: "seatLegs", type: "switch", bone: "hips", default: "off", variants: { off: "", open: seatOpen.art, crossed: seatCrossed.art } },
+    { id: "seatLegs", type: "switch", bone: "hips", default: "off", variants: { off: "", open: seatOpen.art, crossed: seatCrossed.art, openHalf: seatOpenH.art, crossedHalf: seatCrossedH.art } },
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
     ...skinnedArt("skirt", art.skirt, SKIRT_BONES.profile),
@@ -1216,7 +1221,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     // Seated facing the camera: half the thigh shows; skirts sit with the knees together.
     // Seated facing the camera: where the drawn knees are (setup space), how far the body sinks
     // into the cushion; the director lines the shins and the hands up with them.
-    meta: { sitFront: { knees: seatOpen.knees, crossedKnees: seatCrossed.knees, sink: r(b.L * 0.03), hands: "knees" }, description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)` },
+    meta: { sitFront: { knees: seatOpen.knees, crossedKnees: seatCrossed.knees, half: { knees: seatOpenH.knees, crossedKnees: seatCrossedH.knees }, sink: r(b.L * 0.03), hands: "knees" }, description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)` },
     palette: {
       ink: INK,
       skin: look.skin,
@@ -1317,7 +1322,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
  * Every colour gets a shadow tone (`<key>Shade`, darker and a little cooler) and a line tone
  * (`<key>Line`, darker than its shadow: coloured lines instead of black ones).
  */
-function withTones(palette: Record<string, string>): Record<string, string> {
+export function withTones(palette: Record<string, string>): Record<string, string> {
   const out = { ...palette };
   // A painter's shadow layer: the colour multiplied by a dusty rose (warm shadows, never grey);
   // lines multiplied further, a dark tone of the same colour.
@@ -1415,6 +1420,8 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       front: { "parts.seatLegs.variant": "open", ...off([...skirtParts, ...shortsCuffs]) },
       // Legs crossed: the crossing leg is part of the drawing (its hose and shoe hidden).
       crossed: { "parts.seatLegs.variant": "crossed", ...off([...skirtParts, ...shortsCuffs, ...hideLegB]) },
+      half: { "parts.seatLegs.variant": "openHalf", ...off([...skirtParts, ...shortsCuffs]) },
+      halfCrossed: { "parts.seatLegs.variant": "crossedHalf", ...off([...skirtParts, ...shortsCuffs, ...hideLegB]) },
     },
   };
   // The seated hips sit on the cushion in front of the shirt's bottom (the waistband shows), behind

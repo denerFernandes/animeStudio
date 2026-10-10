@@ -145,6 +145,9 @@ Lessons from converting a 66-shot storyboard into an episode:
   (turns are in-betweened), follow-through and hand-drawn timing built in. Clothes, prints,
   hats and accessories are fields of the look; anything that belongs to one series (props, sets,
   names) stays in the series, never in the kit.
+- **Rooms in perspective: one camera for everything.** Give the set a `RoomCamera` and build its
+  furniture with `furnitureRig` (sofa, TV, table) instead of drawing it in perspective by hand: the
+  furniture, the floor lines and the seated cast then agree. Seats tell the director which way to sit.
 - **Drawing like a painted cartoon:** lines in a dark tone of the fill (colour holds), never
   black; one light direction; hard-edged shadow shapes inside the silhouette (no stroke on
   fills, lines on top); shadows multiplied by a dusty rose so skin shadows stay warm; shade

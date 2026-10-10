@@ -5,3 +5,4 @@ export * from "./proportions";
 export * from "./human";
 export * from "./volume";
 export * from "./cartoon";
+export * from "./room";

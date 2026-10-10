@@ -7,7 +7,7 @@
  * forehead). Features drawn on a surface (eyes, brows, mouth) are projected from the front view.
  *
  * Model space is the front view (looking at the camera): x to the right of the screen, y down
- * (feet at y = 0), z towards the camera. A view turns the model by `theta` around the vertical
+ * (feet at y = 0), z towards the camera. A view turns the model by a yaw around the vertical
  * axis x = 0: positive angles turn the face towards +x (a three-quarter view facing right).
  * Everything is deterministic and runs once, when the character is built.
  */
@@ -113,12 +113,37 @@ export const bumpy = (f: Sdf, amp: number, size: number): Sdf => {
 
 // ------------------------------------------------------------------ views
 
-/** Screen position of a model point in a view (rotation around the vertical axis x = 0). */
-export function project(p: V3, theta: number): P2 {
-  return [p[0] * Math.cos(theta) + p[2] * Math.sin(theta), p[1]];
+/**
+ * A view of a volume: turned by `yaw` around the vertical axis (positive turns the model's front
+ * towards +x), seen from `pitch` above (radians; positive looks down at it: tops show). A number is a
+ * yaw with no pitch.
+ */
+export interface View { yaw: number; pitch: number }
+export type ViewLike = number | View;
+export const toView = (v: ViewLike): View => (typeof v === "number" ? { yaw: v, pitch: 0 } : v);
+
+/** Model point → view space: screen x, screen y (down), depth (larger = nearer the camera). */
+export function toCam(p: V3, view: ViewLike): V3 {
+  const { yaw, pitch } = toView(view);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const X = p[0] * cy + p[2] * sy, Z = -p[0] * sy + p[2] * cy;
+  return [X, p[1] * cp + Z * sp, -p[1] * sp + Z * cp];
+}
+/** View space → model point. */
+export function fromCam(X: number, Y: number, Z: number, view: ViewLike): V3 {
+  const { yaw, pitch } = toView(view);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const y = Y * cp - Z * sp, Zy = Y * sp + Z * cp;
+  return [X * cy - Zy * sy, y, X * sy + Zy * cy];
+}
+
+/** Screen position of a model point in a view. */
+export function project(p: V3, view: ViewLike): P2 {
+  const c = toCam(p, view);
+  return [c[0], c[1]];
 }
 /** Depth of a model point in a view (larger = nearer the camera). */
-export const depthOf = (p: V3, theta: number) => -p[0] * Math.sin(theta) + p[2] * Math.cos(theta);
+export const depthOf = (p: V3, view: ViewLike) => toCam(p, view)[2];
 
 export interface Box3 { x: [number, number]; y: [number, number]; z: [number, number] }
 
@@ -140,26 +165,26 @@ export interface Cast {
 }
 
 /** The screen grid covering a set of model boxes in a view. */
-export function gridFor(boxes: Box3[], theta: number, step: number): Grid & { zr: [number, number] } {
+export function gridFor(boxes: Box3[], view: ViewLike, step: number): Grid & { zr: [number, number] } {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  const c = Math.cos(theta), s = Math.sin(theta);
   for (const b of boxes)
     for (const x of b.x)
-      for (const z of b.z) {
-        const X = x * c + z * s, Z = -x * s + z * c;
-        x0 = Math.min(x0, X); x1 = Math.max(x1, X); z0 = Math.min(z0, Z); z1 = Math.max(z1, Z);
-        y0 = Math.min(y0, ...b.y); y1 = Math.max(y1, ...b.y);
-      }
+      for (const y of b.y)
+        for (const z of b.z) {
+          const [X, Y, Z] = toCam([x, y, z], view);
+          x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y); z0 = Math.min(z0, Z); z1 = Math.max(z1, Z);
+        }
   // One empty cell all around: every traced outline closes.
   x0 = Math.floor(x0 / step - 2) * step; y0 = Math.floor(y0 / step - 2) * step;
   return { x0, y0, w: Math.ceil((x1 - x0) / step) + 3, h: Math.ceil((y1 - y0) / step) + 3, step, zr: [z0 - step, z1 + step] };
 }
 
 /** Ray marches a volume on a view's grid. */
-export function cast(f: Sdf, g: Grid & { zr: [number, number] }, theta: number): Cast {
+export function cast(f: Sdf, g: Grid & { zr: [number, number] }, view: ViewLike): Cast {
   const n = g.w * g.h;
   const val = new Float32Array(n), depth = new Float32Array(n).fill(-Infinity), hit = new Float32Array(n * 3).fill(NaN);
-  const c = Math.cos(theta), s = Math.sin(theta);
+  const { yaw, pitch } = toView(view);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
   const [zmin, zmax] = g.zr;
   const minStep = g.step * 0.25;
   for (let j = 0; j < g.h; j++) {
@@ -169,14 +194,15 @@ export function cast(f: Sdf, g: Grid & { zr: [number, number] }, theta: number):
       const k = j * g.w + i;
       let Z = zmax, closest = Infinity, deepest = 0, entered = false;
       while (Z > zmin) {
-        const x = X * c - Z * s, z = X * s + Z * c;
-        const d = f(x, Y, z);
+        const y = Y * cp - Z * sp, Zy = Y * sp + Z * cp;
+        const x = X * cy - Zy * sy, z = X * sy + Zy * cy;
+        const d = f(x, y, z);
         if (d < closest) closest = d;
         if (d <= 0) {
           if (!entered) {
             entered = true;
             depth[k] = Z;
-            hit[k * 3] = x; hit[k * 3 + 1] = Y; hit[k * 3 + 2] = z;
+            hit[k * 3] = x; hit[k * 3 + 1] = y; hit[k * 3 + 2] = z;
           }
           if (-d > deepest) deepest = -d;
           Z -= Math.max(minStep, -d * 0.8);
@@ -328,7 +354,7 @@ export function normal(f: Sdf, p: V3, e = 0.5): V3 {
  * Maps front-view points drawn on a surface to a view: each point is put on the surface (plus
  * `lift` along z) and turned. `visible` is false when the surface there faces away.
  */
-export function onSurface(f: Sdf, theta: number) {
+export function onSurface(f: Sdf, theta: ViewLike) {
   const cache = new Map<string, V3 | null>();
   const lift3 = (x: number, y: number, lift: number): V3 | null => {
     const key = `${r2(x)},${r2(y)},${lift}`;
@@ -341,7 +367,7 @@ export function onSurface(f: Sdf, theta: number) {
   return {
     point(x: number, y: number, lift = 0): P2 {
       const p = lift3(x, y, lift);
-      return p ? project(p, theta) : [x * Math.cos(theta), y];
+      return p ? project(p, theta) : project([x, y, 0], theta);
     },
     visible(x: number, y: number) {
       const p = lift3(x, y, 0);
