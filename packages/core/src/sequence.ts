@@ -20,6 +20,9 @@ export interface CompiledShot {
   /** Global start / end. */
   start: number;
   end: number;
+  /** Scene seconds per shot second (negative: backwards). */
+  speed: number;
+  overlay?: "vhs";
   transition: Required<Pick<ShotTransitionDef, "type" | "duration">> & ShotTransitionDef;
 }
 
@@ -52,13 +55,14 @@ export function layoutShots(doc: SequenceDoc, sceneDuration: (id: string) => num
   return doc.shots.map((shot, index) => {
     if (!(shot.scene in doc.scenes)) throw new SceneError(`unknown scene "${shot.scene}"`, `shots[${index}]`);
     const from = shot.from ?? 0;
-    const duration = shot.duration ?? Math.max(0.001, sceneDuration(shot.scene) - from);
+    const speed = shot.speed ?? 1;
+    const duration = shot.duration ?? Math.max(0.001, (speed > 0 ? sceneDuration(shot.scene) - from : from) / Math.abs(speed));
     const tr = shot.transition ?? { type: "cut" as const };
     const transition = { ...tr, duration: tr.duration ?? DEFAULT_DURATION[tr.type] };
     const start = index > 0 && transition.type === "crossfade" ? Math.max(0, cursor - transition.duration) : cursor;
     const end = start + duration;
     cursor = end;
-    return { index, sceneId: shot.scene, from, duration, start, end, transition };
+    return { index, sceneId: shot.scene, from, duration, start, end, transition, speed, ...(shot.overlay ? { overlay: shot.overlay } : {}) };
   });
 }
 
@@ -93,7 +97,35 @@ export function compileSequence(doc: SequenceDoc, assets: SequenceAssets): Compi
 }
 
 function shotFrame(shot: CompiledShot, t: number): RenderFrame {
-  return evaluateScene(shot.scene, shot.from + Math.max(0, Math.min(shot.duration, t - shot.start)));
+  const local = Math.max(0, Math.min(shot.duration, t - shot.start));
+  const frame = evaluateScene(shot.scene, Math.max(0, Math.min(shot.scene.duration, shot.from + local * shot.speed)));
+  if (shot.overlay !== "vhs") return frame;
+  return { ...frame, nodes: [...frame.nodes, { kind: "markup", key: `vhs-${shot.index}`, markup: vhsOverlay(t, frame.width, frame.height) }] };
+}
+
+/**
+ * A tape rewinding, drawn over a frame: scanlines, a tracking band rolling down (torn, shifted strips
+ * with colour fringes), the picture a little washed out, and ◀◀ in the corner. Deterministic by time.
+ */
+export function vhsOverlay(t: number, w: number, h: number): string {
+  const r = (n: number) => Math.round(n * 10) / 10;
+  const rand = (i: number) => {
+    const x = Math.sin(i * 127.1 + Math.floor(t * 30) * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  let out = `<rect width="${w}" height="${h}" fill="#3a4a6a" opacity="0.12" style="mix-blend-mode:screen"/>`;
+  out += `<defs><pattern id="vhs-lines" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="1.4" fill="#000" opacity="0.22"/></pattern></defs><rect width="${w}" height="${h}" fill="url(#vhs-lines)"/>`;
+  // The tracking band rolls down the picture.
+  const bandY = ((t * 0.9) % 1.3) * h - h * 0.15, bandH = h * 0.09;
+  for (let i = 0; i < 14; i++) {
+    const y = bandY + rand(i) * bandH, sh = 2 + rand(i + 50) * 7, x = (rand(i + 100) - 0.5) * 60;
+    out += `<rect x="${r(x)}" y="${r(y)}" width="${w}" height="${r(sh)}" fill="#ffffff" opacity="${r(0.15 + rand(i + 150) * 0.35)}"/>`;
+    out += `<rect x="${r(x + 6)}" y="${r(y + sh)}" width="${w}" height="1.5" fill="#ff2a6d" opacity="0.35"/><rect x="${r(x - 6)}" y="${r(y - 1.5)}" width="${w}" height="1.5" fill="#05d9e8" opacity="0.35"/>`;
+  }
+  // Noise specks.
+  for (let i = 0; i < 40; i++) out += `<rect x="${r(rand(i + 200) * w)}" y="${r(rand(i + 300) * h)}" width="${r(4 + rand(i + 400) * 30)}" height="1.5" fill="#fff" opacity="0.4"/>`;
+  out += `<text x="${r(w * 0.06)}" y="${r(h * 0.12)}" font-family="monospace" font-size="${r(h * 0.06)}" font-weight="700" fill="#ffffff" stroke="#000" stroke-width="2" paint-order="stroke">◀◀ REW</text>`;
+  return out;
 }
 
 function backgroundNode(frame: RenderFrame, key: string): RenderNode[] {
@@ -167,6 +199,8 @@ export interface SequenceAudioEvent {
 export function sequenceAudio(seq: CompiledSequence): SequenceAudioEvent[] {
   const out: SequenceAudioEvent[] = [];
   for (const shot of seq.shots) {
+    // Fast-forward or rewinding: no sound.
+    if (shot.speed !== 1) continue;
     for (const ev of shot.scene.audio) {
       const local = ev.start - shot.from;
       if (local >= shot.duration) continue;

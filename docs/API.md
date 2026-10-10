@@ -208,7 +208,8 @@ Types: `TransitionType`, `TransitionMode`, `WipeDirection`, `TransitionParams`.
 | Function | Description |
 |---|---|
 | `compileSequence(doc, { scenes }): CompiledSequence` | Compiles each shot's scene (documents + assets, or already-compiled scenes) and lays shots on the timeline |
-| `evaluateSequence(seq, t): RenderFrame` | Frame at global time t: crossfades composite two shots (ids prefixed), through-color transitions overlay the cut |
+| `evaluateSequence(seq, t): RenderFrame` | Frame at global time t: crossfades composite two shots (ids prefixed), through-color transitions overlay the cut; a shot's `speed` (negative: backwards) and `overlay` apply |
+| `vhsOverlay(t, width, height)` | A tape rewinding drawn over a frame (scanlines, a rolling tracking band with colour fringes, noise, ◀◀ REW), deterministic by time — the `overlay: "vhs"` of a shot |
 | `layoutShots(doc, sceneDuration)` | Shot timing (crossfades overlap; other transitions happen at the cut) |
 | `sequenceDuration(doc, scenes)` | Total length from scene documents (no compilation) |
 | `sequenceAudio(seq)` | Every shot's audio on the global timeline, trimmed to the shot |

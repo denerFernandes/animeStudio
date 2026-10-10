@@ -71,6 +71,29 @@ export interface FurnitureEntry {
   color?: string;
 }
 
+/**
+ * A graphic fixed to the screen (not the set): `art` (a `kit.graphics` name, or SVG markup drawn
+ * around its origin) at `at` (screen px), from `from` to `until` (default the block's span), coming in
+ * with `enter`, moving while it is there with `idle`, going with `exit`.
+ */
+export interface Graphic {
+  id: string;
+  art: string;
+  at: [number, number];
+  from?: When;
+  until?: When;
+  enter?: "pop" | "drop" | "stamp" | "spin" | "fade" | "slideLeft" | "slideRight" | "slideUp" | "slideDown" | "flyIn";
+  idle?: "wobble" | "float" | "twinkle" | "pulse";
+  exit?: "pop" | "fade" | "drop" | "slideLeft" | "slideRight" | "slideUp" | "slideDown";
+  /** Moving steadily (px/s): a background pattern rolling. */
+  scroll?: [number, number];
+  scale?: number;
+  rotation?: number;
+  color?: string;
+  /** Above (+) or under (−) the other graphics (default 0); all are above the set. */
+  z?: number;
+}
+
 export interface PropEntry {
   id: string;
   kind: string;
@@ -95,6 +118,13 @@ export interface Block {
   to: number;
   cast: CastEntry[];
   props?: PropEntry[];
+  /**
+   * An insert: built on the same lines as the others but not part of the live action — it shows only
+   * where a cut `insert`s it (a montage: icons, a logo, another place between the verses).
+   */
+  insert?: boolean;
+  /** Motion graphics on the screen (a logo, stickers, an icon, flying letters): see `Graphic`. */
+  graphics?: Graphic[];
   /** Vehicles standing in the block that the cast can ride (a bicycle, a scooter…). */
   vehicles?: VehicleEntry[];
   /** Light mood at the start of the block (default: the set's `mood`, else "day"). */
@@ -109,7 +139,14 @@ export interface Cut {
   line: number;
   word?: string;
   /** Show a window of an earlier block (muted speech) instead of the live action. */
-  replay: { block: string; line: number; word?: string };
+  replay?: { block: string; line: number; word?: string };
+  /**
+   * Rewind the tape: what was shown plays backwards, fast and silent, under a VHS overlay, from this
+   * cut back to that moment, until `until` (default the end of `line`).
+   */
+  rewind?: { line: number; word?: string; end?: boolean; offset?: number };
+  /** Cut to an insert block (`insert: true`), in step with it (it is timed on the same lines). */
+  insert?: string;
   /** Until this moment (default: the end of `line`). */
   until?: When;
   transition?: string;
@@ -226,6 +263,8 @@ export interface Kit {
    * below; default 70, down and a little forward): the elbow goes there.
    */
   props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number; cord?: PropCord }>;
+  /** Motion graphics by name (a logo's pieces, stickers, icons): art drawn around the origin. */
+  graphics?: Record<string, (o: { color?: string }) => string>;
   /**
    * Vehicles by kind. `scale` is for a cast member of scale 1 (a ridden vehicle is multiplied by its
    * rider's scale). A vehicle whose rig has a `seat` anchor can be ridden (see DIRECTOR.md, Riding).

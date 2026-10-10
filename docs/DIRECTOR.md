@@ -240,9 +240,28 @@ muted speech, contiguous shots.
 
 ### Cuts
 
-A cut shows a window of an earlier block (from the moment of `replay`) during a line (until
+A cut (`cuts: [{ line, word?, until?, transition? … }]`) shows a window of an earlier block (from the moment of `replay`) during a line (until
 `until`, default the end of the line), with `muteSpeech` so mouths stay still under other audio.
 Use them for cold opens, recaps and songs.
+
+A cut with `rewind: { line, word?, offset? }` rewinds the tape instead: what was shown from that
+moment up to the cut plays backwards, fast and silent, under a VHS overlay (scanlines, a rolling
+tracking band, colour fringes, ◀◀ REW), until `until`; then the live action goes on.
+
+A cut with `insert: "<block>"` shows an insert block in step with the lines: a block with
+`insert: true` is built on the same lines as the others but is not part of the live action — a
+montage between verses (icons, a logo, another place), shown only where a cut puts it.
+
+### Motion graphics
+
+A block's `graphics` are fixed to the screen, above the set: `{ id, art (a kit.graphics name or SVG
+markup around its origin), at: [x, y] (screen px), from?, until? (lines/words; default the block),
+enter?, idle?, exit?, scroll?: [vx, vy] (px/s: a background pattern rolling), scale?, rotation?,
+color?, z? }`. Entrances: `pop` (overshoot and settle), `drop` (from above, bouncing), `stamp` (big
+to its size in a snap), `spin` / `flyIn` (from deep behind, turning), `fade`, `slideLeft` / `Right` /
+`Up` / `Down`; idle: `wobble`, `float`, `twinkle`, `pulse`; exits: `pop`, `fade`, `drop`, the slides.
+A logo assembling is its pieces as graphics with staggered `from`s; stickers popping, an icon per
+verse, letters flying in — all the same presets, on any block or insert.
 
 ### Missing pieces
 

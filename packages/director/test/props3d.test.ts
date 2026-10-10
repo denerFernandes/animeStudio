@@ -66,3 +66,27 @@ describe("props in the air", () => {
     expect(script.some((a) => a.action === "fx" && a.prop === "u")).toBe(true);
   });
 });
+
+describe("graphics, rewinds and inserts", () => {
+  const kg = { ...kit, graphics: { star: () => `<path d="M0 -20 L5 0 L0 20 L-5 0 Z"/>` } } as unknown as Kit;
+  const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 1.6, e: 3.4, text: "b", speaker: "n" }, { i: 2, s: 3.5, e: 6, text: "c", speaker: "n" }];
+  it("graphics pop in, idle, and go; the tape rewinds; an insert is cut in, in step", () => {
+    const s = {
+      blocks: [
+        { id: "x", set: "s", from: 0, to: 3, cast: [{ id: "kid", at: "a" }], graphics: [{ id: "g", art: "star", at: [300, 200], enter: "pop", idle: "wobble", exit: "pop", until: { line: 1, end: true } }] },
+        { id: "ins", set: "s", from: 0, to: 3, insert: true, cast: [], graphics: [{ id: "logo", art: "<circle r='40'/>", at: [960, 540], enter: "stamp" }] },
+      ],
+      cuts: [{ line: 1, insert: "ins", until: { line: 1, offset: 1 } }, { line: 2, rewind: { line: 0 }, until: { line: 2, offset: 1.2 } }],
+    } as unknown as Staging;
+    const d = direct(s, ls, kg);
+    expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const props = d.scenes.x.props as { id: string; parallax?: number; z?: number }[];
+    expect(props.find((p) => p.id === "g")).toMatchObject({ parallax: 0 });
+    const tracks = d.scenes.x.tracks as Record<string, [number, number, string?][]>;
+    expect(tracks["props.g.scale"].some((k) => k[1] > 1)).toBe(true); // the overshoot
+    expect(tracks["props.g.rotation"].length).toBeGreaterThan(3); // the wobble
+    const shots = d.sequence.shots as { scene: string; speed?: number; overlay?: string; from?: number }[];
+    expect(shots.some((x) => x.scene === "ins")).toBe(true);
+    expect(shots.some((x) => (x.speed ?? 1) < 0 && x.overlay === "vhs")).toBe(true);
+  });
+});

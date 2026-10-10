@@ -17,7 +17,7 @@ import {
   validateScene,
   validateSequence,
 } from "@animestudio/core";
-import type { Beat, Block, CastMember, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
+import type { Beat, Block, CastMember, Graphic, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
 type Key = [number, number | string, string?];
@@ -528,6 +528,77 @@ class BlockScene {
     this.props.push({ id, art: def.art({ color }), x: Math.round(x), y: Math.round(y), z });
     this.propKinds.set(id, kind);
     this.propStates.set(id, { id, radius: def.radius, x: [], y: [], scale: [], rotation: [], heldBy: [] });
+  }
+  /**
+   * A motion graphic: a screen-fixed prop (parallax 0, above the set) with its entrance, idle motion
+   * and exit as keyframes — overshoots and bounces (back and bounce easings), like a motion designer's
+   * presets — timed on lines and words.
+   */
+  private graphic(g: Graphic) {
+    const make = this.kit.graphics?.[g.art];
+    if (!make && !g.art.trim().startsWith("<")) return this.issue("error", `unknown graphic "${g.art}"${closest(g.art, Object.keys(this.kit.graphics ?? {}))} (kit.graphics, or SVG markup)`);
+    const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080;
+    const t0 = g.from ? this.time.at(g.from) : this.t0, t1 = g.until ? this.time.at(g.until) : this.t1;
+    const s = g.scale ?? 1, rot = g.rotation ?? 0;
+    const [x, y] = g.at;
+    this.props.push({ id: g.id, art: make ? make({ color: g.color }) : g.art, x, y, z: 1000 + (g.z ?? 0), parallax: 0, opacity: 0, scale: s, rotation: rot });
+    const ch: Record<string, [number, number, string?][]> = { x: [], y: [], scale: [], rotation: [], opacity: [] };
+    const key = (c: string, at: number, v: number, ease?: string) => ch[c].push([this.t(at), r3(v), ...(ease ? [ease] : [])] as [number, number, string?]);
+    const off: Record<string, [number, number]> = { slideLeft: [-W * 0.6, 0], slideRight: [W * 0.6, 0], slideUp: [0, -H * 0.6], slideDown: [0, H * 0.6] };
+    // Entrance.
+    key("opacity", t0 - 0.001, 0);
+    let tIn = t0;
+    switch (g.enter ?? "pop") {
+      case "pop":
+        key("scale", t0, 0); key("scale", t0 + 0.18, s * 1.18, "backOut"); key("scale", t0 + 0.3, s, "sineInOut"); key("opacity", t0, 1); tIn = t0 + 0.3;
+        break;
+      case "drop":
+        key("y", t0, -H * 0.4); key("y", t0 + 0.7, y, "bounceOut"); key("opacity", t0, 1); tIn = t0 + 0.7;
+        break;
+      case "stamp":
+        key("scale", t0, s * 2.4); key("scale", t0 + 0.14, s, "easeIn"); key("rotation", t0, rot - 10); key("rotation", t0 + 0.14, rot, "easeIn"); key("opacity", t0, 0); key("opacity", t0 + 0.06, 1); tIn = t0 + 0.14;
+        break;
+      case "spin":
+      case "flyIn":
+        // From deep behind the screen, turning.
+        key("scale", t0, s * 0.05); key("scale", t0 + 0.7, s, "backOut"); key("rotation", t0, rot + 540); key("rotation", t0 + 0.7, rot, "easeOut"); key("opacity", t0, 1); tIn = t0 + 0.7;
+        break;
+      case "fade":
+        key("opacity", t0, 0); key("opacity", t0 + 0.35, 1); tIn = t0 + 0.35;
+        break;
+      default: {
+        const o = off[g.enter!];
+        key("x", t0, x + o[0]); key("y", t0, y + o[1]); key("x", t0 + 0.5, x, "backOut"); key("y", t0 + 0.5, y, "backOut"); key("opacity", t0, 1); tIn = t0 + 0.5;
+      }
+    }
+    // While it is there.
+    const tOut = g.exit ? t1 - 0.3 : t1;
+    const steps = Math.max(1, Math.ceil((tOut - tIn) / 0.2));
+    if (g.idle || g.scroll) for (let i = 0; i <= steps; i++) {
+      const tt = tIn + ((tOut - tIn) * i) / steps, ph = tt - tIn;
+      if (g.idle === "wobble") key("rotation", tt, rot + Math.sin(ph * 7) * 5, "sineInOut");
+      if (g.idle === "float") key("y", tt, y + Math.sin(ph * 3.2) * 8, "sineInOut");
+      if (g.idle === "pulse") key("scale", tt, s * (1 + Math.max(0, Math.sin(ph * 7.8)) * 0.06), "sineInOut");
+      if (g.idle === "twinkle") {
+        const v = Math.max(0, Math.sin(ph * 5.3 + x * 0.01));
+        key("scale", tt, s * (0.85 + v * 0.3), "sineInOut");
+        key("opacity", tt, 0.55 + v * 0.45, "sineInOut");
+      }
+      if (g.scroll) {
+        key("x", tt, x + g.scroll[0] * ph, "linear");
+        key("y", tt, y + g.scroll[1] * ph, "linear");
+      }
+    }
+    // Exit.
+    if (g.exit === "pop") { key("scale", tOut, s); key("scale", tOut + 0.1, s * 1.15, "sineOut"); key("scale", t1, 0, "backIn"); }
+    else if (g.exit === "fade") { key("opacity", tOut, 1); key("opacity", t1, 0); }
+    else if (g.exit === "drop") { key("y", tOut, y); key("y", t1, H * 1.4, "easeIn"); }
+    else if (g.exit) { const o = off[g.exit]; key("x", tOut, x); key("y", tOut, y); key("x", t1, x + o[0], "backIn"); key("y", t1, y + o[1], "backIn"); }
+    // Fully there until it goes (a fade-out has its own keys).
+    if (g.exit && g.exit !== "fade") key("opacity", t1, 1);
+    if (g.idle !== "twinkle" && g.exit !== "fade") key("opacity", tOut, 1);
+    if (g.exit) key("opacity", t1 + 0.001, 0);
+    for (const [c, keys] of Object.entries(ch)) if (keys.length) this.tracks[`props.${g.id}.${c}`] = keys.sort((a, b) => a[0] - b[0]);
   }
   /** Scene y of a prop at a moment (its last key, else where it was put). */
   private propY(id: string, abs: number): number {
@@ -2793,6 +2864,7 @@ class BlockScene {
     this.mood = "";
     this.applyMood(this.block.mood ?? this.setDef.mood ?? "day", this.t0, 0);
     // Props.
+    for (const g of this.block.graphics ?? []) this.graphic(g);
     for (const p of this.block.props ?? []) {
       const holder = p.heldBy;
       const x = holder ? this.xAt(holder, this.t0) : this.placeX(p.at ?? "center", this.t0);
@@ -2882,21 +2954,74 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
     scenes[block.id] = bs.build();
     starts[block.id] = bs.t0;
   }
-  // Coverage: blocks must follow each other.
-  for (let i = 1; i < blocks.length; i++) if (blocks[i].from !== blocks[i - 1].to) issues.push({ severity: "warning", where: `block ${blocks[i].id}`, message: `starts at line ${blocks[i].from}, the previous block ends at ${blocks[i - 1].to}` });
+  // Coverage: the live blocks (not inserts) must follow each other.
+  const live = blocks.filter((b) => !b.insert);
+  for (let i = 1; i < live.length; i++) if (live[i].from !== live[i - 1].to) issues.push({ severity: "warning", where: `block ${live[i].id}`, message: `starts at line ${live[i].from}, the previous block ends at ${live[i - 1].to}` });
 
   // Timeline: live blocks, with replay cuts spliced in.
-  type Seg = { t0: number; t1: number; scene: string; from: number; mute?: boolean; transition?: string };
-  const segs: Seg[] = blocks.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < blocks.length ? starts[blocks[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 && blocks[i - 1].set !== b.set ? "fade" : undefined }));
+  type Seg = { t0: number; t1: number; scene: string; from: number; mute?: boolean; transition?: string; speed?: number; overlay?: "vhs" };
+  const segs: Seg[] = live.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < live.length ? starts[live[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 && live[i - 1].set !== b.set ? "fade" : undefined }));
   for (const c of [...(staging.cuts ?? [])].sort((a, b) => a.line - b.line)) {
     const t0 = time.at(c);
     const t1 = c.until ? time.at(c.until) : time.at({ line: c.line, end: true });
-    const src = blocks.find((b) => b.id === c.replay.block);
-    if (!src) {
-      issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `unknown block "${c.replay.block}"` });
+    if (c.rewind) {
+      // The tape rewinds: what was shown from the target up to the cut plays backwards, fast.
+      const gT = time.at(c.rewind as When);
+      if (gT >= t0) {
+        issues.push({ severity: "error", where: `cut at line ${c.line}`, message: "rewind goes back to a moment before the cut" });
+        continue;
+      }
+      const spd = (t0 - gT) / Math.max(0.1, t1 - t0);
+      const back: Seg[] = [];
+      let cursor = t0;
+      for (const s of [...segs].sort((a, b) => b.t0 - a.t0)) {
+        const a = Math.max(s.t0, gT), b = Math.min(s.t1, t0);
+        if (b <= a) continue;
+        const dur = (b - a) / spd;
+        back.push({ t0: cursor, t1: cursor + dur, scene: s.scene, from: s.from + (b - s.t0), mute: true, speed: -spd, overlay: "vhs" });
+        cursor += dur;
+      }
+      const out: Seg[] = [];
+      for (const s of segs) {
+        if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
+        else {
+          if (s.t0 < t0) out.push({ ...s, t1: t0 });
+          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: "flash", mute: s.mute });
+        }
+      }
+      segs.splice(0, segs.length, ...[...out, ...back].sort((a, b) => a.t0 - b.t0));
       continue;
     }
-    const from = time.at(c.replay) - starts[src.id];
+    if (c.insert) {
+      // An insert block, in step with the lines it is timed on.
+      const ins = blocks.find((b) => b.id === c.insert);
+      if (!ins || !ins.insert) {
+        issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `"${c.insert}" is not an insert block (a block with insert: true)${closest(c.insert, blocks.filter((b) => b.insert).map((b) => b.id))}` });
+        continue;
+      }
+      const cut: Seg = { t0, t1, scene: ins.id, from: Math.max(0, t0 - starts[ins.id]), transition: c.transition ?? "cut" };
+      const out: Seg[] = [];
+      for (const s of segs) {
+        if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
+        else {
+          if (s.t0 < t0) out.push({ ...s, t1: t0 });
+          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: c.transition ?? "cut", mute: s.mute });
+        }
+      }
+      segs.splice(0, segs.length, ...[...out, cut].sort((a, b) => a.t0 - b.t0));
+      continue;
+    }
+    const replay = c.replay;
+    if (!replay) {
+      issues.push({ severity: "error", where: `cut at line ${c.line}`, message: "a cut needs `replay` or `rewind`" });
+      continue;
+    }
+    const src = blocks.find((b) => b.id === replay.block);
+    if (!src) {
+      issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `unknown block "${replay.block}"` });
+      continue;
+    }
+    const from = time.at(replay) - starts[src.id];
     const cut: Seg = { t0, t1, scene: src.id, from: Math.max(0, from), mute: true, transition: c.transition ?? "flash" };
     const out: Seg[] = [];
     for (const s of segs) {
@@ -2921,7 +3046,9 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
       from: r3(s.from),
       duration: r3(s.t1 - s.t0),
       ...(s.mute ? { muteSpeech: true } : {}),
-      ...(s.transition ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, color: "#ffffff" } } : {}),
+      ...(s.speed !== undefined ? { speed: r3(s.speed) } : {}),
+      ...(s.overlay ? { overlay: s.overlay } : {}),
+      ...(s.transition && s.transition !== "cut" ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, color: "#ffffff" } } : {}),
     }));
   const sequence = {
     format: "toon-sequence",
@@ -3016,7 +3143,7 @@ export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
   for (const l of lines) {
     const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
     if (!id) continue;
-    const block = staging.blocks.find((b) => l.i >= b.from && l.i < b.to);
+    const block = staging.blocks.find((b) => !b.insert && l.i >= b.from && l.i < b.to);
     const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
     if (block && !replayed && !block.cast.some((c) => c.id === id)) issues.push({ severity: "error", where: `line ${l.i}`, message: `${l.speaker} speaks but is not in block "${block.id}"` });
   }
@@ -3025,7 +3152,7 @@ export function check(staging: Staging, lines: Line[], kit: Kit): Issue[] {
   const compiled = new Map<string, ReturnType<typeof compileScene>>();
   for (const l of lines) {
     const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
-    const block = staging.blocks.find((b) => l.i >= b.from && l.i < b.to);
+    const block = staging.blocks.find((b) => !b.insert && l.i >= b.from && l.i < b.to);
     if (!id || !block || !block.cast.some((c) => c.id === id) || !out.scenes[block.id]) continue;
     const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
     if (replayed) continue;

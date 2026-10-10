@@ -119,6 +119,17 @@
           "muteSpeech": {
             "description": "Show the scene without its speech (no lip sync, no voice audio): replays under other audio",
             "type": "boolean"
+          },
+          "speed": {
+            "description": "Scene seconds per shot second (default 1); negative plays it backwards from `from` (a tape rewinding). A shot not at speed 1 is silent",
+            "type": "number"
+          },
+          "overlay": {
+            "description": "Drawn over the shot: `vhs` — a tape rewinding (scanlines, a rolling tracking band, colour fringes, ◀◀)",
+            "type": "string",
+            "enum": [
+              "vhs"
+            ]
           }
         },
         "required": [

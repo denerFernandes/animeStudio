@@ -662,6 +662,8 @@ document, rendered by `evaluateSequence` / `<ToonSequenceComposition>`.
 | `from` | Start time inside the scene (default 0) |
 | `duration` | Shot length (default: rest of the scene) |
 | `muteSpeech` | Show the scene without its speech (no lip sync, no voice audio) — for recaps and songs that replay a window under different audio |
+| `speed` | Scene seconds per shot second (default 1); negative plays backwards from `from` (a tape rewinding). A shot not at speed 1 is silent |
+| `overlay` | `"vhs"`: a tape rewinding drawn over the shot (scanlines, a rolling tracking band, colour fringes, ◀◀ REW) |
 | `transition` | Into this shot: `cut`, `crossfade` (shots overlap by `duration`), `fade` / `iris` / `wipe` / `flash` (through `color`, half before and half after the cut), with `duration`, `color`, `direction` (wipe), `target` (iris center: actor id of the scene or screen point) |
 
 Each shot's audio plays on the global timeline and is cut at the end of the shot.

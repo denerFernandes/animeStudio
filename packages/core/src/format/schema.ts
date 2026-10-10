@@ -791,6 +791,8 @@ export const SequenceSchema = z.strictObject({
         duration: z.number().positive().optional().describe("Shot length (default: rest of the scene)"),
         transition: ShotTransitionSchema.optional().describe("Transition from the previous shot into this one"),
         muteSpeech: z.boolean().optional().describe("Show the scene without its speech (no lip sync, no voice audio): replays under other audio"),
+          speed: z.number().refine((v) => v !== 0, "speed cannot be 0").optional().describe("Scene seconds per shot second (default 1); negative plays it backwards from `from` (a tape rewinding). A shot not at speed 1 is silent"),
+          overlay: z.enum(["vhs"]).optional().describe("Drawn over the shot: `vhs` — a tape rewinding (scanlines, a rolling tracking band, colour fringes, ◀◀)"),
       }),
     )
     .min(1),
