@@ -2389,6 +2389,12 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
     }
     return artBoxes.get(character)!;
   };
+  // Blankets (a bed's `meta.cover`) are meant to lie over whoever sleeps there, up to the chin.
+  const covers = new Set(
+    Object.values(kit.furniture ?? {})
+      .map((f) => (kit.characters[f.character]?.meta as { cover?: { character?: string } } | undefined)?.cover?.character)
+      .filter(Boolean) as string[],
+  );
   const opacityAt = (id: string, t: number) => {
     const tr = (sc.doc as { tracks?: Record<string, [number, number][]> }).tracks?.[`actors.${id}.opacity`];
     if (!tr?.length) return 1;
@@ -2414,7 +2420,7 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
       const [fx, fy] = anchorPosition(sc, actor.id, anchor, t);
       const z = actor.def.z ?? 0;
       for (const other of sc.actors) {
-        if (other === actor || cast.has(other.id) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
+        if (other === actor || cast.has(other.id) || covers.has(other.def.character) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
         const m = actorPlacement(other, t);
         for (const b of boxesOf(other.def.character)) {
           const c = [apply(m, [b[0], b[1]]), apply(m, [b[2], b[3]])];

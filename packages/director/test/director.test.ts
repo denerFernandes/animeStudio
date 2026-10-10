@@ -200,6 +200,8 @@ describe("director", () => {
     const script = out.scenes.x.script as { action: string; actor?: string; channel?: string; value?: unknown; clip?: string }[];
     expect(script.filter((x) => x.actor === "bed1Cover" && x.channel === "opacity").map((x) => x.value)).toEqual([0, 1, 0]);
     expect(script.some((x) => x.actor === "tower" && x.action === "play" && x.clip === "loop")).toBe(true);
+    // The blanket lies over the sleeper's face area without a "covered face" report.
+    expect(check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], furniture: [{ id: "bed1", kind: "bed", at: "door" }], beats: [{ line: 1, do: "sleep", who: "a", on: "bed1" }] }] }, lines, k).map((i) => i.message).join("\n")).not.toContain("drawn over");
     expect((out.scenes.x.actors as { id: string; parallax?: number }[]).find((x) => x.id === "tower")?.parallax).toBe(0.6);
     // A clock showing the time of day follows the light mood.
     const dial = { ...clock, meta: { timeOfDay: true }, parts: [...clock.parts, { id: "light", type: "switch", bone: "root", variants: { morning: "<g/>", noon: "<g/>", night: "<g/>" }, default: "morning" }] };
