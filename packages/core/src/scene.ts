@@ -107,7 +107,7 @@ export interface Grab {
   actor: string;
   anchor: string;
   /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
-  fit?: { point: Vec2; anchor: string }[];
+  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number })[];
   start: number;
   end: number;
   releaseVelocity?: Vec2;
@@ -699,7 +699,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         requireActor(a.actor, path);
         const prop = props.find((p) => p.id === a.prop);
         if (!prop) throw new SceneError(`unknown prop "${a.prop}"`, path);
-        for (const an of [a.anchor, ...(a.fit ?? []).map((f) => f.anchor)]) {
+        for (const an of [a.anchor, ...(a.fit ?? []).flatMap((f) => ("anchor" in f ? [f.anchor] : []))]) {
           if (!rigCache.get(a.actor)!.anchors[an]) throw new SceneError(`unknown anchor "${an}" on actor "${a.actor}"`, path);
         }
         prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}) });
@@ -1403,19 +1403,25 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
  * at the second anchor (or, with one point, turning with that anchor's bone).
  */
 function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number } {
-  const [f1, f2] = grab.fit!;
+  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number })?];
   const a1 = anchorPosition(scene, grab.actor, f1.anchor, t, pose);
+  // The first anchor's bone: how it turns from rest (scene space) and whether the actor is mirrored.
+  const actor = scene.actors.find((a) => a.id === grab.actor)!;
+  const an = actor.rig.anchors[f1.anchor];
+  const p = pose ?? actorPose(scene, actor, t);
+  const m = multiply(actorPlacement(actor, t), multiply(p.world[an.bone], actor.rig.bones[an.bone].setupWorldInv));
+  const mirrored = m[0] * m[3] - m[1] * m[2] < 0;
+  const boneTurn = mirrored ? -Math.atan2(m[1], -m[0]) : Math.atan2(m[1], m[0]);
   let rot: number;
-  if (f2) {
+  if (f2 && "anchor" in f2) {
     const a2 = anchorPosition(scene, grab.actor, f2.anchor, t, pose);
     rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
-  } else {
-    const actor = scene.actors.find((a) => a.id === grab.actor)!;
-    const an = actor.rig.anchors[f1.anchor];
-    const p = pose ?? actorPose(scene, actor, t);
-    const m = multiply(actorPlacement(actor, t), multiply(p.world[an.bone], actor.rig.bones[an.bone].setupWorldInv));
-    rot = Math.atan2(m[1], m[0] * Math.sign(m[0] * m[3] - m[1] * m[2] || 1));
-  }
+  } else if (f2) {
+    // A direction in the actor's frame (mirrored when it faces left), turning with the bone.
+    const dir = (f2.angle * Math.PI) / 180 + (mirrored ? -boneTurn : boneTurn);
+    const world = mirrored ? Math.PI - dir : dir;
+    rot = world - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
+  } else rot = boneTurn;
   const c = Math.cos(rot), s = Math.sin(rot);
   const px = f1.point[0] * scale[0], py = f1.point[1] * scale[1];
   void prop;
@@ -1510,6 +1516,10 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const artId = `actor-art-${actor.id}`;
     // Riding: some parts (the far leg…) are drawn just behind the ridden actor.
     const under = behindRidden(scene, actor, t);
+    // Holding a prop: the prop is drawn just above the actor and the holding hand above the prop
+    // (the fingers wrap around it).
+    const holdBones = new Set(scene.props.flatMap((pr) => pr.grabs.filter((g) => g.actor === actor.id && t >= g.start && t < g.end).map((g) => actor.rig.anchors[g.anchor]?.bone)).filter((b): b is number => b !== undefined));
+    const overParts = new Set(holdBones.size ? actor.rig.parts.filter((pt) => "bone" in pt && holdBones.has((pt as { bone: number }).bone)).map((pt) => pt.id) : []);
     const actorNode: RenderNode = {
       kind: "group",
       key: `actor-${actor.id}`,
@@ -1517,8 +1527,12 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       transform: m,
       opacity: p.opacity < 1 ? p.opacity : undefined,
       filter: blurFor(depth, m, mPrev),
-      children: renderCharacter(actor.rig, pose, `${actor.id}-`, under ? (id) => !under.parts.has(id) : undefined),
+      children: renderCharacter(actor.rig, pose, `${actor.id}-`, under || overParts.size ? (id) => !under?.parts.has(id) && !overParts.has(id) : undefined),
     };
+    if (overParts.size) {
+      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-hand`, id: undefined, children: renderCharacter(actor.rig, pose, `${actor.id}-h-`, (id) => overParts.has(id)) };
+      items.push({ z: z + 2e-3, order: order++, node });
+    }
     if (under) {
       const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-behind`, id: undefined, children: renderCharacter(actor.rig, pose, `${actor.id}-b-`, (id) => under.parts.has(id)) };
       items.push({ z: under.z - 1e-3, order: order++, node });
@@ -1544,10 +1558,13 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   for (const prop of scene.props) {
     const depth = prop.def.parallax ?? 1;
     const p = propPlacement(scene, prop, t, poses);
+    const holder = prop.grabs.find((g) => t >= g.start && t < g.end);
+    const holderZ = holder ? scene.actors.find((a) => a.id === holder.actor)?.def.z : undefined;
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), placementMatrix(propPlacement(scene, prop, t - dtPrev))) : null;
     items.push({
-      z: prop.def.z ?? 0,
+      // Held: just above its holder (under the holding hand, above the rest of the body).
+      z: holder ? (holderZ ?? 0) + 1e-3 : prop.def.z ?? 0,
       order: order++,
       node: {
         kind: "markup",

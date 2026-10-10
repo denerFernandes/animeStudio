@@ -162,7 +162,8 @@ Named points attached to bones, used by the script (`lookAt` targets, `grab`, sp
 ```
 
 `at` is in setup space. If a character has a `head` anchor, other actors looking at it aim there.
-A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
+A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
+above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
 prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
 second anchor, every frame; with one point it turns with that anchor's bone. A `reach` target can be a
 prop's point (`{ prop, point }`), even on a prop fitted to the reaching actor's own body (a hand holding

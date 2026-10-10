@@ -499,11 +499,16 @@ export const ActionSchema = z.discriminatedUnion("action", [
     prop: z.string(),
     anchor: z.string(),
     fit: z
-      .array(z.strictObject({ point: Vec2Schema.describe("A point of the prop's art"), anchor: z.string().describe("An anchor of the actor") }))
+      .array(
+        z.union([
+          z.strictObject({ point: Vec2Schema.describe("A point of the prop's art"), anchor: z.string().describe("An anchor of the actor") }),
+          z.strictObject({ point: Vec2Schema, angle: z.number().describe("Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone") }),
+        ]),
+      )
       .min(1)
       .max(2)
       .optional()
-      .describe("Fit the prop to the body: its first point on the first anchor, turned so its second point points at the second anchor (a phone: ear on the ear, mouthpiece towards the mouth); one point keeps the prop turning with that anchor's bone"),
+      .describe("Fit the prop to the body: its first point on the first anchor, turned so its second point points at the second anchor (a phone: ear on the ear, mouthpiece towards the mouth) or in a direction (`angle`: a bottle's bottom up and forward); one point keeps the prop turning with that anchor's bone"),
   }),
   z.strictObject({
     ...At,

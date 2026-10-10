@@ -1102,7 +1102,8 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   const headPoints = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => {
     const th = VIEWS[v], sp = onSurface(m.head, th);
     return [v, {
-      ear: project([-u * 1.0, m.y.ear, -u * 0.06], th),
+      // The ear canal: on the near ear, between the height of the eyes and of the nose.
+      ear: project([-u * 0.97, m.y.head + u * 0.22, -u * 0.02], th),
       mouth: sp.point(0, m.y.mouth, u * 0.04),
       eye: sp.point(0, m.y.eye, u * 0.04),
       top: [0, m.y.top] as P2,

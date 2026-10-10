@@ -541,40 +541,52 @@ class BlockScene {
    * (`kit.props[kind].points`) on anchors of the rig (`ear`, `mouth`…), following the head every
    * frame; the hand holds it by its `grip` point. Back in the hand at `until`.
    */
-  use(actor: string, prop: string, fit: Record<string, string>, at: number, until: number) {
+  use(actor: string, prop: string, fit: Record<string, string | number>, at: number, until: number) {
     const st = this.propStates.get(prop);
     if (!st) return this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
     if (!st.heldBy.some((h) => h.actor === actor && h.t0 <= at && h.t1 > at)) return this.issue("error", `${actor} cannot use "${prop}": not holding it (pick it up first, or heldBy)`);
     const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
     const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
     const list = Object.entries(fit).slice(0, 2);
-    for (const [pt, an] of list) {
+    for (const [k, [pt, an]] of list.entries()) {
       if (!points[pt]) return this.issue("error", `prop "${prop}" has no contact point "${pt}"${closest(pt, Object.keys(points))} (kit.props.<kind>.points)`);
-      if (!anchors[an]) return this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
+      if (typeof an === "number" && k === 0) return this.issue("error", `use: the first contact point of "${prop}" goes on an anchor, not an angle`);
+      if (typeof an === "string" && !anchors[an]) return this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
     }
     const t0 = this.t(at), t1 = this.t(until);
     this.push({ at: t0, action: "release", actor, prop });
-    this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list.map(([pt, an]) => ({ point: points[pt], anchor: an })) });
+    this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list.map(([pt, an]) => (typeof an === "number" ? { point: points[pt], angle: an } : { point: points[pt], anchor: an })) });
     if (this.hasChain(actor, "handF")) {
+      // The hand holds it by its grip, the elbow low and forward (the forearm along the face).
       this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0] }, duration: 0.3 });
+      this.set(actor, "ik.handF.bend", -1, at);
+      // The elbow points at the camera: the arm is foreshortened, close to the body.
+      this.set(actor, "bones.armF1.squash", -0.3, at, 0.3);
+      this.set(actor, "bones.armF2.squash", -0.15, at, 0.3);
+      if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "grip", at);
       this.push({ at: t1, actor, action: "reach", chain: "handF", target: null, duration: 0.3 });
+      this.set(actor, "ik.handF.bend", 1, until + 0.3);
+      this.set(actor, "bones.armF1.squash", 0, until, 0.3);
+      this.set(actor, "bones.armF2.squash", 0, until, 0.3);
     }
     this.push({ at: t1, action: "release", actor, prop });
     this.push({ at: t1, action: "grab", actor, prop, anchor: "hand" });
   }
   /** The phone / smoke / drink gestures with a held prop that has contact points: `use` it. */
   private useForGesture(actor: string, clip: string, at: number, until?: number) {
-    const fits: Record<string, [Record<string, string>, number]> = {
-      phone: [{ ear: "ear", mouth: "mouth" }, 3],
+    // Drinking: the lip at the mouth, the bottom up and forward (it turns as the head tips back).
+    const fits: Record<string, [Record<string, string | number>, number]> = {
+      // The phone along the jaw: the earpiece on the ear, the mouthpiece down and forward.
+      phone: [{ ear: "ear", mouth: 62 }, 3],
       smoke: [{ tip: "mouth" }, 1.3],
-      drink: [{ lip: "mouth", bottom: "top" }, 1.8],
+      drink: [{ lip: "mouth", bottom: -38 }, 1.8],
     };
     const f = fits[clip];
     const prop = f && this.heldProp(actor, at);
     if (!f || !prop) return false;
     const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
     const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
-    const fit = Object.fromEntries(Object.entries(f[0]).filter(([pt, an]) => points[pt] && anchors[an]));
+    const fit = Object.fromEntries(Object.entries(f[0]).filter(([pt, an]) => points[pt] && (typeof an === "number" || anchors[an])));
     if (!Object.keys(fit).length) return false;
     // The arm comes up with the clip (the head tips back to drink), then the prop fits.
     this.play(actor, clip, at - 0.1, until ? until - at + 0.1 : undefined);
