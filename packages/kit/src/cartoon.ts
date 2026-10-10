@@ -168,6 +168,25 @@ interface Model {
   skirtColor?: (p: V3) => string;
   eye: { x: number; rx: number; ry: number };
   mouthW: number;
+  /** Room between the mouth and the bottom of the chin (an open mouth stays inside the face). */
+  chinRoom: number;
+}
+
+/** Half width of the part of a face that looks at the camera at a height (a mouth must fit in it). */
+function frontHalf(head: Sdf, y: number, u: number) {
+  let x = 0;
+  for (; x < u * 1.2; x += u * 0.02) {
+    const z = surfaceZ(head, x, y);
+    if (z === undefined || normal(head, [x, y, z])[2] < 0.6) break;
+  }
+  return x;
+}
+
+/** The lowest point of the chin under the middle of the mouth. */
+function chinBottom(head: Sdf, from: number, u: number) {
+  let y = from;
+  while (y < from + u * 1.5 && surfaceZ(head, 0, y + u * 0.02) !== undefined) y += u * 0.02;
+  return y;
 }
 
 /** Eye half height (as drawn). */
@@ -189,7 +208,8 @@ function model(look: CartoonLook): Model {
   const ey = hy + u * 0.12;
   const y = {
     hip, waist, shoulder, torsoTop, neckTop, head: hy, eye: ey, brow: ey - eye.ry - u * 0.13,
-    nose: hy + u * 0.5, mouth: hy + u * 0.82, ear: hy + u * 0.3, top: hy - u * 1.14,
+    // The mouth between the nose and the chin, with room for a chin below it.
+    nose: hy + u * 0.47, mouth: hy + u * 0.74, ear: hy + u * 0.3, top: hy - u * 1.14,
   };
 
   // Head: a cranium and a face (jaw), blended.
@@ -493,7 +513,7 @@ function model(look: CartoonLook): Model {
     if (look.stubble && z > -u * 0.25 && yy > y.nose + u * 0.12 && !(Math.abs(x) < u * 0.42 && Math.abs(yy - y.mouth) < u * 0.07) && nose(x, yy, z) > u * 0.02) return "stubble";
     return "skin";
   };
-  return { b, y, head, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: u * 0.31 };
+  return { b, y, head, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * 0.36, frontHalf(head, y.mouth, u) * 0.82), chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -790,8 +810,12 @@ function faceView(m: Model, look: CartoonLook, theta: number) {
 
   // Mouth.
   const L = s.point(-m.mouthW, m.y.mouth), R = s.point(m.mouthW, m.y.mouth);
-  const mouth = mouthShapes(L as P, R as P, (u / 50) * 1.05);
-  const inside = mouthInside(L as P, R as P, (u / 50) * 1.05);
+  // Open mouths stay above the chin: the widest opening (D, about 27 × scale below the corners)
+  // fits in the room between the mouth and the chin. Seen from the front the mouth is symmetric.
+  const open = Math.min((u / 50) * 1.0, m.chinRoom / 27);
+  const style = { symmetric: theta < 0.35 || theta > 2.8, lift: Math.max(0.6, Math.min(1, m.mouthW / (u * 0.3))) };
+  const mouth = mouthShapes(L as P, R as P, open, style);
+  const inside = mouthInside(L as P, R as P, open, style);
 
   // Nostrils (the nose itself is a volume of the head).
   const ny = m.y.nose;
@@ -974,6 +998,8 @@ function cuff(a: P, b: P, from: number, to: number, w0: number, w1: number, fill
 // ------------------------------------------------------------------ the builder
 
 export function cartoonCharacter(look: CartoonLook): ToonDoc {
+  // Lipstick colours the lips (a thicker outline); the inside of the mouth stays dark.
+  const [LIPS, LIPS_W] = look.lipstick ? ["palette(lips)", 3.6] : ["palette(mouthLine)", 2.4];
   const m = model(look);
   const { b } = m;
   const u = b.u;
@@ -1092,7 +1118,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     { id: "eyes", type: "switch", bone: "head", variants: Object.fromEntries(Object.keys(F.eyeVariants).map((k) => [k, `eye_${k}`])), default: "open" },
     { id: "pupils", type: "rigid", bone: "pupils", art: "pupils", visibleWhen: { part: "eyes", variant: ["open", "wide", "half"] } },
     { id: "lids", type: "rigid", bone: "head", art: "lids", visibleWhen: { part: "eyes", variant: "half" } },
-    { id: "mouth", type: "morph", bone: "head", fill: "palette(mouth)", stroke: "palette(mouthLine)", strokeWidth: 2.4, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes },
+    { id: "mouth", type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes },
     { id: "tongue", type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes },
     { id: "teeth", type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes },
     { id: "over", type: "rigid", bone: "head", art: "over" },
@@ -1142,7 +1168,9 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
       socks: look.socks ?? "#ffffff",
       accent: look.accent ?? "#ff6fa8",
       apron: look.apron ?? "#ffffff",
-      mouth: look.lipstick ?? "#5a1c26",
+      // The inside of the mouth is always dark; lipstick colours the lips (the mouth's outline).
+      mouth: "#5a1c26",
+      lips: look.lipstick ?? "#5a1c26",
       tongue: "#d8606a",
       stripe: look.stripe ?? top2,
       flush: mix(look.skin, "#e0584f", 0.32),
@@ -1243,6 +1271,7 @@ function withTones(palette: Record<string, string>): Record<string, string> {
  * blinks and lip sync.
  */
 function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face: ReturnType<typeof faceView> }>, sx: number, hx: number, tail: boolean): ToonDoc {
+  const { stroke: LIPS, strokeWidth: LIPS_W } = doc.parts.find((p: { id: string }) => p.id === "mouth");
   const cq = Math.cos(Q);
   const others = (Object.keys(VIEWS) as ViewKey[]).filter((v) => v !== "profile");
   const viewParts = (v: ViewKey) => {
@@ -1269,7 +1298,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       list.push(
         before("armF", { id: `pupils${s}`, type: "rigid", bone: "pupils", art: `pupils${s}` }),
         before("armF", { id: `lids${s}`, type: "rigid", bone: "head", art: `lids${s}` }),
-        before("armF", { id: `mouth${s}`, type: "morph", bone: "head", fill: "palette(mouth)", stroke: "palette(mouthLine)", strokeWidth: 2.4, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes }),
+        before("armF", { id: `mouth${s}`, type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes }),
         before("armF", { id: `tongue${s}`, type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes }),
         before("armF", { id: `teeth${s}`, type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes }),
       );

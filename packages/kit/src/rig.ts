@@ -14,20 +14,26 @@ export const r = (n: number) => Math.round(n * 100) / 100;
 
 // ------------------------------------------------------------------ shared pieces
 
-/** Mouth as one closed path (morph-compatible): corners L/R, top and bottom lips. */
-export function mouthPath(L: P, R: P, open: number, smile: number, round: number): string {
+/**
+ * Mouth as one closed path (morph-compatible): corners L/R, top and bottom lips. By default the far
+ * corner (R) lifts more in a smile (a profile); `symmetric` lifts both alike (a face seen from the
+ * front); `lift` scales how high the corners go.
+ */
+export interface MouthStyle { symmetric?: boolean; lift?: number }
+export function mouthPath(L: P, R: P, open: number, smile: number, round: number, o: MouthStyle = {}): string {
   const w = R[0] - L[0];
-  const l: P = [L[0] + w * round * 0.22, L[1] - smile * 4];
-  const rr: P = [R[0] - w * round * 0.22, R[1] - smile * 6];
+  const k = o.lift ?? 1;
+  const l: P = [L[0] + w * round * 0.22, L[1] - smile * (o.symmetric ? 5 : 4) * k];
+  const rr: P = [R[0] - w * round * 0.22, R[1] - smile * (o.symmetric ? 5 : 6) * k];
   const mx = (l[0] + rr[0]) / 2;
-  const topY = (l[1] + rr[1]) / 2 + smile * 3 - open * 0.15;
-  const botY = (l[1] + rr[1]) / 2 + smile * 4 + open;
+  const topY = (l[1] + rr[1]) / 2 + smile * 3 * k - open * 0.15;
+  const botY = (l[1] + rr[1]) / 2 + smile * 4 * k + open;
   return `M${r(l[0])} ${r(l[1])} Q${r(mx)} ${r(topY)} ${r(rr[0])} ${r(rr[1])} Q${r(mx)} ${r(botY + open * 0.4)} ${r(l[0])} ${r(l[1])} Z`;
 }
 
 /** Viseme mouths + expression shapes for a mouth with corners L/R. */
-export function mouthShapes(L: P, R: P, scale = 1) {
-  const m = (o: number, s: number, rd: number) => mouthPath(L, R, o * scale, s, rd);
+export function mouthShapes(L: P, R: P, scale = 1, style: MouthStyle = {}) {
+  const m = (o: number, s: number, rd: number) => mouthPath(L, R, o * scale, s, rd, style);
   return {
     base: m(1.5, 0.7, 0),
     shapes: {
@@ -648,21 +654,22 @@ export function fluid<T extends Record<string, unknown>>(clips: T, o: { anticipa
  * Inside of a `mouthShapes` mouth, with the same shape names (they morph together): the upper
  * `teeth` (a white band under the top lip) and the `tongue` (at the bottom). Hidden when closed.
  */
-export function mouthInside(L: P, R: P, scale = 1) {
+export function mouthInside(L: P, R: P, scale = 1, style: MouthStyle = {}) {
   const table = mouthTable();
   const shape = (kind: "teeth" | "tongue", open: number, smile: number, round: number) => {
     const o = open * scale;
     const w = R[0] - L[0];
+    const k = style.lift ?? 1;
     // Closed: nothing inside shows (collapsed in the middle of the mouth, same commands).
     if (open < 3) {
       const c = `${r((L[0] + R[0]) / 2)} ${r((L[1] + R[1]) / 2)}`;
       return `M${c} Q${c} ${c} Q${c} ${c} Z`;
     }
-    const l: P = [L[0] + w * round * 0.22, L[1] - smile * 4];
-    const rr: P = [R[0] - w * round * 0.22, R[1] - smile * 6];
+    const l: P = [L[0] + w * round * 0.22, L[1] - smile * (style.symmetric ? 5 : 4) * k];
+    const rr: P = [R[0] - w * round * 0.22, R[1] - smile * (style.symmetric ? 5 : 6) * k];
     const mx = (l[0] + rr[0]) / 2;
-    const topY = (l[1] + rr[1]) / 2 + smile * 3 - o * 0.15;
-    const botY = (l[1] + rr[1]) / 2 + smile * 4 + o;
+    const topY = (l[1] + rr[1]) / 2 + smile * 3 * k - o * 0.15;
+    const botY = (l[1] + rr[1]) / 2 + smile * 4 * k + o;
     if (kind === "teeth") {
       // Along the top lip, as deep as a third of the opening (at most a tooth's height).
       const t = Math.min(o * 0.34, 7 * scale);

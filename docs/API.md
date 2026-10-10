@@ -335,7 +335,7 @@ gesture clips, emotions and the director work for every character.
 
 | Export | Description |
 |---|---|
-| `mouthPath(L, R, open, smile, round)`, `mouthShapes(L, R, scale?)` | Morph-compatible mouth (visemes A–H plus `smile`, `frown`, `grin`) |
+| `mouthPath(L, R, open, smile, round, style?)`, `mouthShapes(L, R, scale?, style?)`, `MouthStyle` | Morph-compatible mouth (visemes A–H plus `smile`, `frown`, `grin`); `style.symmetric` lifts both corners alike (a face seen from the front; by default the far corner lifts more, a profile), `style.lift` scales how high they go (small mouths) |
 | `eyeArt(spec)`, `eyeWhite`, `eyeArc`, `eyeLid`, `eyeSwitch(bone)` | Storybook eyes: open, wide, closed, happy, half-lidded, pupils |
 | `browShapes(eyes, rad, lift?)` | Brow morph (up, sad, cross, smug) |
 | `limbBones(o)`, `limbIk` | Arm and leg chains with flat feet; hand IK off by default (hand-holding) |
