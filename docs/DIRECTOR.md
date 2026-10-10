@@ -107,6 +107,8 @@ never coordinates.
 | `highFive` | `who` (two) | They step close, the near hands meet above between them: a slap and a sparkle (`clap` sound) |
 | `hug` | `who` (two), `until?` | Close together, arms around each other's back, joy and hearts (`hug` sound) |
 | `carry` | `who` (carrier), `target`, `until?` | Piggyback: the target runs over and climbs on the carrier's back (arms around the neck, legs held by the carrier's hands), carried along until set down beside them |
+| `hide` | `who`, `behind` (a fixture, furniture, vehicle or cast member), `until?` | Hides on purpose: walks behind it if needed and is drawn under it; behind something lower than the head (a table, a bush, a car) crouches — hips down with the feet on the floor, back bent forward, arms folded — until the head is below its top, keeping the hips above its lower edge (under a tablecloth only the feet show); stands up at `until` |
+| `peek` | `who` (hiding), `until?` | Peeks out and back (default 1.2 s): from a crouch the head pops up over the top; behind something taller it slides out past the edge |
 | `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
 | `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
@@ -257,4 +259,5 @@ ground and background, not more), and a face covered by scenery drawn in front o
 furniture, vehicles: each shape of their art is tested against the posed `face`/`head` anchor —
 a bottle on a table standing in front of someone is reported). Passing behind something is
 staging, not a mistake: a covered face is reported only when the character stays covered for
-more than half a second without moving, or speaks while covered (a bed's blanket never counts).
+more than half a second without moving, or speaks while covered (a bed's blanket never counts). Hiding on purpose (`hide`) is never reported:
+neither the covered face nor the overlap with what they hide behind.

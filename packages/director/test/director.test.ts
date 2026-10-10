@@ -263,6 +263,13 @@ describe("director", () => {
     const k2: Kit = { ...kit, characters: { a: withHead, b: withHead, p: post as never }, sets: { ...kit.sets, room: { ...kit.sets.room, marks: { ...kit.sets.room.marks, mid: { x: 900 }, far: { x: 1400 } }, fixtures: [{ id: "post", character: "p", mark: "mid", z: 5 }] } } };
     const walk = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door", offset: -9 }, { id: "b", at: "far" }], beats: [{ line: 2, do: "walk", who: "a", to: "far", until: { line: 2, end: true } }] }] }, lines, k2).map((i) => i.message).join("\n");
     expect(walk).not.toContain("drawn over");
+    // Hiding behind it on purpose (and peeking out) is not a mistake either.
+    const hid = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door", offset: -9 }, { id: "b", at: "far" }], beats: [{ line: 1, do: "hide", who: "a", behind: "post" }, { line: 2, do: "peek", who: "a" }] }] }, lines, k2);
+    expect(hid.map((i) => i.message).join("\n")).not.toContain("drawn over");
+    expect(hid.map((i) => i.message).join("\n")).not.toMatch(/cover each other|cannot (hide|peek)/);
+    const scene = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door", offset: -9 }, { id: "b", at: "far" }], beats: [{ line: 1, do: "hide", who: "a", behind: "post" }] }] }, lines, k2).scenes.x;
+    const hider = (scene.actors as { id: string; z?: number }[]).find((x) => x.id === "a")!, postActor = (scene.actors as { id: string; z?: number }[]).find((x) => x.id === "post")!;
+    expect(hider.z!).toBeLessThan(postActor.z!);
   });
 
   it("plays the kit's sounds on actions and ducks the music under the dialogue", () => {

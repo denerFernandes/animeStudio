@@ -70,6 +70,11 @@ Lessons from converting a 66-shot storyboard into an episode:
   feet on the pedals or the floor and keeps the far leg behind the bicycle. A beginner wobbles
   (`wobble`) before falling; nobody walks while sitting. Watching TV or in class, sit facing the
   audience (`"view": "front"`).
+- **Passing behind vs hiding.** Walking behind a table or a car needs nothing (the depth `z` draws
+  it in front). Hiding on purpose is a `hide` beat (`behind` the object, `until` the reveal) plus
+  `peek` beats: the director crouches the character until the head is under the object's top and
+  keeps the body above its lower edge, so only the feet show under a tablecloth — never fake it by
+  moving the character off screen or behind the set.
 - **Time of day is one light beat.** `{"do": "light", "mood": "night"}` darkens the scene and swaps
   the set to its night version (sky, moon, lamps, clocks) — never stage a night scene in a day set
   without it. A block that happens at night starts with `"mood": "night"`.

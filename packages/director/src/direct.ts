@@ -135,7 +135,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -619,6 +619,12 @@ class BlockScene {
         break;
       case "carry":
         if (one) this.carry(one, b.target as string, at, until);
+        break;
+      case "hide":
+        for (const w of who) this.hide(w, b.behind as string, at, until);
+        break;
+      case "peek":
+        for (const w of who) this.peek(w, at, until);
         break;
       case "sound": {
         // A sound of the kit by name, or a file.
@@ -1394,6 +1400,105 @@ class BlockScene {
     }
   }
 
+  // -------------------------------------------------- hiding
+  /** Who hides behind what, and when (the check does not report their covered face then). */
+  private hidings: { actor: string; behind: string; t0: number; t1: number; crouch: number }[] = [];
+  /** Top (scene y) of a placed rig's drawing at a scene x (the shapes over that x). */
+  private drawnTop(id: string, atX: number) {
+    return this.drawnSpan(id, atX)[0];
+  }
+  /** Top and bottom (scene y) of a placed rig's drawing over a scene x. */
+  private drawnSpan(id: string, atX: number): [number, number] {
+    const a = this.actors.find((x) => x.id === id) as { character: string; scale?: number; y: number; x: number; flip?: boolean } | undefined;
+    const doc = a && (this.kit.characters[a.character] as unknown as { art?: Record<string, string>; parts?: { art?: string; variants?: Record<string, string>; space?: string }[] });
+    const arts = (doc?.parts ?? []).filter((p) => p.space !== "bone").flatMap((p) => [p.art, ...Object.values(p.variants ?? {})]).filter(Boolean).map((x) => (x!.trim().startsWith("<") ? x! : (doc?.art?.[x!] ?? "")));
+    if (!a) return [-Infinity, Infinity];
+    const sc = a.scale ?? 1, lx = ((atX - a.x) / sc) * (a.flip ? -1 : 1);
+    const boxes = arts.flatMap(markupBoxes).filter((b) => b[0] <= lx && b[2] >= lx);
+    // The lower edge ignores flat shapes (a shadow on the floor, a thin rim).
+    const solid = boxes.filter((b) => b[3] - b[1] > (b[2] - b[0]) * 0.06);
+    return boxes.length ? [a.y + Math.min(...boxes.map((b) => b[1])) * sc, a.y + Math.max(...(solid.length ? solid : boxes).map((b) => b[3])) * sc] : [-Infinity, Infinity];
+  }
+  /** Width (scene px) of a placed rig's drawing (its shapes' boxes). */
+  private drawnWidth(id: string) {
+    const a = this.actors.find((x) => x.id === id) as { character: string; scale?: number } | undefined;
+    const doc = a && (this.kit.characters[a.character] as unknown as { art?: Record<string, string>; parts?: { art?: string; variants?: Record<string, string>; space?: string }[] });
+    const arts = (doc?.parts ?? []).filter((p) => p.space !== "bone").flatMap((p) => [p.art, ...Object.values(p.variants ?? {})]).filter(Boolean).map((x) => (x!.trim().startsWith("<") ? x! : (doc?.art?.[x!] ?? "")));
+    const boxes = arts.flatMap(markupBoxes);
+    if (!boxes.length) return 0;
+    return (Math.max(...boxes.map((b) => b[2])) - Math.min(...boxes.map((b) => b[0]))) * (a?.scale ?? 1);
+  }
+  /**
+   * Hides behind something (a tree, a car, the sofa: a fixture, furniture, a vehicle or someone):
+   * walks there and stays behind it (drawn under it) until `until`; the check knows it is meant.
+   */
+  hide(actor: string, behind: string, at: number, until?: number) {
+    const target = this.actors.find((x) => x.id === behind) as { x: number; z?: number } | undefined;
+    if (!target) return this.issue("error", `${actor} cannot hide behind "${behind}": not in block "${this.block.id}"${closest(behind, this.actors.map((x) => x.id as string))}`);
+    const x = this.xAt(behind, at);
+    let t = at;
+    if (Math.abs(this.xAt(actor, at) - x) > 20) {
+      const dur = Math.min(1.6, Math.max(0.5, Math.abs(this.xAt(actor, at) - x) / ((this.member(actor)?.speed?.walk ?? 170) * this.scaleOf(actor))));
+      this.walk(actor, x, at, dur);
+      t = at + dur;
+    }
+    // Drawn under what they hide behind (for the whole block: depth is not animated).
+    const me = this.actors.find((x) => x.id === actor) as { z?: number } | undefined;
+    if (me && (me.z ?? 2) >= (target.z ?? 0)) me.z = (target.z ?? 0) - 0.05;
+    // Behind something lower than the head (a table, a bush, a car): crouch until the head is below
+    // its top — the hips go down, the feet stay on the floor (knees bend), the back bends forward.
+    const rig = this.member(actor)?.rig, s = this.scaleOf(actor);
+    // The top of the head as drawn: the head (or face) anchor plus some hair above it.
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, { at: [number, number] }>;
+    const headY = (anchors.head ?? anchors.face)?.at[1];
+    const headTop = this.groundY(actor, at) + (headY !== undefined ? headY - (rig?.height ?? 300) * 0.16 : -(rig?.height ?? 300)) * s;
+    const [objTop, objBottom] = this.drawnSpan(behind, x);
+    const need = objTop + 24 - headTop; // scene px the head must go down (with a margin for tall hair)
+    let crouch = 0;
+    if (need > 0 && Number.isFinite(need)) {
+      // The hips stay above the object's lower edge (under a tablecloth or a car the floor shows).
+      const hipUp = Math.abs(this.hipOf(actor)[1]) * s;
+      const floor = this.groundY(actor, at);
+      // The pelvis and the shirt hem hang below the hip joint: keep a margin of about a tenth of the height.
+      const room = Number.isFinite(objBottom) && objBottom < floor ? hipUp - (floor - objBottom) - (rig?.height ?? 300) * s * 0.1 : hipUp;
+      crouch = Math.max(0, Math.min(need, (rig?.legLength?.F ?? 100) * s * 0.95, room));
+      this.set(actor, "bones.hips.y", r3(crouch / s), t, 0.3, "easeOut");
+      const lean = need > crouch ? Math.min(60, ((need - crouch) / ((rig?.height ?? 300) * s * 0.4)) * 70) : 0;
+      if (lean) this.set(actor, "bones.body.rotation", r3(lean), t, 0.3, "easeOut");
+      // Arms folded in front, around the knees (hanging, they would show under the object).
+      const arms: [string, number][] = [["armF1", -70], ["armF2", -80], ["armB1", -60], ["armB2", -80]];
+      for (const [bone, deg] of arms) this.set(actor, `bones.${bone}.rotation`, deg, t, 0.3, "easeOut");
+      if (until !== undefined) {
+        this.set(actor, "bones.hips.y", 0, until, 0.3, "easeOut");
+        if (lean) this.set(actor, "bones.body.rotation", 0, until, 0.3, "easeOut");
+        for (const [bone] of arms) this.set(actor, `bones.${bone}.rotation`, 0, until, 0.3, "easeOut");
+      }
+    }
+    this.hidings.push({ actor, behind, t0: at, t1: until ?? Infinity, crouch });
+    if (until !== undefined && this.hasControl(actor, "emotion")) this.push({ at: this.t(until), actor, action: "pose", control: "emotion", value: "happy", duration: 0.3 });
+    void t;
+  }
+  /** Peeks out from behind the hiding place: leans past its edge, then back (`until`, default 1.2 s). */
+  peek(actor: string, at: number, until?: number) {
+    const h = this.hidings.find((x) => x.actor === actor && x.t0 <= at && x.t1 > at);
+    if (!h) return this.issue("error", `${actor} cannot peek: not hiding then (use "hide" first)`);
+    const back = until ?? at + 1.2;
+    // Crouching behind something low: the head pops up over its top, then ducks back down.
+    if (h.crouch > 0) {
+      const s = this.scaleOf(actor);
+      this.set(actor, "bones.hips.y", 0, at, 0.25, "easeOut");
+      this.set(actor, "bones.body.rotation", 0, at, 0.25, "easeOut");
+      this.set(actor, "bones.hips.y", r3(h.crouch / s), back, 0.25, "easeIn");
+      return;
+    }
+    // Behind something tall: leans out past its edge, then back.
+    const x = this.xAt(h.behind, at);
+    const side = this.facing(actor, at) ? 1 : -1;
+    const out = x + side * (this.drawnWidth(h.behind) / 2 + (this.member(actor)?.rig.extent.front ?? 60) * this.scaleOf(actor) * 0.3);
+    this.slide(actor, out, at, 0.3);
+    this.slide(actor, x, back, 0.3);
+  }
+
   // -------------------------------------------------- flying
   /** Characters that fly: `meta.canFly` on the rig, or a `fly` clip. Wings beat with `fly`, else `flap`. */
   canFly(actor: string) {
@@ -1982,8 +2087,10 @@ class BlockScene {
           const gap = this.xAt(r, t) - this.xAt(l, t);
           // Walking past someone is fine; standing on top of each other is not.
           const moving = this.walks.some((w) => (w.actor === a || w.actor === b) && w.t0 <= t && w.t1 > t);
-          // Nobody covers anyone while one of them is not on screen (before entering, after leaving).
-          if (this.hiddenAt(a, t) || this.hiddenAt(b, t)) {
+          // Nobody covers anyone while one of them is not on screen (before entering, after leaving)
+          // or hides behind the other on purpose.
+          const hiding = this.hidings.some((h) => h.t0 <= t && h.t1 > t && ((h.actor === a && h.behind === b) || (h.actor === b && h.behind === a)));
+          if (hiding || this.hiddenAt(a, t) || this.hiddenAt(b, t)) {
             run = 0;
             continue;
           }
@@ -2410,6 +2517,13 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
     return time.lines.some((l) => l.s <= t0 + t && l.e >= t0 + t && (norm(l.speaker) === norm(id) || (name !== undefined && norm(l.speaker) === norm(name))));
   };
   const moving = (actor: (typeof sc.actors)[number], t: number) => Math.abs(actorPlacement(actor, t)[4] - actorPlacement(actor, t - 0.2)[4]) > 6;
+  // Hiding on purpose ("hide" beats, until `until` or the end of the block): a covered face is the point.
+  const hides = (block.beats ?? []).filter((b) => b.do === "hide").flatMap((b) => {
+    const who = (Array.isArray(b.who) ? b.who : [b.who]) as string[];
+    const a = time.at(b) - t0, z = b.until ? time.at(b.until as When) - t0 : Infinity;
+    return who.map((w) => ({ actor: w, t0: a, t1: z }));
+  });
+  const hidingAt = (id: string, t: number) => hides.some((h) => h.actor === id && h.t0 <= t && h.t1 > t);
   for (let t = 0.25; t < sc.duration; t += 0.25) {
     for (const actor of sc.actors) {
       if (!cast.has(actor.id) || opacityAt(actor.id, t) <= 0.01) continue;
@@ -2424,7 +2538,7 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
       }
       // A face covered by something drawn in front of it.
       const anchor = actor.rig.anchors.face ? "face" : actor.rig.anchors.head ? "head" : undefined;
-      if (!anchor) continue;
+      if (!anchor || hidingAt(actor.id, t)) continue;
       const [fx, fy] = anchorPosition(sc, actor.id, anchor, t);
       const z = actor.def.z ?? 0;
       for (const other of sc.actors) {
