@@ -1960,6 +1960,9 @@ class BlockScene {
       // hanging in front of the other one, the foot off the floor.
       set("bones.legB1.rotation", -90 - up - 8);
       set("bones.legB1.turn", -20);
+      // The lower knee a little out (turned: a thigh pointing forward does not spread), so the two
+      // shins do not cross into an X.
+      set("bones.legF1.turn", -10);
       set("bones.legB2.rotation", 90 + up + 8 - slope * 0.5);
     }
     set("bones.body.rotation", 4);
@@ -1968,7 +1971,7 @@ class BlockScene {
     const lap = how.hands === "lap" || how.legs === "crossed";
     const v: Rig3dValues = { body: { rotation: 4 } };
     for (const side of ["F", "B"]) v[`leg${side}1`] = { rotation: -90 - up }, v[`leg${side}2`] = { rotation: 90 + up - slope };
-    if (how.legs === "crossed") v.legB1 = { rotation: -90 - up - 8, turn: -20 };
+    if (how.legs === "crossed") v.legB1 = { rotation: -90 - up - 8, turn: -20 }, v.legF1 = { ...v.legF1, turn: -10 };
     this.handsOnLegs(actor, at, v, (P, side) => {
       if (how.legs === "crossed") return P.on("legB1", 0.9, side === "F" ? -0.35 : 0.35);
       return lap ? P.on(`leg${side}1`, 0.55, side === "F" ? 0.45 : -0.45) : P.on(`leg${side}1`, 0.85, 0);

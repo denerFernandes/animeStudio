@@ -162,8 +162,8 @@ export interface CartoonAnatomy {
    * shaping (`female`: narrower waist, wider hips; `heavy`: a belly).
    */
   body: { hip: number; torso: number; neck: number; head: number; shoulders: number; waist: number; hips: number; depth: number };
-  /** Diameters at the root and the end of the arms and legs; hand radius; shoe scale. */
-  limbs: { arm: [number, number]; leg: [number, number]; hand: number; shoe: number };
+  /** Diameters at the root and the end of the arms and legs; hand radius; shoe scale; the calf's swell (× the shin's width below the knee). */
+  limbs: { arm: [number, number]; leg: [number, number]; hand: number; shoe: number; calf: number };
   /**
    * Face, in head radii from the head's centre (down is +): eye height, eye centre's distance from
    * the middle, eye half width and half height, pupil radius; gap between eye and brow; nose height,
@@ -199,7 +199,7 @@ export function cartoonAnatomy(look: CartoonLook): CartoonAnatomy {
   const nk = look.female ? 0.85 : 1;
   return {
     body: { hip: r(base.L * k), torso: r(base.T * k), neck: base.n, head: base.u, shoulders: base.S, waist: base.W, hips: base.H, depth: base.D },
-    limbs: { arm: [r(base.arm[0] * lk), r(base.arm[1] * lk)], leg: [r(base.leg[0] * lk), r(base.leg[1] * lk)], hand: r(base.hand * (1 + (lk - 1) * 0.5)), shoe: base.shoe },
+    limbs: { arm: [r(base.arm[0] * lk), r(base.arm[1] * lk)], leg: [r(base.leg[0] * lk), r(base.leg[1] * lk)], hand: r(base.hand * (1 + (lk - 1) * 0.5)), shoe: base.shoe, calf: look.female ? 1.22 : 1.12 },
     face: {
       eyeY: 0.12, eyeX: 0.3, eye: [r(0.185 * base.eye), r(0.235 * base.eye)], pupil: r(0.075 * base.eye), brow: 0.13,
       noseY: 0.38, nose: [r(nose.size[0] * nk), r(nose.size[1] * nk), r(nose.size[2] * nk)], noseOut: r(nose.out * nk),
@@ -234,6 +234,7 @@ export function checkAnatomy(a: CartoonAnatomy): AnatomyIssue[] {
   if (f.mouthMargin < 0 || f.mouthMargin > 0.9) err("mouth-margin", "mouthMargin out of 0..0.9");
   if (f.pupil > f.eye[0] * 0.8) err("pupil", "the pupil is bigger than the eye");
   if (Lm.leg[0] / 2 > B.hips) err("legs-fit", "the legs are wider than the hips");
+  if (Lm.calf < 1 || Lm.calf > 1.6) err("calf", "limbs.calf out of 1..1.6");
   if (Lm.arm[0] / 2 > B.shoulders * 0.6) warn("arms-fit", "the arms are very thick for the shoulders");
   // Seated, a hand reaches the middle of the thigh: from the shoulder, down the torso, forward half a thigh.
   const arm = B.torso * 0.9 + B.hip * 0.34, need = Math.hypot(B.torso * 0.82, B.hip * 0.28);
@@ -1085,7 +1086,7 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
  * (a round knee between them), shorts or socks over them, the hips between the hip joints, a skirt
  * draped over the lap. The torso is an occluder (the torso's drawing is under the solid).
  */
-function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>): Record<string, unknown> {
+function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.12): Record<string, unknown> {
   void j;
   const { b } = m;
   const heavy = look.heavy ?? 0;
@@ -1111,6 +1112,8 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>): Record<st
     bodies.push({ ...paint(legKey), blend: 5, shapes: [
       { from: pt(`leg${side}1`), to: pt(`leg${side}1`, 1), r: thigh },
       { from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.97), r: shin },
+      // The calf: a swell at the back of the shin, below the knee.
+      { from: pt(`leg${side}2`, 0.18, [0, 0, -shin[0] * 0.25]), to: pt(`leg${side}2`, 0.5, [0, 0, -shin[0] * 0.12]), r: [r(shin[0] * calf), r(shin[0] * (calf - 0.12))] },
     ] });
     if (shorts) bodies.push({ ...paint("bottom"), shapes: [{ from: pt(`leg${side}1`, -0.04), to: pt(`leg${side}1`, shortsTo), r: [thigh[0] + 3, r(thigh[0] + (thigh[1] - thigh[0]) * shortsTo + 3)] }] });
     if (look.socks) bodies.push({ ...paint("socks"), strokeWidth: 2.4, shapes: [{ from: pt(`leg${side}2`, 0.8), to: pt(`leg${side}2`, 0.97), r: [r(shin[1] + 1.5), r(shin[1] + 2)] }] });
@@ -1144,11 +1147,11 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>): Record<st
     const long = look.bottom === "longSkirt";
     // The cloth hugs the thighs (a valley between the knees) and ends just above them: seated,
     // the knees show under the hem.
-    const kneeR = long ? thigh[1] + b.H * 0.16 : thigh[1] + 4;
+    const kneeR = long ? thigh[1] + b.H * 0.16 : thigh[1] + 6;
     bodies.push({ ...paint(look.top === "dress" ? "top" : "bottom"), blend: r(b.H * 0.25), shapes: [
       { from: pt("legF1", 0, [0, -6, -4]), to: pt("legB1", 0, [0, -6, -4]), r: r(b.H * 0.62 * (1 + heavy * 0.15)) },
       ...(["F", "B"] as const).flatMap((side) => [
-        { from: pt(`leg${side}1`, 0.05), to: pt(`leg${side}1`, long ? 1 : 0.86), r: [r(thigh[0] + 5), r(kneeR)] },
+        { from: pt(`leg${side}1`, 0.05), to: pt(`leg${side}1`, long ? 1 : 0.9), r: [r(thigh[0] + 5), r(kneeR)] },
         ...(long ? [{ from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.72), r: [r(kneeR), r(kneeR + b.H * 0.3)] }] : []),
       ]),
     ] });
@@ -1285,7 +1288,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     // The legs, the hips and a skirt: volumes on the 3D skeleton, drawn from the view every frame
     // (cel shaded, a knee over its shin, one thigh over the other), over the torso only where they
     // are nearer than it.
-    legsSolid(m, look, j),
+    legsSolid(m, look, j, anatomy.limbs.calf),
     { id: "earsBack", type: "rigid", bone: "head", art: "earsBack" },
     { id: "head", type: "rigid", bone: "head", art: "head" },
     { id: "nose", type: "rigid", bone: "head", art: "nose" },
