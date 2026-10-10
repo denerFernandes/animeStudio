@@ -1359,6 +1359,9 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
     aim,
     ikOffset: actor.mounts ? undefined : groundFeet(actor, placement),
     ikTarget: reach,
+    // A rig with a `side` control keeps its asymmetric details (a breast pocket, a wristwatch) on the
+    // same side of the body when it faces left (the drawing is mirrored).
+    ...(actor.rig.controls.side ? { controls: { side: placement[0] * placement[3] - placement[1] * placement[2] < 0 ? "left" : "right" } } : {}),
   });
 }
 

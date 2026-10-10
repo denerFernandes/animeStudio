@@ -194,7 +194,13 @@ function chinBottom(head: Sdf, from: number, u: number) {
 /** Eye half height (as drawn). */
 const m_ry = (u: number) => u * 0.235;
 
-function model(look: CartoonLook): Model {
+/**
+ * `mirror`: the body's own left and right swapped for the asymmetric details (a breast pocket, a
+ * side part, something behind an ear) — drawn for a character facing left (the rig is mirrored, so
+ * the details land back on the same side of the body).
+ */
+function model(look: CartoonLook, mirror = false): Model {
+  const M = mirror ? -1 : 1;
   const base = BUILDS[look.build];
   const k = look.tall ?? 1;
   // Limb thickness: thin (the default, long thin limbs), normal or thick.
@@ -257,7 +263,7 @@ function model(look: CartoonLook): Model {
       break;
     }
     case "sidePart": {
-      const quiff = ellipsoid([-u * 0.22, hy - u * 0.92, u * 0.22], [u * 0.8, u * 0.34, u * 0.74]);
+      const quiff = ellipsoid([-M * u * 0.22, hy - u * 0.92, u * 0.22], [u * 0.8, u * 0.34, u * 0.74]);
       hair = above(blend(u * 0.15, shell(u * 0.1), quiff), line(hy - u * 0.56, u * 0.4, hy + u * 0.45));
       break;
     }
@@ -295,7 +301,7 @@ function model(look: CartoonLook): Model {
     }
     case "buzz":
       hair = above(shell(u * 0.045), line(hy - u * 0.62, u * 0.32, hy + u * 0.5));
-      if (look.hairLine) hairColor = (p) => (p[0] < -u * 0.5 && Math.abs(p[1] - (hy - u * 0.42 + (p[2] / u) * u * 0.12)) < u * 0.035 ? "skin" : "hair");
+      if (look.hairLine) hairColor = (p) => (M * p[0] < -u * 0.5 && Math.abs(p[1] - (hy - u * 0.42 + (p[2] / u) * u * 0.12)) < u * 0.035 ? "skin" : "hair");
       break;
     case "receding": {
       // Receding at the temples (an M-shaped hairline), a little tuft left in front.
@@ -388,7 +394,7 @@ function model(look: CartoonLook): Model {
   if (look.earItem) {
     // Resting in the fold above the near ear; its tip (a filter, a sharpened point) towards the face.
     const pencil = look.earItem === "pencil";
-    const a: V3 = [-u * 1.04, y.ear - u * 0.26, -u * 0.48], c: V3 = [-u * 1.0, y.ear - u * 0.38, u * (pencil ? 0.42 : 0.32)];
+    const a: V3 = [-M * u * 1.04, y.ear - u * 0.26, -u * 0.48], c: V3 = [-M * u * 1.0, y.ear - u * 0.38, u * (pencil ? 0.42 : 0.32)];
     const item = capsule(a, c, u * (pencil ? 0.055 : 0.05), u * (pencil ? 0.02 : 0.05));
     const styled2 = hair, prev = hairColor;
     hair = union(styled2, item);
@@ -425,7 +431,7 @@ function model(look: CartoonLook): Model {
       case "shirt":
         if (z > 0 && Math.abs(x) < neckR * 1.8 && yy < torsoTop + T * 0.14) return "top2";
         // The breast pocket is on the wearer's left.
-        if (z > 0 && x > b.S * 0.22 && x < b.S * 0.62 && yy > -L - T * 0.76 && yy < -L - T * 0.56) return "pocket";
+        if (z > 0 && M * x > b.S * 0.22 && M * x < b.S * 0.62 && yy > -L - T * 0.76 && yy < -L - T * 0.56) return "pocket";
         return "top";
       case "tank":
         if (Math.abs(x) > b.S * 0.56 && yy < shoulder + T * 0.24) return "skin";
@@ -460,7 +466,7 @@ function model(look: CartoonLook): Model {
     return (Math.floor(around / period) + Math.floor((yy - torsoTop) / period)) % 2 ? "stripe" : k;
   };
   // Something in the pocket: the part inside is covered by the pocket.
-  const pocketTop = -L - T * 0.76, pocketX = b.S * 0.42;
+  const pocketTop = -L - T * 0.76, pocketX = M * b.S * 0.42;
   const pz = look.pocketItem ? (surfaceZ(torso, pocketX, pocketTop + T * 0.06) ?? b.D) : 0;
   const item = look.pocketItem ? box([pocketX, pocketTop + T * 0.035, pz + b.S * 0.03], [b.S * 0.15, T * 0.085, b.S * 0.045], 1.5) : undefined;
   // A sweater over the shoulders: around the back, the sleeves knotted on the chest.
@@ -1115,6 +1121,18 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.45, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
     ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.4, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
   };
+  // Asymmetric details: a second drawing of the hair and the torso, mirrored on the body, shown when
+  // the character faces left (`side` control).
+  const asym = look.top === "shirt" || !!look.pocketItem || !!look.earItem || look.hair === "sidePart" || !!look.hairLine;
+  if (asym) {
+    const mm = model(look, true);
+    for (const v of Object.keys(VIEWS) as ViewKey[]) {
+      const s = SUFFIX[v], H = headView(mm, VIEWS[v]), B = bodyView(mm, look, VIEWS[v]);
+      art[`hairBack${s}M`] = H.hairBack;
+      art[`hairFront${s}M`] = H.hairFront;
+      art[`torso${s}M`] = B.torso;
+    }
+  }
   for (const v of Object.keys(VIEWS) as ViewKey[]) {
     const s = SUFFIX[v], V = views[v];
     art[`hairBack${s}`] = V.head.hairBack;
@@ -1146,6 +1164,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     { id: "shoeB", type: "switch", bone: "footB", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     ...(shorts ? [{ id: "shortsB", type: "rigid", bone: "legB1", art: cuff(j.hipB, j.kneeB, -0.15, shortsTo, b.leg[0] * 0.5 + 5, b.leg[0] * 0.5 + 6, "palette(bottomDark)") }] : []),
     { id: "armB", type: "hose", bones: ["armB1", "armB2"], width: b.arm, fill: longSleeves ? "palette(top2Shade)" : "palette(skinShade)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
+    ...(look.watch ? [{ id: "watchB", type: "switch", bone: "armB2", default: "off", variants: { off: "", on: cuff(j.elbowB, j.handB, 0.8, 0.9, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", 2) } }] : []),
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
     ...(shortSleeves ? [{ id: "sleeveB", type: "rigid", bone: "armB1", art: sleeve(j.shoulderB, j.elbowB, "palette(topDark)") }] : []),
     { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
@@ -1172,7 +1191,8 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     { id: "earsFront", type: "rigid", bone: "head", art: "earsFront" },
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
     { id: "armF", type: "hose", bones: ["armF1", "armF2"], width: b.arm, fill: longSleeves ? "palette(top2)" : "palette(skin)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
-    ...(look.watch ? [{ id: "watch", type: "rigid", bone: "armF2", art: cuff(j.elbowF, j.handF, 0.8, 0.9, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", 2) }] : []),
+    // A wristwatch on the body's left wrist: the near arm facing right, the far arm facing left.
+    ...(look.watch ? [{ id: "watch", type: "switch", bone: "armF2", default: "on", variants: { off: "", on: cuff(j.elbowF, j.handF, 0.8, 0.9, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", 2) } }] : []),
     { id: "handF", type: "switch", bone: "handF", variants: { open: "handF_open", fist: "handF_fist", point: "handF_point", grip: "handF_grip" }, default: "fist" },
     ...(shortSleeves ? [{ id: "sleeveF", type: "rigid", bone: "armF1", art: sleeve(j.shoulderF, j.elbowF, look.top === "overalls" ? "palette(top)" : sleeveColor) }] : []),
   ];
@@ -1402,6 +1422,18 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
   const seat = out.parts.find((p: { id: string }) => p.id === "seatLegs");
   out.parts = out.parts.filter((p: { id: string }) => p !== seat);
   out.parts.splice(out.parts.findIndex((p: { id: string }) => p.id === "armF"), 0, seat);
+  // Facing left (the rig mirrored): the mirrored drawings of the asymmetric details (`side`, set by
+  // the scene from the actor's facing).
+  const sideLeft: Record<string, unknown> = {};
+  for (const p of out.parts) {
+    if (p.type !== "rigid" || !/^(hairBack|hairFront|torso)[A-Z]?$/.test(p.id) || typeof p.art !== "string" || !out.art[`${p.art}M`]) continue;
+    const key = p.art;
+    delete p.art;
+    Object.assign(p, { type: "switch", default: "r", variants: { r: key, l: `${key}M` } });
+    sideLeft[`parts.${p.id}.variant`] = "l";
+  }
+  if (out.parts.some((p: { id: string }) => p.id === "watch")) Object.assign(sideLeft, { "parts.watch.variant": "off", "parts.watchB.variant": "on" });
+  if (Object.keys(sideLeft).length) out.controls.side = { type: "pose", poses: { right: {}, left: sideLeft } };
   // Each angle's eyes follow the main eyes' variant (blinks, emotions) and show only in their view.
   const gated: Record<string, string[]> = {};
   for (const p of out.parts) {

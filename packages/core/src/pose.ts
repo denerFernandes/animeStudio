@@ -351,6 +351,8 @@ export interface CharacterInput {
    * aims at `point` with at least `weight` mix, blending from its own target.
    */
   ikTarget?: Record<string, { point: Vec2; weight: number; from?: Vec2 }>;
+  /** Control values set from outside the tracks (the scene sets `side` from the actor's facing). */
+  controls?: Record<string, Value>;
 }
 
 export interface EvaluatedPose {
@@ -386,6 +388,7 @@ export function evaluatePose(
   // Numeric offset channels layer additively on top of clips; everything else overrides.
   for (const tr of input.tracks ?? []) applyChannel(s, tr.ref, sampleTrack(tr.track, t), 1, isLayeredChannel(tr.ref) ? "additive" : "override");
 
+  for (const [k, v] of Object.entries(input.controls ?? {})) if (k in rig.controls) s.controls[k] = v;
   // 4. Pose and viseme controls.
   for (const control of Object.values(rig.controls)) {
     const value = s.controls[control.name];

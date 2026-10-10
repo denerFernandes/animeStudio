@@ -162,6 +162,8 @@ Named points attached to bones, used by the script (`lookAt` targets, `grab`, sp
 ```
 
 `at` is in setup space. If a character has a `head` anchor, other actors looking at it aim there.
+A rig with a pose control named `side` (`right` / `left`) gets it from the actor's facing every frame
+(`left` when the actor is mirrored): use it to keep asymmetric details on the same side of the body.
 A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
 above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
 prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
