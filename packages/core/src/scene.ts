@@ -1439,6 +1439,8 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   const key = light ? keyLight(light, screenLights) : undefined;
 
   const poses = new Map<string, EvaluatedPose>();
+  // Crowd shots: more lit actors on screen than `shading.crowd` → no rim light.
+  const crowded = !!(light?.shading.crowd && scene.actors.filter((a) => a.def.shading !== false && actorPlacementState(a, t).opacity > 0.01 && a.rig.anchors.head).length > light.shading.crowd);
   for (const actor of scene.actors) {
     const depth = actor.def.parallax ?? 1;
     const pose = actorPose(scene, actor, t);
@@ -1464,14 +1466,19 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       items.push({ z: under.z - 1e-3, order: order++, node });
     }
     items.push({ z, order: order++, node: actorNode });
-    // Shading copies the actor's art, so it must fade with it (and vanish with a hidden actor).
-    if (light && actor.def.shading !== false && p.opacity > 0.01) {
+    // Shading copies the actor's art, so it must fade with it (and vanish with a hidden actor). It is
+    // the most expensive part of a frame without a GPU: skipped for actors too small to show it, and
+    // without the rim light in crowd shots (`shading.crowd`).
+    const box = light && actor.def.shading !== false && p.opacity > 0.01 ? screenBox(actor, pose, m) : undefined;
+    const tall = box ? (box[3] - box[1]) * 0.7 : 0; // the box has a margin around the bones
+    if (light && box && tall >= light.shading.minHeight) {
       // Shade around the actor's middle (head anchor if any, else ~100 px above its origin).
       const head = actor.rig.anchors.head;
       const local: Vec2 = head ? [head.at[0] * 0.5, head.at[1] * 0.5] : [0, -100];
       // The masks get their own copy of the (unfiltered, id-less) actor art.
       const art = nodeToString({ ...actorNode, id: undefined, filter: undefined, opacity: undefined });
-      const markup = shadingMarkup(light, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height, screenBox(actor, pose, m));
+      const lit = crowded ? { ...light, shading: { ...light.shading, rimOpacity: 0 } } : light;
+      const markup = shadingMarkup(lit, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height, box);
       if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup: p.opacity < 1 ? `<g opacity="${p.opacity}">${markup}</g>` : markup } });
     }
   }

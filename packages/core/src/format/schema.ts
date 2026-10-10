@@ -353,6 +353,13 @@ export const LightingSchema = z
           .min(0)
           .optional()
           .describe("Keep shading this many scene px inside the silhouette edge, so outlines stay crisp (default 3.5)"),
+        crowd: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("With more lit actors than this on screen, only the shadow crescent is drawn (no rim light): half the cost in crowd shots"),
+        minHeight: z.number().min(0).optional().describe("Actors shorter than this on screen (px) get no shading (default 90: too small to see it)"),
       })
       .optional()
       .describe("Automatic cel shading on actors: shadow on the side away from the key light, rim light on the lit side"),

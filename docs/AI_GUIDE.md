@@ -129,6 +129,9 @@ Lessons from converting a 66-shot storyboard into an episode:
 - Animate time of day with the `light` action or tracks: e.g. raise `lights.sun.intensity` and
   lower `lighting.ambient.opacity` for a sunrise; hex colors blend smoothly.
 - Keep large glows away from characters — additive light lifts black outlines.
+- Character shading is the most expensive part of a frame on render farms without a GPU (about
+  30 ms per lit character). On sets where the whole cast gathers, set `shading.crowd` (e.g. 4):
+  crowd shots then drop the rim light.
 
 ## Writing characters
 

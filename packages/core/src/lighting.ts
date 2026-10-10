@@ -31,7 +31,7 @@ export interface LightState {
 export interface LightingState {
   ambient: { color: string; opacity: number };
   lights: LightState[];
-  shading: { light?: string; color: string; opacity: number; rim: string; rimOpacity: number; offset: number; inset: number };
+  shading: { light?: string; color: string; opacity: number; rim: string; rimOpacity: number; offset: number; inset: number; crowd?: number; minHeight: number };
   grade: { color: string; opacity: number; blend: string };
   vignette: { color: string; opacity: number };
 }
@@ -72,6 +72,8 @@ export function baseLighting(def: LightingDef): LightingState {
       rimOpacity: def.shading?.rimOpacity ?? (def.shading ? 0.45 : 0),
       offset: def.shading?.offset ?? 9,
       inset: def.shading?.inset ?? 3.5,
+      ...(def.shading?.crowd ? { crowd: def.shading.crowd } : {}),
+      minHeight: def.shading?.minHeight ?? 90,
     },
     grade: { color: def.grade?.color ?? "#FFFFFF", opacity: def.grade?.opacity ?? 0, blend: def.grade?.blend ?? "soft-light" },
     vignette: { color: def.vignette?.color ?? "#000000", opacity: def.vignette?.opacity ?? 0 },

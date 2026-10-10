@@ -366,7 +366,10 @@ blend modes), so it works in browsers and Remotion and stays deterministic.
 Shading follows the actor's opacity (a hidden actor casts no shading). It costs one extra copy
 of each lit actor's art (referenced by its masks) and two blended fills limited to the actor's
 screen box; without a GPU (headless render farms) it is still the most expensive part of a frame,
-so keep `shading` for scenes that need it. Screen blending lifts blacks, so keep big glows away from line art (or use a separate
+so keep `shading` for scenes that need it. Actors shorter than `shading.minHeight` on screen
+(default 90 px) get none (too small to see it), and with more lit actors on screen than
+`shading.crowd` only the shadow crescent is drawn, without the rim light (about a third cheaper
+in crowd shots: set it on sets where the whole cast gathers). Screen blending lifts blacks, so keep big glows away from line art (or use a separate
 directional key light with `glow: 0` for shading, as above). Actors opt out with `"shading": false`.
 
 **Animating lighting:** channels `lights.<id>.(x|y|angle|color|intensity|radius|glow)` and
