@@ -96,7 +96,7 @@ never coordinates.
 | `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
 | `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?` | Same as `enter` on the cast entry: comes in from off screen (invisible until then, whatever the camera frames); `fly: true` comes through the air from above the frame and lands |
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame |
-| `face` | `who`, `direction` | Turns around |
+| `face` | `who`, `direction` | Turns around. A rig drawn at in-between angles turns through them towards the camera (or away from it, seen from behind), flips while symmetric and turns back — a hand-drawn turn instead of a flip |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
 | `emotion` | `who`, `value` | Emotion pose |
 | `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
@@ -111,7 +111,7 @@ never coordinates.
 | `peek` | `who` (hiding), `until?` | Peeks out and back (default 1.2 s): from a crouch the head pops up over the top; behind something taller it slides out past the edge |
 | `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
 | `fx` | `type`, `who` or `at` (mark) | Cartoon effect |
-| `view` | `who`, `value` (`profile`/`front`/`back`) | Front = looking at the camera (gaze cleared) |
+| `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
 | `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
 | `cross` | `who`, `to` (mark), `until` | Cross to the far ground: back view, hand in hand, foreshortened walk, smaller with depth, camera goes along |
 | `pick`, `drop` | `who`, `prop` | Walks to the prop if needed and takes it / puts it down |

@@ -428,15 +428,54 @@ class BlockScene {
   }
   face(actor: string, dir: "left" | "right", abs: number) {
     this.faces.push({ actor, t: abs });
+    // A rig drawn at in-between angles turns through them: towards the camera (or away from it,
+    // seen from behind), flipped while symmetric, and back — instead of flipping at once.
+    const order = this.viewOrder(actor);
+    const cur = this.viewAt(actor, abs);
+    if (order && order.includes(cur) && (this.facing(actor, abs - 0.001) ? "right" : "left") !== dir) {
+      const i = order.indexOf(cur);
+      const mid = i <= order.length / 2 - 0.5 ? "front" : "back";
+      const steps = this.viewPath(order, cur, mid);
+      if (steps.length && order.includes(mid)) {
+        const step = this.twos();
+        steps.forEach((v, k) => this.push({ at: this.t(abs - (steps.length - k) * step), actor, action: "pose", control: "view", value: v, duration: 0 }));
+        this.push({ at: this.t(abs), actor, action: "face", direction: dir });
+        [...steps.slice(0, -1).reverse(), cur].forEach((v, k) => this.push({ at: this.t(abs + (k + 1) * step), actor, action: "pose", control: "view", value: v, duration: 0 }));
+        return;
+      }
+    }
     this.push({ at: this.t(abs), actor, action: "face", direction: dir });
   }
   view(actor: string, v: string, abs: number, turn = true) {
+    const from = this.viewAt(actor, abs);
     this.views.push({ actor, t: abs, view: v });
     if (!this.hasControl(actor, "view")) return this.issue("warning", `${actor} has no "view" control`);
-    if (turn && this.hasClip(actor, "turn")) this.push({ at: this.t(abs - 0.12), actor, action: "play", clip: "turn", fadeIn: 0.02, fadeOut: 0.05 });
+    const order = this.viewOrder(actor);
+    if (turn && order && order.includes(from) && order.includes(v)) {
+      // Through every drawing in between, on twos.
+      const steps = this.viewPath(order, from, v).slice(0, -1);
+      steps.forEach((s, k) => this.push({ at: this.t(abs - (steps.length - k) * this.twos()), actor, action: "pose", control: "view", value: s, duration: 0 }));
+    } else if (turn && this.hasClip(actor, "turn")) this.push({ at: this.t(abs - 0.12), actor, action: "play", clip: "turn", fadeIn: 0.02, fadeOut: 0.05 });
     this.push({ at: this.t(abs), actor, action: "pose", control: "view", value: v, duration: 0 });
     // Facing the camera means looking at the camera.
     if (v === "front") this.push({ at: this.t(abs), actor, action: "lookAt", target: null });
+  }
+  /** The views of a rig drawn at in-between angles, in turning order (`meta.views.order`). */
+  private viewOrder(actor: string): string[] | undefined {
+    return ((this.kit.characters[this.characterOf(actor)]?.meta as { views?: { order?: string[] } } | undefined)?.views?.order);
+  }
+  /** Views from one to another (the first excluded, the last included). */
+  private viewPath(order: string[], from: string, to: string): string[] {
+    const a = order.indexOf(from), b = order.indexOf(to);
+    if (a < 0 || b < 0 || a === b) return [];
+    const dir = b > a ? 1 : -1;
+    const out: string[] = [];
+    for (let i = a + dir; dir > 0 ? i <= b : i >= b; i += dir) out.push(order[i]);
+    return out;
+  }
+  /** One drawing every two frames. */
+  private twos() {
+    return 2 / (this.kit.fps ?? 30);
   }
 
   // -------------------------------------------------- props

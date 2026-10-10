@@ -332,6 +332,16 @@ export function characterClips(o: ClipOptions) {
         "bones.armF2.rotation": [[0, -50], [1, -30], [2, -50]],
       },
     },
+    // Drinking: the near hand (a glass, a bottle) up to the mouth, the head tips back, a long sip.
+    drink: {
+      duration: 2.2,
+      tracks: {
+        "bones.armF1.rotation": [[0, 0], [0.4, -62, "easeOut"], [1.7, -66], [2.2, 0]],
+        "bones.armF2.rotation": [[0, 0], [0.4, -112, "easeOut"], [1.7, -118], [2.2, 0]],
+        "bones.head.rotation": [[0, 0], [0.45, -16], [1.7, -20], [2.2, 0]],
+        "bones.body.rotation": [[0, 0], [0.45, -5], [1.7, -6], [2.2, 0]],
+      },
+    },
     think: {
       duration: 2.4,
       loop: true,
@@ -560,3 +570,125 @@ export const eyeSwitch = (bone: string) => ({
   default: "open",
 });
 
+
+/**
+ * Hand-drawn timing for gesture clips (traditional animation): **anticipation** — a small move the
+ * other way before a big one — and **overshoot** — past the pose, then settling back. Applied to
+ * bone rotations that change by at least `min` degrees; loops (walk, run, idle, talk…) and the
+ * `turn` squeeze are left alone. The splines through the keys keep everything smooth.
+ */
+export function fluid<T extends Record<string, unknown>>(clips: T, o: { anticipation?: number; overshoot?: number; min?: number } = {}): T {
+  const A = o.anticipation ?? 0.15, O = o.overshoot ?? 0.12, min = o.min ?? 20;
+  const out: Record<string, unknown> = {};
+  for (const [name, c] of Object.entries(clips)) {
+    const clip = c as { duration: number; loop?: boolean; tracks: Tracks };
+    if (!clip?.tracks || clip.loop || name === "turn") {
+      out[name] = c;
+      continue;
+    }
+    const tracks: Tracks = {};
+    for (const [ch, keys] of Object.entries(clip.tracks)) {
+      if (!/^bones\.[^.]+\.rotation$/.test(ch) || keys.length < 2 || keys.some((k) => typeof k[1] !== "number")) {
+        tracks[ch] = keys;
+        continue;
+      }
+      const ks = [...keys].sort((a, b) => (a[0] as number) - (b[0] as number));
+      const v = (i: number) => ks[i][1] as number, t = (i: number) => ks[i][0] as number;
+      const res: (number | string)[][] = [ks[0]];
+      let settled = -Infinity; // time of the last settle key added
+      for (let i = 0; i + 1 < ks.length; i++) {
+        const d = v(i + 1) - v(i), dt = t(i + 1) - t(i);
+        const big = Math.abs(d) >= min && dt >= 0.12;
+        const before = i > 0 ? v(i) - v(i - 1) : 0;
+        const after = i + 2 < ks.length ? v(i + 2) - v(i + 1) : 0;
+        const fromRest = Math.abs(before) < min * 0.3 || Math.sign(before) !== Math.sign(d);
+        const toRest = Math.abs(after) < min * 0.3 || Math.sign(after) !== Math.sign(d);
+        const at = t(i) + dt * 0.3;
+        if (big && fromRest && at > settled + 0.02) res.push([r(at), r(v(i) - d * A)]);
+        const room = (i + 2 < ks.length ? t(i + 2) : clip.duration) - t(i + 1);
+        if (big && toRest && room >= 0.16) {
+          const end = [...ks[i + 1]];
+          end[1] = r(v(i + 1) + d * O);
+          settled = r(t(i + 1) + Math.min(0.14, room * 0.45));
+          res.push(end, [settled, v(i + 1)]);
+        } else res.push(ks[i + 1]);
+      }
+      tracks[ch] = res;
+    }
+    out[name] = { ...clip, tracks };
+  }
+  return out as T;
+}
+
+/**
+ * Inside of a `mouthShapes` mouth, with the same shape names (they morph together): the upper
+ * `teeth` (a white band under the top lip) and the `tongue` (at the bottom). Hidden when closed.
+ */
+export function mouthInside(L: P, R: P, scale = 1) {
+  const table = mouthTable();
+  const shape = (kind: "teeth" | "tongue", open: number, smile: number, round: number) => {
+    const o = open * scale;
+    const w = R[0] - L[0];
+    // Closed: nothing inside shows (collapsed in the middle of the mouth, same commands).
+    if (open < 3) {
+      const c = `${r((L[0] + R[0]) / 2)} ${r((L[1] + R[1]) / 2)}`;
+      return `M${c} Q${c} ${c} Q${c} ${c} Z`;
+    }
+    const l: P = [L[0] + w * round * 0.22, L[1] - smile * 4];
+    const rr: P = [R[0] - w * round * 0.22, R[1] - smile * 6];
+    const mx = (l[0] + rr[0]) / 2;
+    const topY = (l[1] + rr[1]) / 2 + smile * 3 - o * 0.15;
+    const botY = (l[1] + rr[1]) / 2 + smile * 4 + o;
+    if (kind === "teeth") {
+      // Along the top lip, as deep as a third of the opening (at most a tooth's height).
+      const t = Math.min(o * 0.34, 7 * scale);
+      const a: P = [l[0] + w * 0.08, l[1] + 1], b: P = [rr[0] - w * 0.08, rr[1] + 1];
+      return `M${r(a[0])} ${r(a[1])} Q${r(mx)} ${r(topY + 1)} ${r(b[0])} ${r(b[1])} Q${r(mx)} ${r(topY + 1 + t * 1.6)} ${r(a[0])} ${r(a[1])} Z`;
+    }
+    // The tongue: a mound on the bottom lip, two thirds of the mouth wide.
+    const h = Math.min(o * 0.45, 9 * scale);
+    const a: P = [l[0] + w * 0.2, (l[1] + botY) / 2 + o * 0.25], b: P = [rr[0] - w * 0.2, (rr[1] + botY) / 2 + o * 0.25];
+    return `M${r(a[0])} ${r(a[1])} Q${r(mx)} ${r(botY + o * 0.4 - h * 2)} ${r(b[0])} ${r(b[1])} Q${r(mx)} ${r(botY + o * 0.4)} ${r(a[0])} ${r(a[1])} Z`;
+  };
+  const make = (kind: "teeth" | "tongue") => ({
+    base: shape(kind, ...table.base),
+    shapes: Object.fromEntries(Object.entries(table.shapes).map(([k, v]) => [k, shape(kind, ...v)])),
+  });
+  return { teeth: make("teeth"), tongue: make("tongue") };
+}
+
+/** Open / smile / round of each `mouthShapes` shape. */
+function mouthTable() {
+  return {
+    base: [1.5, 0.7, 0] as [number, number, number],
+    shapes: {
+      A: [0.8, 0.4, 0.05], B: [6, 0.6, 0.05], C: [12, 0.5, 0.1], D: [18, 0.4, 0], E: [13, 0.2, 0.45], F: [7, 0, 0.75],
+      G: [4, 0.5, 0.1], H: [10, 0.4, 0.15], smile: [4, 2.2, 0], frown: [1.5, -1.4, 0.1], grin: [14, 2.4, 0],
+    } as Record<string, [number, number, number]>,
+  };
+}
+
+/**
+ * Cartoon hands with fingers (four fingers and a thumb, drawn around the wrist `at`), as switch
+ * variants `open`, `fist`, `point` and `grip` — the same names as `handShapes`. `dir` is the
+ * direction of the fingers in setup space (90 = down, a hanging arm); `line` the outline colour.
+ */
+export function cartoonHands(at: P, o: { r: number; fill: string; line?: string; stroke?: number; dir?: number; shade?: string }) {
+  const [x, y] = at, R = o.r, ink = o.line ?? "palette(ink)", w = o.stroke ?? 2.6;
+  const st = `stroke="${ink}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+  // Drawn with the fingers along +x, then turned.
+  const P_ = (dx: number, dy: number) => `${r(x + dx * R)} ${r(y + dy * R)}`;
+  const finger = (y0: number, len: number, bend = 0) =>
+    `<path d="M${P_(0.35, y0 - 0.15)} L${P_(0.35 + len, y0 - 0.15 + bend)} Q${P_(0.55 + len, y0 + bend)} ${P_(0.35 + len, y0 + 0.15 + bend)} L${P_(0.35, y0 + 0.15)} Z" fill="${o.fill}" ${st}/>`;
+  const palm = `<path d="M${P_(-0.55, -0.5)} Q${P_(-0.6, 0)} ${P_(-0.55, 0.5)} L${P_(0.45, 0.58)} Q${P_(0.62, 0)} ${P_(0.45, -0.58)} Z" fill="${o.fill}" ${st}/>`;
+  const thumb = (a: number) => `<g transform="rotate(${a} ${P_(-0.2, -0.45).replace(" ", " ")})"><path d="M${P_(-0.3, -0.62)} L${P_(0.25, -0.62)} Q${P_(0.45, -0.48)} ${P_(0.25, -0.34)} L${P_(-0.3, -0.34)} Z" fill="${o.fill}" ${st}/></g>`;
+  const curled = `<path d="M${P_(0.3, -0.55)} Q${P_(0.85, -0.6)} ${P_(0.85, 0)} Q${P_(0.85, 0.6)} ${P_(0.3, 0.55)}" fill="${o.fill}" ${st}/>` +
+    `<path d="M${P_(0.55, -0.18)} H${P_(0.84, -0.18).split(" ")[0]} M${P_(0.55, 0.18)} H${P_(0.84, 0.18).split(" ")[0]}" stroke="${ink}" stroke-width="${r(w * 0.7)}" stroke-linecap="round"/>`;
+  const turn = (art: string) => `<g transform="rotate(${o.dir ?? 90} ${x} ${y})">${art}</g>`;
+  return {
+    open: turn(finger(0.38, 0.62, 0.06) + finger(0.12, 0.78) + finger(-0.14, 0.82) + finger(-0.4, 0.7, -0.04) + palm + thumb(-35)),
+    fist: turn(palm + curled + thumb(0)),
+    point: turn(finger(-0.36, 0.95) + palm + curled + thumb(10)),
+    grip: turn(palm + `<path d="M${P_(0.3, -0.55)} Q${P_(1.05, -0.5)} ${P_(0.95, 0.15)} Q${P_(0.8, 0.6)} ${P_(0.3, 0.55)}" fill="${o.fill}" ${st}/>` + thumb(-15)),
+  };
+}

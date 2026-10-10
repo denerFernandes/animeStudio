@@ -501,7 +501,13 @@ export function applyPhysicsSample(rig: Rig, pose: EvaluatedPose, sample: Physic
   const { state: s, world } = pose;
   rig.physics.forEach((p, k) => {
     const v = sample.values[k];
-    const mix = clamp(s.physicsMix[k], 0, 1);
+    let mix = clamp(s.physicsMix[k], 0, 1);
+    // A limb placed by IK (holding a hand, reaching for something) does not swing.
+    if (p.type === "spring" && mix > 0) {
+      for (let c = 0; c < rig.ik.length; c++) {
+        if (s.ikMix[c] > 0 && rig.ik[c].bones.some((b) => p.bones.includes(b))) mix *= 1 - clamp(s.ikMix[c], 0, 1);
+      }
+    }
     if (!v || mix <= 0) return;
     if (p.type === "spring") {
       p.bones.forEach((bi, j) => {

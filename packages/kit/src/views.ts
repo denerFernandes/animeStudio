@@ -15,7 +15,8 @@ import type { ToonDoc } from "@animestudio/core";
 type P = [number, number];
 type Doc = Record<string, any>;
 
-export type ViewName = "front" | "back";
+/** A view other than the profile: `front`, `back`, or any in-between angle a rig draws. */
+export type ViewName = string;
 
 export interface ViewSpec {
   /** Face feature groups get their own bones so a view can move them as a unit. */
@@ -42,6 +43,12 @@ export interface ViewSpec {
    * front or the back. Default: `{ front: ["head"], back: ["head"] }`.
    */
   still?: Partial<Record<ViewName, string[]>>;
+  /**
+   * The views in turning order, e.g. `["front", "half", "profile", "side", "back"]`: a rig drawn at
+   * in-between angles. The director then turns characters through every drawing in between (a
+   * turn on twos, like hand-drawn animation) instead of switching drawings at once.
+   */
+  order?: string[];
 }
 
 const angleOf = (doc: Doc, id: string): number => {
@@ -78,9 +85,13 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
   for (const p of doc.parts) if (spec.profileOnly.includes(p.id)) p.visibleWhen = { part: "view", variant: "profile" };
   // From behind, the far arm is no longer hidden by the body: draw a copy of it on top.
   const farArm = doc.parts.filter((p: Doc) => (spec.farArm ?? []).includes(p.id));
-  spec.parts.back = [...(spec.parts.back ?? []), ...farArm.map((p: Doc) => ({ part: { ...structuredClone(p), id: `${p.id}Back` } }))];
-  spec.hide.back = [...(spec.hide.back ?? []), ...(spec.farArm ?? [])];
-  for (const view of ["front", "back"] as const) {
+  if (farArm.length) {
+    spec.parts.back = [...(spec.parts.back ?? []), ...farArm.map((p: Doc) => ({ part: { ...structuredClone(p), id: `${p.id}Back` } }))];
+    spec.hide.back = [...(spec.hide.back ?? []), ...(spec.farArm ?? [])];
+  }
+  const names = [...new Set(["front", "back", ...Object.keys(spec.parts), ...Object.keys(spec.move), ...Object.keys(spec.hide)])].filter((v) => v !== "profile");
+  doc.parts[0].variants = Object.fromEntries(["profile", ...names].map((v) => [v, "viewNone"]));
+  for (const view of names) {
     for (const { before, part } of spec.parts[view] ?? []) {
       const at = before ? doc.parts.findIndex((p: Doc) => p.id === before) : -1;
       const def = { ...part, visibleWhen: { part: "view", variant: view } };
@@ -91,7 +102,7 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
   if (spec.mouths?.length) doc.controls.mouth = { type: "viseme", part: ["mouth", ...spec.mouths] };
   // The view pose control.
   const poses: Record<string, Record<string, unknown>> = { profile: { "parts.view.variant": "profile" } };
-  for (const view of ["front", "back"] as const) {
+  for (const view of names) {
     const pose: Record<string, unknown> = { "parts.view.variant": view };
     for (const [bone, [dx, dy]] of Object.entries(spec.move[view] ?? {})) {
       // Screen displacement → offset in the parent's frame (rest pose).
@@ -105,12 +116,12 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
     if (legF) pose["ik.footF.x"] = legF[0];
     if (legB) pose["ik.footB.x"] = legB[0];
     for (const id of spec.hide[view] ?? []) pose[`parts.${id}.opacity`] = -1;
-    for (const bone of spec.still?.[view] ?? ["head"]) if (doc.skeleton.some((b: Doc) => b.id === bone)) pose[`bones.${bone}.rotationMix`] = STILL_MIX - 1;
+    for (const bone of spec.still?.[view] ?? (view === "front" || view === "back" ? ["head"] : [])) if (doc.skeleton.some((b: Doc) => b.id === bone)) pose[`bones.${bone}.rotationMix`] = STILL_MIX - 1;
     Object.assign(pose, spec.extra?.[view] ?? {});
     poses[view] = pose;
   }
   doc.controls.view = { type: "pose", poses };
-  doc.meta = { ...(doc.meta ?? {}), views: { move: spec.move } };
+  doc.meta = { ...(doc.meta ?? {}), views: { move: spec.move, ...(spec.order ? { order: spec.order } : {}) } };
   return doc as ToonDoc;
 }
 

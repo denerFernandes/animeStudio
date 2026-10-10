@@ -33,6 +33,10 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
 - **Lighting**: point and directional lights with additive glow, ambient darkness that lights
   cut through, automatic cel shading on characters (shadow + rim light that follow the pose),
   color grading and vignette — all animatable, all plain SVG.
+- **Characters from volumes**: heads, hair and clothes modelled as simple 3D volumes and drawn
+  flat at any angle — turnarounds that always match, cel shading from the volume and coloured
+  lines. A TV-cartoon human builder (`cartoonCharacter`) turns through in-between drawings, with
+  follow-through and hand-drawn timing (anticipation, overshoot).
 - **Lip sync**: Preston Blair visemes from Rhubarb (any language via its phonetic recognizer),
   TTS timestamps, text + audio alignment, text only, or audio amplitude.
 - **Visual editor**: rig bones over your art, animate by dragging bones and IK handles,

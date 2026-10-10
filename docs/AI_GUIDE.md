@@ -140,6 +140,15 @@ Lessons from converting a 66-shot storyboard into an episode:
 
 ## Writing characters
 
+- **TV-cartoon humans: `cartoonCharacter(look)`** (kit) — the family-sitcom look: long thin
+  limbs, big sneakers, oval eyes, thick brows, cel shading and coloured lines, six drawn angles
+  (turns are in-betweened), follow-through and hand-drawn timing built in. Clothes, prints,
+  hats and accessories are fields of the look; anything that belongs to one series (props, sets,
+  names) stays in the series, never in the kit.
+- **Drawing like a painted cartoon:** lines in a dark tone of the fill (colour holds), never
+  black; one light direction; hard-edged shadow shapes inside the silhouette (no stroke on
+  fills, lines on top); shadows multiplied by a dusty rose so skin shadows stay warm; shade
+  curls as one mass (smooth the normals), not curl by curl.
 - **Humans: start from `humanCharacter(look)`** (kit). A dozen fields — skin, hair style and
   colour, eyes, outfit and colours, glasses, headband, scarf, cape — give a complete character
   with a front view, hand shapes, every gesture and walk, the fighting set and the emotions. Draw

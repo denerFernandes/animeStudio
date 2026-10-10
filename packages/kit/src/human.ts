@@ -404,15 +404,15 @@ export function humanCharacter(look: HumanLook): ToonDoc {
         jump: 90,
         hands: true,
       }),
-      ...extraClips(),
+      ...humanClips(),
     },
   };
   // Anime proportions: a big head, a slightly shorter body.
   return withProportions(frontView(doc as unknown as ToonDoc, look, eye), { head: 1.32, torso: 0.94, legs: 0.92 });
 }
 
-/** Fighting clips for the RPG world (all bones from the kit skeleton). */
-function extraClips() {
+/** Extra clips of the human characters (all bones from the kit skeleton): stance, power, punch, knocked, read, facepalm, roll. */
+export function humanClips() {
   return {
     // Fighting stance: knees bent, fists up.
     stance: {
