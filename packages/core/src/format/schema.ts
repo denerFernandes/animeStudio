@@ -139,7 +139,11 @@ export const PartSchema = z.discriminatedUnion("type", [
   MorphPartSchema,
 ]);
 
-export const AnchorSchema = z.strictObject({ bone: z.string(), at: Vec2Schema.describe("Setup space") });
+export const AnchorSchema = z.strictObject({
+  bone: z.string(),
+  at: Vec2Schema.describe("Setup space"),
+  turn: z.number().min(0).max(1).optional().describe("How much a prop held at this anchor turns with the bone (0 = stays upright, 1 = turns with the hand)"),
+});
 
 export const ColliderSchema = z
   .strictObject({

@@ -338,8 +338,32 @@ export function characterClips(o: ClipOptions) {
       tracks: {
         "bones.armF1.rotation": [[0, 0], [0.4, -62, "easeOut"], [1.7, -66], [2.2, 0]],
         "bones.armF2.rotation": [[0, 0], [0.4, -112, "easeOut"], [1.7, -118], [2.2, 0]],
+        // The wrist tips what is held (a bottle, a glass) towards the mouth.
+        "bones.handF.rotation": [[0, 0], [0.4, 50, "easeOut"], [1.7, 48], [2.2, 0]],
         "bones.head.rotation": [[0, 0], [0.45, -16], [1.7, -20], [2.2, 0]],
         "bones.body.rotation": [[0, 0], [0.45, -5], [1.7, -6], [2.2, 0]],
+      },
+    },
+    // Smoking: the near hand (a cigarette) to the mouth for a puff and back.
+    smoke: {
+      duration: 1.8,
+      tracks: {
+        "bones.armF1.rotation": [[0, 0], [0.35, -48, "easeOut"], [1.1, -50], [1.5, -8], [1.8, 0]],
+        "bones.armF2.rotation": [[0, 0], [0.35, -128, "easeOut"], [1.1, -130], [1.5, -30], [1.8, 0]],
+        "bones.head.rotation": [[0, 0], [0.4, -4], [1.1, -6], [1.4, -10], [1.8, 0]],
+      },
+    },
+    // On the phone: the near hand holds it at the ear (looped while talking).
+    phone: {
+      duration: 2.4,
+      loop: true,
+      tracks: {
+        // The elbow up and forward, the hand back at the ear.
+        "bones.armF1.rotation": [[0, -42], [1.2, -44], [2.4, -42]],
+        "bones.armF2.rotation": [[0, -150], [1.2, -148], [2.4, -150]],
+        // The wrist turns the phone along the jaw: the top at the ear, the bottom by the mouth.
+        "bones.handF.rotation": [[0, 165], [2.4, 165]],
+        "bones.head.rotation": [[0, 6], [1.2, 8], [2.4, 6]],
       },
     },
     think: {

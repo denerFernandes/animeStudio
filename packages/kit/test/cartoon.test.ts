@@ -53,6 +53,15 @@ describe("sitcom characters", () => {
     expect(info.height).toBeGreaterThan(380);
     expect(info.legLength!.F).toBeGreaterThan(150);
   });
+  it("can sit facing the camera, its skirt follows the thighs, held props turn with the hand", () => {
+    const lady = cartoonCharacter({ ...kid, name: "lady", bottom: "skirt" });
+    const parts = lady.parts as { id: string; type: string; bones?: string[]; variants?: Record<string, string> }[];
+    for (const side of ["F", "B"]) expect(Object.keys(parts.find((p) => p.id === `lap${side}`)!.variants!)).toEqual(["off", "on"]);
+    const skirt = parts.filter((p) => p.id.startsWith("skirt_"));
+    expect(skirt.length).toBeGreaterThan(1);
+    expect(skirt.every((p) => p.type === "skinned" && p.bones!.includes("legF1"))).toBe(true);
+    expect((lady.anchors as Record<string, { turn?: number }>).hand.turn).toBe(1);
+  });
   it("gives every colour a shadow tone and a line tone", () => {
     const p = doc.palette as Record<string, string>;
     for (const k of ["skin", "top", "hair", "stripe"]) {

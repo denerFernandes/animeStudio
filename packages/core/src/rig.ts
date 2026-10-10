@@ -163,7 +163,7 @@ export interface Rig {
   partIndex: Map<string, number>;
   /** Parts in draw order. */
   drawOrder: RigPart[];
-  anchors: Record<string, { bone: number; at: Vec2 }>;
+  anchors: Record<string, { bone: number; at: Vec2; turn?: number }>;
   ik: RigIk[];
   physics: RigPhysics[];
   colliders: { bone: number; radius: number }[];
@@ -517,7 +517,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
 
   // Anchors, IK, physics ----------------------------------------------------
   const anchors = Object.fromEntries(
-    Object.entries(doc.anchors ?? {}).map(([k, a]) => [k, { bone: boneRef(a.bone, `anchors.${k}`), at: a.at }]),
+    Object.entries(doc.anchors ?? {}).map(([k, a]) => [k, { bone: boneRef(a.bone, `anchors.${k}`), at: a.at, ...(a.turn ? { turn: a.turn } : {}) }]),
   );
 
   const ik: RigIk[] = (doc.ik ?? []).map((def, i) => {

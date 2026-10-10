@@ -889,6 +889,38 @@ function shoeArt(look: CartoonLook, k: number) {
   }
 }
 
+/**
+ * A skirt follows the thighs (Spine-style skinning): every path of its art becomes a skinned part
+ * weighted between the hips and the thighs — seated sideways it drapes over the thighs, walking it
+ * sways. Facing the camera or seen from behind it stays on the hips (it covers the lap).
+ */
+const SKIRT_BONES: Record<ViewKey, string[]> = {
+  profile: ["hips", "legF1", "legB1"], side: ["hips", "legF1", "legB1"],
+  // Facing the camera the thighs are foreshortened (squashed): the skirt just covers the lap.
+  front: ["hips"], half: ["hips"], away: ["hips"], back: ["hips"],
+};
+function skinnedArt(id: string, art: string, bones: string[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const [k, m] of [...art.matchAll(/<path ([^>]*?)\/>/g)].entries()) {
+    const attrs: Record<string, string> = {};
+    for (const a of m[1].matchAll(/([a-z-]+)="([^"]*)"/g)) attrs[a[1]] = a[2];
+    const { d, fill, stroke, "stroke-width": sw, ...rest } = attrs;
+    if (!d) continue;
+    out.push({ id: `${id}_${k}`, type: "skinned", path: d, bones, ...(fill ? { fill } : {}), ...(stroke ? { stroke } : {}), ...(sw ? { strokeWidth: Number(sw) } : {}), ...(Object.keys(rest).length ? { attrs: rest } : {}) });
+  }
+  return out;
+}
+
+/** A capsule along a bone segment from `a` to `b` (rounded at both ends), half width `w`. */
+function pill(a: P, b: P, w: number, fill: string) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+  const p = (t: number, s: number): P2 => [a[0] + dx * t + nx * w * s, a[1] + dy * t + ny * w * s];
+  const e0: P2 = [a[0] - ux * w * 1.2, a[1] - uy * w * 1.2], e1: P2 = [b[0] + ux * w * 1.3, b[1] + uy * w * 1.3];
+  const q = [p(0, 1), p(1, 1), p(1, -1), p(0, -1)];
+  return `<path d="M${r(q[0][0])} ${r(q[0][1])} L${r(q[1][0])} ${r(q[1][1])} Q${r(e1[0] + nx * w)} ${r(e1[1] + ny * w)} ${r(e1[0])} ${r(e1[1])} Q${r(e1[0] - nx * w)} ${r(e1[1] - ny * w)} ${r(q[2][0])} ${r(q[2][1])} L${r(q[3][0])} ${r(q[3][1])} Q${r(e0[0] - nx * w)} ${r(e0[1] - ny * w)} ${r(e0[0])} ${r(e0[1])} Q${r(e0[0] + nx * w)} ${r(e0[1] + ny * w)} ${r(q[0][0])} ${r(q[0][1])} Z" fill="${fill}" stroke="${LINE(fill)}" stroke-width="2.6" stroke-linejoin="round"/>`;
+}
+
 /** A tube piece around a bone segment from `a` towards `b` (sleeves, shorts legs, socks). */
 function cuff(a: P, b: P, from: number, to: number, w0: number, w1: number, fill: string, sw = 3, stripes = 0) {
   const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
@@ -979,9 +1011,17 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     ...(look.socks ? [{ id: "sockF", type: "rigid", bone: "legF2", art: cuff(j.kneeF, j.footF, 0.8, 1.02, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)", 2.6) }] : []),
     { id: "shoeF", type: "rigid", bone: "footF", art: "shoe", space: "bone" },
     ...(shorts ? [{ id: "shortsF", type: "rigid", bone: "legF1", art: cuff(j.hipF, j.kneeF, -0.15, shortsTo, b.leg[0] * 0.5 + 5, b.leg[0] * 0.5 + 6, "palette(bottom)") }] : []),
+    // Thighs seen end-on when sitting facing the camera (shown by the director's `sit` with view
+    // front): a rounded lap, the knee at its end; the thigh bone's squash makes it short and round.
+    ...(["B", "F"] as const).map((side) => {
+      const hip = side === "F" ? j.hipF : j.hipB, knee = side === "F" ? j.kneeF : j.kneeB;
+      const covered = look.bottom === "pants" || shorts || look.bottom === "skirt" || look.bottom === "longSkirt";
+      const fill = covered ? (look.bottom === "skirt" || look.bottom === "longSkirt" ? (look.top === "dress" ? "palette(top)" : "palette(bottom)") : "palette(bottom)") : "palette(skin)";
+      return { id: `lap${side}`, type: "switch", bone: `leg${side}1`, default: "off", variants: { off: "", on: pill(hip, knee, b.leg[0] * 0.44, side === "B" ? fill.replace(")", "Shade)") : fill) } };
+    }),
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
-    { id: "skirt", type: "rigid", bone: "hips", art: "skirt" },
+    ...skinnedArt("skirt", art.skirt, SKIRT_BONES.profile),
     { id: "earsBack", type: "rigid", bone: "head", art: "earsBack" },
     { id: "head", type: "rigid", bone: "head", art: "head" },
     { id: "nose", type: "rigid", bone: "head", art: "nose" },
@@ -1073,9 +1113,10 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     anchors: {
       head: { bone: "head", at: [r(eyeMid[0] * 0.5), r(m.y.eye - u * 0.1)] },
       face: { bone: "head", at: [r(eyeMid[0]), r(m.y.eye + u * 0.2)] },
-      hand: { bone: "handF", at: j.handF },
-      handB: { bone: "handB", at: j.handB },
-      fist: { bone: "handF", at: [r(j.handF[0] + b.hand * 0.8), j.handF[1]] },
+      // Held props turn with the hand (a phone at the ear, a bottle tipped to the mouth).
+      hand: { bone: "handF", at: j.handF, turn: 1 },
+      handB: { bone: "handB", at: j.handB, turn: 1 },
+      fist: { bone: "handF", at: [r(j.handF[0] + b.hand * 0.8), j.handF[1]], turn: 1 },
     },
     ik: limbIk,
     physics,
@@ -1147,7 +1188,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       before("legB", { id: `hairBack${s}`, type: "rigid", bone: "hair", art: `hairBack${s}` }),
       before("armF", { id: `neck${s}`, type: "rigid", bone: "neck", art: `neck${s}` }),
       before("armF", { id: `torso${s}`, type: "rigid", bone: "body", art: `torso${s}` }),
-      before("armF", { id: `skirt${s}`, type: "rigid", bone: "hips", art: `skirt${s}` }),
+      ...skinnedArt(`skirt${s}`, doc.art[`skirt${s}`], SKIRT_BONES[v]).map((part) => before("armF", part)),
       before("armF", { id: `earsBack${s}`, type: "rigid", bone: "head", art: `earsBack${s}` }),
       before("armF", { id: `head${s}`, type: "rigid", bone: "head", art: `head${s}` }),
       before("armF", { id: `nose${s}`, type: "rigid", bone: "head", art: `nose${s}` }),
@@ -1186,7 +1227,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
   const spec: ViewSpec = {
     eyes: { center: [0, 0], parts: [] },
     mouth: { center: [0, 0], parts: [] },
-    profileOnly: ["hairBack", "skirt", "neck", "torso", "earsBack", "head", "earsFront", "nose", "over", "hairFront", ...(tail ? ["tailBack", "tailFront"] : [])],
+    profileOnly: ["hairBack", ...doc.parts.filter((p: { id: string }) => p.id.startsWith("skirt_")).map((p: { id: string }) => p.id), "neck", "torso", "earsBack", "head", "earsFront", "nose", "over", "hairFront", ...(tail ? ["tailBack", "tailFront"] : [])],
     hide: Object.fromEntries(others.map((v) => [v, face])),
     parts: Object.fromEntries(others.map((v) => [v, viewParts(v)])),
     move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v])])),

@@ -1367,14 +1367,32 @@ export function anchorPosition(scene: CompiledScene, actorId: string, anchor: st
   return apply(actorPlacement(actor, t), local);
 }
 
+/**
+ * How much a prop held at an anchor turns (degrees, scene space): the anchor bone's rotation from
+ * its rest pose times the anchor's `turn` (a phone at the ear, a bottle tipped to the mouth).
+ */
+export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string, t: number, pose?: EvaluatedPose): number {
+  const actor = scene.actors.find((a) => a.id === actorId);
+  const a = actor?.rig.anchors[anchor];
+  if (!actor || !a?.turn) return 0;
+  const p = pose ?? actorPose(scene, actor, t);
+  const m = multiply(actorPlacement(actor, t), multiply(p.world[a.bone], actor.rig.bones[a.bone].setupWorldInv));
+  const mirrored = m[0] * m[3] - m[1] * m[2] < 0;
+  // A mirrored actor (facing left) turns the other way.
+  const deg = (Math.atan2(m[1], mirrored ? -m[0] : m[0]) * 180) / Math.PI;
+  return (mirrored ? -deg : deg) * a.turn;
+}
+
 export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {
   const base = samplePlacement(prop.placement, prop.def, t);
   const rigid = scene.rigid?.sample(prop.id, t);
   if (rigid) return { ...base, x: rigid.x, y: rigid.y, rotation: rigid.rotation };
   const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
   if (grab) {
-    const p = anchorPosition(scene, grab.actor, grab.anchor, t, poses?.get(grab.actor));
-    return { ...base, x: p[0], y: p[1] };
+    const pose = poses?.get(grab.actor);
+    const p = anchorPosition(scene, grab.actor, grab.anchor, t, pose);
+    const turn = anchorTurn(scene, grab.actor, grab.anchor, t, pose);
+    return { ...base, x: p[0], y: p[1], ...(turn ? { rotation: base.rotation + turn } : {}) };
   }
   if (prop.ground) base.y = surfaceY(prop.ground.surface, base.x) + prop.ground.offset;
   return base;

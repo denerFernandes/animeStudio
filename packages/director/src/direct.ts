@@ -165,6 +165,8 @@ class BlockScene {
   private walks: Walk[] = [];
   private x0: Record<string, number> = {};
   private facing0: Record<string, boolean> = {};
+  /** The drawings back to the old view after a turn around (dropped if a new view follows). */
+  private turnBack = new Set<Action>();
   private busy: { actor: string; t0: number; t1: number }[] = [];
   private views: { actor: string; t: number; view: string }[] = [];
   private holds: { actor: string; t0: number; t1: number }[] = [];
@@ -440,13 +442,22 @@ class BlockScene {
         const step = this.twos();
         steps.forEach((v, k) => this.push({ at: this.t(abs - (steps.length - k) * step), actor, action: "pose", control: "view", value: v, duration: 0 }));
         this.push({ at: this.t(abs), actor, action: "face", direction: dir });
-        [...steps.slice(0, -1).reverse(), cur].forEach((v, k) => this.push({ at: this.t(abs + (k + 1) * step), actor, action: "pose", control: "view", value: v, duration: 0 }));
+        [...steps.slice(0, -1).reverse(), cur].forEach((v, k) => {
+          const a = { at: this.t(abs + (k + 1) * step), actor, action: "pose", control: "view", value: v, duration: 0 } as Action;
+          this.turnBack.add(a);
+          this.push(a);
+        });
         return;
       }
     }
     this.push({ at: this.t(abs), actor, action: "face", direction: dir });
   }
   view(actor: string, v: string, abs: number, turn = true) {
+    // A new view replaces the turn back of a turn around at the same moment (sit down facing front).
+    for (let i = this.script.length - 1; i >= 0; i--) {
+      const a = this.script[i];
+      if (this.turnBack.has(a) && a.actor === actor && a.at >= this.t(abs) - 1e-6) this.script.splice(i, 1);
+    }
     const from = this.viewAt(actor, abs);
     this.views.push({ actor, t: abs, view: v });
     if (!this.hasControl(actor, "view")) return this.issue("warning", `${actor} has no "view" control`);
@@ -472,6 +483,9 @@ class BlockScene {
     const out: string[] = [];
     for (let i = a + dir; dir > 0 ? i <= b : i >= b; i += dir) out.push(order[i]);
     return out;
+  }
+  private hasPart(actor: string, id: string) {
+    return ((this.kit.characters[this.characterOf(actor)]?.parts ?? []) as { id: string }[]).some((p) => p.id === id);
   }
   /** One drawing every two frames. */
   private twos() {
@@ -1829,8 +1843,15 @@ class BlockScene {
       const shinSq = Math.max(-0.6, Math.min(0, (drop - fore) / shin - 1));
       this.set(actor, `bones.leg${side}1.squash`, -0.6, at, 0.5, "easeOut");
       this.set(actor, `bones.leg${side}2.squash`, r3(shinSq), at, 0.5, "easeOut");
+      // A rig can draw the thigh seen end-on (a "lap": short and round, the knee on top).
+      if (this.hasPart(actor, `lap${side}`)) this.set(actor, `parts.lap${side}.variant`, "on", at + 0.25);
       const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
       this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
+      // Hands resting on the knees (a lap drawn by the rig), unless a gesture takes them.
+      if (this.hasPart(actor, `lap${side}`) && this.hasChain(actor, `hand${side}`)) {
+        const handX = Math.round(footX + (side === "F" ? -1 : 1) * dir * 6 * s);
+        this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [handX, Math.round(seatY + fore * 0.85)], duration: 0.5 });
+      }
     }
   }
 
@@ -1970,6 +1991,10 @@ class BlockScene {
     if (l.kind === "fallen") {
       this.set(actor, "rotation", 0, at, 0.6, "backOut");
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
+    }
+    if (l.kind === "sit" && l.front) for (const side of ["F", "B"]) if (this.hasPart(actor, `lap${side}`)) {
+      this.set(actor, `parts.lap${side}.variant`, "off", at + 0.15);
+      if (this.hasChain(actor, `hand${side}`)) this.push({ at: this.t(at), actor, action: "reach", chain: `hand${side}`, target: null, duration: 0.4 });
     }
     if (l.kind === "sit") for (const c of ["footF", "footB"]) if (this.hasChain(actor, c)) this.push({ at: this.t(at), actor, action: "reach", chain: c, target: null, duration: 0.45 });
     if (l.front) for (const b of ["legF1", "legF2", "legB1", "legB2"]) this.set(actor, `bones.${b}.squash`, 0, at, 0.45, "easeOut");

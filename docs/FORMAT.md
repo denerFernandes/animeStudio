@@ -161,6 +161,9 @@ Named points attached to bones, used by the script (`lookAt` targets, `grab`, sp
 ```
 
 `at` is in setup space. If a character has a `head` anchor, other actors looking at it aim there.
+`turn` (0..1, optional) makes a prop held at the anchor turn with the bone: 1 turns it as much as
+the hand turns from its rest pose (a phone at the ear, a bottle tipped to the mouth), 0 keeps it
+upright. Draw held props the way they look in the hand at rest (arm hanging).
 
 ### 2.7 `ik`
 
