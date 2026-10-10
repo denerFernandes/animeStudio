@@ -65,7 +65,7 @@ interface RigPartBase {
   z: number;
   opacity: number;
   visible: boolean;
-  visibleWhen?: { part: number; variants: string[] };
+  visibleWhen?: { part: number; variants: string[]; and?: { part: number; variants: string[] } };
 }
 
 export type RigPart =
@@ -438,6 +438,12 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
       if (target === undefined) throw new RigError(`visibleWhen references unknown part "${def.visibleWhen.part}"`, path);
       const v = def.visibleWhen.variant;
       visibleWhen = { part: target, variants: Array.isArray(v) ? v : [v] };
+      const and = def.visibleWhen.and;
+      if (and) {
+        const t2 = partIndex.get(and.part);
+        if (t2 === undefined) throw new RigError(`visibleWhen references unknown part "${and.part}"`, path);
+        visibleWhen.and = { part: t2, variants: Array.isArray(and.variant) ? and.variant : [and.variant] };
+      }
     }
     const base: RigPartBase = {
       id: def.id,

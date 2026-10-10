@@ -369,11 +369,12 @@ export function onSurface(f: Sdf, theta: ViewLike) {
       const p = lift3(x, y, lift);
       return p ? project(p, theta) : project([x, y, 0], theta);
     },
-    visible(x: number, y: number) {
+    /** Facing the camera at least `min` (0 = edge on, 1 = straight at it). */
+    visible(x: number, y: number, min = 0.12) {
       const p = lift3(x, y, 0);
       if (!p) return false;
       const n = normal(f, p);
-      return depthOf(n, theta) > 0.12;
+      return depthOf(n, theta) > min;
     },
   };
 }

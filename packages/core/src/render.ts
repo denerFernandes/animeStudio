@@ -41,6 +41,11 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
   if (part.visibleWhen) {
     const v = currentVariant(rig, s, part.visibleWhen.part);
     if (v === undefined || !part.visibleWhen.variants.includes(v)) return null;
+    const and = part.visibleWhen.and;
+    if (and) {
+      const w = currentVariant(rig, s, and.part);
+      if (w === undefined || !and.variants.includes(w)) return null;
+    }
   }
   const key = `${keyPrefix}${part.id}`;
   const op = opacity < 1 ? opacity : undefined;

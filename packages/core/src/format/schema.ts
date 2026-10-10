@@ -43,7 +43,11 @@ const ArtRef = z
 const Space = z.enum(["setup", "bone"]).describe("Coordinate space of the art (default: setup)");
 
 const VisibleWhen = z
-  .strictObject({ part: z.string(), variant: z.union([z.string(), z.array(z.string())]) })
+  .strictObject({
+    part: z.string(),
+    variant: z.union([z.string(), z.array(z.string())]),
+    and: z.strictObject({ part: z.string(), variant: z.union([z.string(), z.array(z.string())]) }).optional().describe("A second switch condition that must hold too"),
+  })
   .describe("Only show this part while another switch part shows one of these variants");
 
 // ---------------------------------------------------------------------------

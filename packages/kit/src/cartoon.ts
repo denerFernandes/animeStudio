@@ -9,7 +9,7 @@
  * Heads, hair and torsos are modelled as volumes (`volume.ts`) and drawn from each angle, so the
  * three views always match. Measure with `cartoonInfo(doc)`.
  */
-import type { ToonDoc } from "@animestudio/core";
+import { type ToonDoc, parsePath, pathPoints, pathToString, withPoints } from "@animestudio/core";
 import { humanClips } from "./human";
 import { type P, cartoonHands, characterClips, emotions, fluid, limbBones, limbIk, mouthInside, mouthShapes } from "./rig";
 import { type RigInfo, rigInfo } from "./info";
@@ -825,7 +825,14 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   const brows = { base: brow(0, 0, 0), shapes: { up: brow(-k * 1.2, 0, 0), sad: brow(-k * 0.4, -k * 0.9, k * 0.6), cross: brow(k * 0.4, k * 1.1, -k * 0.5), smug: brow(-k * 0.3, k * 0.5, -k * 0.4) } };
 
   // Mouth.
-  const L = s.point(-m.mouthW, m.y.mouth), R = s.point(m.mouthW, m.y.mouth);
+  // Each corner stays on the part of the face turned to the camera (turned away, a mouth seen from
+  // the side is short: its far corner goes round the face, out of sight).
+  const corner = (side: number) => {
+    let x = side * m.mouthW;
+    for (let k = 0; k < 14 && !s.visible(x, m.y.mouth, 0.42); k++) x *= 0.86;
+    return s.point(x, m.y.mouth);
+  };
+  const L = corner(-1), R = corner(1);
   // Open mouths stay above the chin: the widest opening (D, about 27 × scale below the corners)
   // fits in the room between the mouth and the chin. Seen from the front the mouth is symmetric.
   const open = Math.min((u / 50) * 1.0, m.chinRoom / 27);
@@ -1099,6 +1106,20 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     ...(look.watch ? [wrap("watchB", "armB2", j.elbowB, j.handB, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "l" } })] : []),
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
     ...(shortSleeves ? [sleeve("sleeveB", "armB1", j.shoulderB, j.elbowB, "palette(topShade)")] : []),
+    // The hips (the seat of the trousers): a hull over both hip joints and the tops of the thighs,
+    // so seated the lap starts from a pelvis as wide as the body, from any angle.
+    {
+      id: "pelvis", type: "hull", strokeWidth: SW, attrs: { "stroke-linejoin": "round" },
+      fill: look.top === "dress" ? "palette(top)" : bareLegs && !shorts && !skirted ? "palette(skin)" : "palette(bottom)",
+      stroke: look.top === "dress" ? "palette(topLine)" : bareLegs && !shorts && !skirted ? "palette(skinLine)" : "palette(bottomLine)",
+      points: (["F", "B"] as const).flatMap((side) => {
+        const hip = side === "F" ? j.hipF : j.hipB, knee = side === "F" ? j.kneeF : j.kneeB;
+        return [
+          { bone: `leg${side}1`, at: hip, r: r(b.H * 0.52 * (1 + (look.heavy ?? 0) * 0.15)) },
+          { bone: `leg${side}1`, at: [r(hip[0] + (knee[0] - hip[0]) * 0.38), r(hip[1] + (knee[1] - hip[1]) * 0.38)], r: r(b.leg[0] * 0.66 * (1 + (look.heavy ?? 0) * 0.35)) },
+        ];
+      }),
+    },
     // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
     { id: "thighF", type: "hose", bones: ["legF1"], width: [r(b.leg[0] * 1.32), r(b.leg[0] * 1.12)], fill: bareLegs && !shorts ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
@@ -1244,7 +1265,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       pitch: opts.pitch ?? 0,
       chains: [
         { bones: ["legB1", "legB2"], parts: ["thighB", "legB", "sockB", "shoeB"] },
-        { bones: ["legF1", "legF2"], parts: ["thighF", "legF", "sockF", "shoeF", "skirt"] },
+        { bones: ["legF1", "legF2"], parts: ["pelvis", "thighF", "legF", "sockF", "shoeF", "skirt"] },
         { bones: ["armF1", "armF2"], parts: ["armF", "watch", "handF", "sleeveF"] },
         { bones: ["armB1", "armB2"], parts: ["armB", "watchB", "handB", "sleeveB"] },
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
@@ -1397,9 +1418,6 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     (gated[view] ??= []).push(p.id);
     p.visibleWhen = m[1] === "eye" ? { part: "eyes", variant: m[3] } : m[1] === "pupils" ? { part: "eyes", variant: ["open", "wide", "half"] } : { part: "eyes", variant: "half" };
   }
-  for (const [view, pose] of Object.entries(out.controls.view.poses as Record<string, Record<string, unknown>>)) {
-    for (const [v, ids] of Object.entries(gated)) if (v !== view) for (const id of ids) pose[`parts.${id}.opacity`] = -1;
-  }
   const suffixes = others.filter((v) => views[v].face.visible).map((v) => SUFFIX[v]);
   for (const pose of Object.values(out.controls.emotion.poses as Record<string, Record<string, unknown>>)) {
     for (const [k, v] of Object.entries({ ...pose })) {
@@ -1409,7 +1427,83 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       }
     }
   }
+  withHeadTurn(out, others);
   return out as unknown as ToonDoc;
+}
+
+/** Head parts (per view): the head's own drawings, chosen by `headView`. */
+const HEAD_PART = /^(hairBack|tailBack|earsBack|head|nose|eyes|eye|pupils|lids|mouth|teeth|tongue|over|hairFront|tailFront|earsFront|brows)([A-Z]?)(?:_(.+))?$/;
+
+/**
+ * The head turns on its own (a listener looking at whoever speaks while sitting facing the TV): a
+ * hidden `headView` switch picks the head's drawings — any drawn angle, or one mirrored (`~q50`:
+ * turned the other way) — the `view` control sets it to the body's view, the `head` control
+ * overrides it.
+ */
+function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
+  const viewOf = (suffix: string): ViewKey => (suffix ? others.find((v) => SUFFIX[v] === suffix)! : "profile");
+  const mirrorable = (v: ViewKey) => VIEWS[v] > 0.01 && VIEWS[v] < Math.PI - 0.01;
+  const names = Object.keys(VIEWS) as ViewKey[];
+  const allHead = [...names, ...names.filter(mirrorable).map((v) => `~${v}`)];
+  // Mirroring: rigid art wrapped in a flip about the head's centre line (x = 0); morph paths flipped.
+  const flipArt = (key: string) => {
+    const k = `${key}~`;
+    if (!out.art[k]) out.art[k] = `<g transform="scale(-1 1)">${out.art[key] ?? key}</g>`;
+    return k;
+  };
+  const flipPath = (d: string) => pathToString(withPoints(parsePath(d), pathPoints(parsePath(d)).map(([x, y]) => [-x, y] as [number, number])));
+  const added: Record<string, any>[] = [];
+  const morphMirrors: Record<string, string> = {};
+  const gate = (v: string) => ({ part: "headView", variant: v });
+  for (const p of out.parts) {
+    const m = HEAD_PART.exec(p.id ?? "");
+    if (!m) continue;
+    const v = viewOf(m[2]);
+    const kind = m[1];
+    const eyeVariant = kind === "eye" ? m[3] : kind === "eyes" ? undefined : undefined;
+    // Gate on the head view (eye drawings also on the eyes' variant: blinks, emotions).
+    const face = kind === "eye" ? { part: "eyes", variant: eyeVariant! } : kind === "pupils" ? { part: "eyes", variant: ["open", "wide", "half"] } : kind === "lids" ? { part: "eyes", variant: "half" } : undefined;
+    p.visibleWhen = face ? { ...face, and: gate(v) } : gate(v);
+    if (!mirrorable(v)) continue;
+    const id = `${p.id}~`;
+    let dup: Record<string, any> | undefined;
+    if (p.type === "rigid") dup = { ...p, id, art: flipArt(p.art) };
+    else if (p.type === "morph") {
+      dup = { ...p, id, base: flipPath(p.base), shapes: Object.fromEntries(Object.entries(p.shapes as Record<string, string>).map(([k, d]) => [k, flipPath(d)])) };
+      morphMirrors[p.id] = id;
+    } else if (p.type === "switch" && kind === "eyes") {
+      // The main eyes switch holds the variant: its mirror is one drawing per variant.
+      for (const [k, key] of Object.entries(p.variants as Record<string, string>)) added.push({ after: p.id, part: { id: `eyes~_${k}`, type: "rigid", bone: p.bone, art: flipArt(key), visibleWhen: { part: "eyes", variant: k, and: gate(`~${v}`) } } });
+    } else if (p.type === "switch") dup = { ...p, id, variants: Object.fromEntries(Object.entries(p.variants as Record<string, string>).map(([k, key]) => [k, flipArt(key)])) };
+    if (!dup) continue;
+    dup.visibleWhen = face ? { ...face, and: gate(`~${v}`) } : gate(`~${v}`);
+    added.push({ after: p.id, part: dup });
+  }
+  for (const { after, part } of added) out.parts.splice(out.parts.findIndex((q: { id: string }) => q.id === after) + 1, 0, part);
+  out.parts.splice(1, 0, { id: "headView", type: "switch", bone: "root", variants: Object.fromEntries(allHead.map((v) => [v, "viewNone"])), default: "profile" });
+  // The face's opacity gating per view is replaced by the head view.
+  for (const pose of Object.values(out.controls.view.poses as Record<string, Record<string, unknown>>)) {
+    for (const k of Object.keys(pose)) {
+      const m = /^parts\.([^.]+)\.opacity$/.exec(k);
+      if (m && HEAD_PART.test(m[1])) delete pose[k];
+    }
+  }
+  for (const [v, pose] of Object.entries(out.controls.view.poses as Record<string, Record<string, unknown>>)) pose["parts.headView.variant"] = v;
+  // Emotions, visemes and the asymmetric side drive the mirrored parts too.
+  for (const pose of Object.values(out.controls.emotion.poses as Record<string, Record<string, unknown>>)) {
+    for (const [k, val] of Object.entries({ ...pose })) {
+      const m = /^parts\.([^.]+)\.(morph\..+)$/.exec(k);
+      if (m && morphMirrors[m[1]]) pose[`parts.${morphMirrors[m[1]]}.${m[2]}`] = val;
+    }
+  }
+  const mouths = out.controls.mouth.part as string | string[];
+  out.controls.mouth.part = [...(Array.isArray(mouths) ? mouths : [mouths]), ...Object.entries(morphMirrors).filter(([id]) => /^(mouth|teeth|tongue)/.test(id)).map(([, id]) => id)];
+  const side = out.controls.side?.poses?.left as Record<string, unknown> | undefined;
+  if (side) for (const [k, val] of Object.entries({ ...side })) {
+    const m = /^parts\.([^.]+)\.variant$/.exec(k);
+    if (m && out.parts.some((q: { id: string }) => q.id === `${m[1]}~`)) side[`parts.${m[1]}~.variant`] = val;
+  }
+  out.controls.head = { type: "pose", poses: Object.fromEntries(allHead.map((v) => [v, { "parts.headView.variant": v }])) };
 }
 
 /** Director measurements of a cartoon character. */

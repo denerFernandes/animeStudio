@@ -220,7 +220,9 @@ under songs; lines less than a second apart are one span) — play it with
 Group and wide shots framed sideways only (from the tallest head to the ground: jumps and flights
 never move the set up and down), idle loops, lip sync per word, talking/singing gestures, listeners turning towards the speaker
 and looking at them (whoever is addressed by name or alias first), the speaker turning to the
-one addressed, spacing by head extents, `profile` as the initial view, the gaze cleared in front
+one addressed (a 2.5D rig that cannot turn — sitting, facing the camera — turns its head instead:
+the `head` control picks the drawn angle nearest to looking their way, at most 75° from the body's,
+mirrored to look the other way; a new `view` lets the head follow the body again), spacing by head extents, `profile` as the initial view, the gaze cleared in front
 views, vehicles hidden outside their drive, the dribble synchronised with the hand, replays with
 muted speech, contiguous shots.
 

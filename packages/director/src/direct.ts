@@ -484,6 +484,8 @@ class BlockScene {
       steps.forEach((s, k) => this.push({ at: this.t(abs - (steps.length - k) * this.twos()), actor, action: "pose", control: "view", value: s, duration: 0 }));
     } else if (turn && this.hasClip(actor, "turn")) this.push({ at: this.t(abs - 0.12), actor, action: "play", clip: "turn", fadeIn: 0.02, fadeOut: 0.05 });
     this.push({ at: this.t(abs), actor, action: "pose", control: "view", value: v, duration: 0 });
+    // A turned head follows the body again.
+    if (this.hasControl(actor, "head")) this.push({ at: this.t(abs), actor, action: "pose", control: "head", value: null, duration: 0 });
     // Facing the camera means looking at the camera.
     if (v === "front") this.push({ at: this.t(abs), actor, action: "lookAt", target: null });
   }
@@ -2404,6 +2406,22 @@ class BlockScene {
     if (this.faces.some((f) => f.actor === actor && Math.abs(f.t - abs) < 1.2)) return false;
     return true;
   }
+  /**
+   * A 2.5D rig turns its head (not its body) towards someone: the head's drawn angle nearest to
+   * looking their way, at most 75° from the body's (mirrored drawings look the other way); the eyes
+   * follow them.
+   */
+  private turnHead(actor: string, target: string, abs: number) {
+    if (!this.hasControl(actor, "head")) return;
+    const views = (this.kit.characters[this.characterOf(actor)] as { rig3d?: { views: Record<string, number> } }).rig3d!.views;
+    const body = views[this.viewAt(actor, abs)] ?? 36;
+    const dx = (this.xAt(target, abs) - this.xAt(actor, abs)) * (this.facing(actor, abs) ? 1 : -1);
+    const want = Math.max(body - 75, Math.min(body + 75, dx >= 0 ? 60 : -60));
+    const options = [...Object.entries(views), ...Object.entries(views).filter(([, y]) => y > 0 && y < 180).map(([k, y]) => [`~${k}`, -y] as [string, number])];
+    const best = options.sort((a, b) => Math.abs(a[1] - want) - Math.abs(b[1] - want))[0][0];
+    this.push({ at: this.t(abs), actor, action: "pose", control: "head", value: best, duration: 0 });
+    this.push({ at: this.t(abs), actor, action: "lookAt", target });
+  }
   private turnTowards(actor: string, x: number, abs: number) {
     if (!this.canTurn(actor, abs)) return;
     const dx = x - this.xAt(actor, abs);
@@ -2439,12 +2457,18 @@ class BlockScene {
       const named = this.addressed(l, sp);
       const others = this.present.filter((x) => x !== sp).sort((a, b) => Math.abs(this.xAt(a, l.s) - this.xAt(sp, l.s)) - Math.abs(this.xAt(b, l.s) - this.xAt(sp, l.s)));
       if (named) others.unshift(named);
-      if (others[0] && this.viewAt(sp, l.s) === "profile") {
+      if (others[0] && this.viewAt(sp, l.s) === "profile" && (!this.is3d(sp) || this.canTurn(sp, l.s - 0.3))) {
         this.push({ at: this.t(l.s - 0.2), actor: sp, action: "lookAt", target: others[0] });
         if (turn) this.turnTowards(sp, this.xAt(others[0], l.s), l.s - 0.3);
-      }
+      } else if (others[0] && named && this.is3d(sp)) this.turnHead(sp, others[0], l.s - 0.2);
       for (const id of this.present) {
-        if (id === sp || this.viewAt(id, l.s) !== "profile") continue;
+        if (id === sp) continue;
+        // A 2.5D rig that cannot turn (sitting, facing the camera) turns its head to the speaker.
+        if (this.is3d(id) && !(this.viewAt(id, l.s) === "profile" && this.canTurn(id, l.s - 0.25))) {
+          this.turnHead(id, sp, l.s - 0.1);
+          continue;
+        }
+        if (this.viewAt(id, l.s) !== "profile") continue;
         this.push({ at: this.t(l.s - 0.1), actor: id, action: "lookAt", target: sp });
         if (turn) this.turnTowards(id, this.xAt(sp, l.s), l.s - 0.25);
       }

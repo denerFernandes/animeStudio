@@ -123,7 +123,8 @@ Each bone can be declared in **one** of two forms:
 
 Visual elements bound to bones. **Draw order = array order** (later parts are on top), unless
 `z` is given (stable sort by `z`, default 0). Common fields: `id`, `type`, `z`, `opacity`
-(default 1), `visible` (default true).
+(default 1), `visible` (default true), `visibleWhen` (`{ part, variant }`: shown only while that switch
+part shows one of these variants; `and: { part, variant }` adds a second condition).
 
 | `type` | Purpose | Fields |
 |---|---|---|
