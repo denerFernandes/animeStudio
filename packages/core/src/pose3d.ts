@@ -288,13 +288,13 @@ export function rig3dPose(doc: Rig3dDocLike, values: Rig3dValues): Record<string
 }
 
 /** The two angles (degrees) of `make(a, b)` turning `v` onto `w`, by a coarse-to-fine search. */
-function fit2(make: (a: number, b: number) => M3, v: V3, w: V3, a0 = 0, b0 = 0): [number, number] {
+function fit2(make: (a: number, b: number) => M3, v: V3, w: V3, a0 = 0, b0 = 0, first = 64): [number, number, number] {
   const err = (a: number, b: number) => {
     const q = mv(make(a * DEG, b * DEG), v);
     return (q[0] - w[0]) ** 2 + (q[1] - w[1]) ** 2 + (q[2] - w[2]) ** 2;
   };
   let a = a0, b = b0, e = err(a, b);
-  for (let step = 64; step > 0.01; step /= 2) {
+  for (let step = first; step > 0.01; step /= 2) {
     let moved = true;
     while (moved) {
       moved = false;
@@ -306,7 +306,19 @@ function fit2(make: (a: number, b: number) => M3, v: V3, w: V3, a0 = 0, b0 = 0):
       }
     }
   }
-  return [wrapAngle(a), wrapAngle(b)];
+  return [a, b, e];
+}
+
+/** `fit2` staying near a guess (the pose before: no jump to an equivalent turn), else from scratch. */
+function fitNear(make: (a: number, b: number) => M3, v: V3, w: V3, near?: [number, number]): [number, number] {
+  if (near) {
+    const [a, b, e] = fit2(make, v, w, near[0], near[1], 12);
+    if (e < 1e-5) return [a, b];
+  }
+  const [a, b] = fit2(make, v, w);
+  if (!near) return [wrapAngle(a), wrapAngle(b)];
+  // Unwrapped to the turn nearest the guess.
+  return [a + 360 * Math.round((near[0] - a) / 360), b + 360 * Math.round((near[1] - b) / 360)];
 }
 
 const norm3 = (v: V3): V3 => {
@@ -322,7 +334,7 @@ const T3 = (m: M3): M3 => [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]
  * `values` holds the rest of the pose (the body's lean, the legs). Out of reach, the limb points
  * straight at the target.
  */
-export function reach3d(doc: Rig3dDocLike, upper: string, lower: string, target: V3, values: Rig3dValues, pole: V3): Rig3dValues {
+export function reach3d(doc: Rig3dDocLike, upper: string, lower: string, target: V3, values: Rig3dValues, pole: V3, near?: Rig3dValues): Rig3dValues {
   const def = doc.rig3d!.bones;
   const posed = rig3dPose(doc, { ...values, [upper]: {}, [lower]: {} });
   const U = posed[upper];
@@ -341,11 +353,12 @@ export function reach3d(doc: Rig3dDocLike, upper: string, lower: string, target:
   const T = add3(S, [dh[0] * d, dh[1] * d, dh[2] * d]);
   const u = mv(T3(Rp), norm3(sub3(E, S)));
   const restU = norm3(sub3(def[upper].to, def[upper].from));
-  const [r1, s1] = fit2((a, b) => mul(rz(b), rx(a)), restU, u);
+  const n1 = near?.[upper], n2 = near?.[lower];
+  const [r1, s1] = fitNear((a, b) => mul(rz(b), rx(a)), restU, u, n1 ? [n1.rotation ?? 0, n1.spread ?? 0] : undefined);
   const R1 = mul(Rp, mul(rz(s1 * DEG), rx(r1 * DEG)));
   const f = mv(T3(R1), norm3(sub3(T, E)));
   const restL = norm3(sub3(def[lower].to, def[lower].from));
-  const [r2, t2] = fit2((a, b) => mul(ry(b), rx(a)), restL, f);
+  const [r2, t2] = fitNear((a, b) => mul(ry(b), rx(a)), restL, f, n2 ? [n2.rotation ?? 0, n2.turn ?? 0] : undefined);
   const k = (n: number) => Math.round(n * 100) / 100;
   return { [upper]: { rotation: k(r1), spread: k(s1), turn: 0 }, [lower]: { rotation: k(r2), turn: k(t2), spread: 0 } };
 }

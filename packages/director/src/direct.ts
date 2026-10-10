@@ -885,13 +885,15 @@ class BlockScene {
     this.armBusy.push({ actor, side, t0: at - dur, t1: at });
     const pose = this.pose3d.get(actor) ?? {};
     const pole: [number, number, number] = [side === "F" ? -0.5 : 0.5, 1, -0.25];
-    const solve = (p: [number, number, number]) => reach3d(doc, `arm${side}1`, `arm${side}2`, p, pose, pole);
+    // Each pose solved near the one before (no jump to an equivalent way of turning the shoulder).
+    let guess = this.armNow(actor, side, at - dur);
+    const solve = (p: [number, number, number]) => (guess = reach3d(doc, `arm${side}1`, `arm${side}2`, p, pose, pole, guess));
     const apply = (v: Rig3dValues, t: number, d: number, ease: string) => {
       for (const [b, val] of Object.entries(v)) for (const [k, x] of Object.entries(val)) this.set(actor, `bones.${b}.${k}`, x!, t, d, ease);
     };
     // The hand travels from where it is along an arc in front of the body (the arm swings round the
     // front, never through the chest): in-betweens solved again, not angles blended.
-    const from = rig3dPose(doc, { ...pose, ...this.armNow(actor, side, at - dur) })[`arm${side}2`]?.to;
+    const from = rig3dPose(doc, { ...pose, ...guess })[`arm${side}2`]?.to;
     const dist = from ? Math.hypot(target[0] - from[0], target[1] - from[1], target[2] - from[2]) : 0;
     if (from && dur > 0 && dist > 10) {
       const n = 3;
@@ -905,8 +907,8 @@ class BlockScene {
     return true;
   }
   /**
-   * Drops an arm's moves planned from a moment on (a later move takes over), and makes those under
-   * way then end there.
+   * Drops an arm's moves planned while a new one lasts (it takes over; one under way when it starts
+   * turns into it smoothly).
    */
   private cutArm(actor: string, side: "F" | "B", from: number, until = Infinity) {
     const t = this.t(from), u = until === Infinity ? Infinity : this.t(until);
@@ -914,8 +916,8 @@ class BlockScene {
     for (let i = this.script.length - 1; i >= 0; i--) {
       const a = this.script[i] as { action: string; actor?: string; channel?: string; at: number; duration?: number };
       if (a.action !== "set" || a.actor !== actor || !a.channel || !re.test(a.channel)) continue;
+      // (A move under way when this one starts is taken over smoothly by the scene.)
       if (a.at >= t - 1e-6 && a.at < u - 1e-6) this.script.splice(i, 1);
-      else if (a.at < t && (a.duration ?? 0) > 0 && a.at + a.duration! > t) a.duration = r3(t - a.at);
     }
     for (const [k, hist] of this.angles) if (k.startsWith(`${actor}|bones.arm${side}`)) this.angles.set(k, hist.filter((h) => h[0] <= from + 1e-6 || h[0] > until + 1e-6));
   }

@@ -1596,7 +1596,8 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
           (ch[key] ??= []).push([r(f * clip.duration), r(x), ease]);
         }
       };
-      const solve = (p: V3) => reach3d(doc as never, `arm${side}1`, `arm${side}2`, p, {}, pole);
+      let guess: Record<string, Record<string, number>> | undefined;
+      const solve = (p: V3) => (guess = reach3d(doc as never, `arm${side}1`, `arm${side}2`, p, {}, pole, guess) as Record<string, Record<string, number>>);
       const zero = { [`arm${side}1`]: { rotation: 0, spread: 0, turn: 0 }, [`arm${side}2`]: { rotation: 0, turn: 0, spread: 0 } };
       // The hand travels between the keys along an arc in front of the body (the arm swings round
       // the front, never through the chest), every in-between solved again.
@@ -1610,7 +1611,7 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
             put(f0 + (f - f0) * u, solve([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u + bulge]));
           }
         }
-        put(f, target ? solve(target) : zero, "sineInOut");
+        put(f, target ? solve(target) : (guess = zero), "sineInOut");
       });
       Object.assign(tracks, ch);
     }

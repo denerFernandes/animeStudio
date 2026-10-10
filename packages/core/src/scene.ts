@@ -238,6 +238,12 @@ class KeyBuffer {
   /** Animates to `value` over [at, at + duration]. */
   transition(at: number, value: Value, duration: number, ease: Ease): void {
     const from = this.valueAt(at);
+    // A new change takes over from where the channel is: what was still planned after it is dropped
+    // (a move under way stops there and turns into this one, with no jump).
+    if (this.keys.some((k) => k.t > at + 1e-9)) {
+      this.keys = this.keys.filter((k) => k.t <= at + 1e-9);
+      this.cached = undefined;
+    }
     if (duration > 0 && from !== undefined) {
       this.keys.push({ t: at, v: from, ease: "linear" });
       this.keys.push({ t: at + duration, v: value, ease });

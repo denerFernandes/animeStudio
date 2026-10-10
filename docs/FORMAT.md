@@ -501,7 +501,7 @@ Actions are compiled into clip instances and tracks before rendering.
 | `action` | Fields | Effect |
 |---|---|---|
 | `play` | `clip`, `duration?`, `loop?`, `speed` (1), `fadeIn` (0.2), `fadeOut` (0.2), `layer` (0), `blend` (`override` \| `additive`), `weight` (1) | Plays a character clip |
-| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value |
+| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps |
 | `pose` | `control`, `value`, `duration` (0.3), `ease` | Shortcut for `set controls.<control>` |
 | `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction |
 | `face` | `direction` (`left` \| `right`) | Flips the actor |

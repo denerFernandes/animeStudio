@@ -95,7 +95,7 @@ Types: `PoseState`, `EvaluatedPose`, `CharacterInput`, `ClipInstance`, `BlendMod
 | `viewPoint(p, yaw, pitch)`, `V3` | Body space → view space (screen x, y, depth) |
 | `rig3dPoint(doc, values, name)` | Where a named point of `rig3d.points` (the mouth, the chest) is in a pose (body space) |
 | `rig3dPose(doc, values)`, `Rig3dValues` | Forward kinematics of a document's `rig3d` for channel values (`{ bone: { rotation?, turn?, spread? } }`, degrees): each 3D bone's joint, tip and rotation in body space (the hips at rest) — where a pose puts the knees, the hands… |
-| `reach3d(doc, upper, lower, target, values, pole)` | Two-bone reach in 3D: the channel values (`upper`: `rotation`, `spread`; `lower`: `rotation`, `turn`) putting the limb's tip on a body-space `target`, the middle joint bent towards `pole`, the rest of the pose in `values`. The director rests hands on knees, in the lap, around the shins with it |
+| `reach3d(doc, upper, lower, target, values, pole, near?)` | Two-bone reach in 3D (`near`: the pose before — the solution nearest it, never an equivalent turn of the shoulder far from it): the channel values (`upper`: `rotation`, `spread`; `lower`: `rotation`, `turn`) putting the limb's tip on a body-space `target`, the middle joint bent towards `pole`, the rest of the pose in `values`. The director rests hands on knees, in the lap, around the shins with it |
 | `EvaluatedPose.frame3d` | The frame's projection (`Rig3dFrame`: posed 3D bones `pos` / `rot`, `yaw`, `pitch`, screen `off`): solids are drawn from it |
 
 ### Solids — `solid.ts`, `field.ts`
