@@ -135,7 +135,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -178,6 +178,7 @@ class BlockScene {
   private walks: Walk[] = [];
   private x0: Record<string, number> = {};
   private facing0: Record<string, boolean> = {};
+  private propKinds = new Map<string, string>();
   /** The drawings back to the old view after a turn around (dropped if a new view follows). */
   private turnBack = new Set<Action>();
   private busy: { actor: string; t0: number; t1: number }[] = [];
@@ -513,6 +514,7 @@ class BlockScene {
       return;
     }
     this.props.push({ id, art: def.art({ color }), x: Math.round(x), y: Math.round(y), z });
+    this.propKinds.set(id, kind);
     this.propStates.set(id, { id, radius: def.radius, x: [], y: [], scale: [], rotation: [], heldBy: [] });
   }
   propX(id: string, abs: number): number {
@@ -528,6 +530,56 @@ class BlockScene {
     if (!st) return this.issue("error", `unknown prop "${prop}"`);
     st.heldBy.push({ actor, t0: abs, t1: Infinity });
     this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: "hand" });
+  }
+  /** The prop an actor holds at a moment (by `pick` or `heldBy`). */
+  private heldProp(actor: string, abs: number) {
+    for (const [id, st] of this.propStates) if (st.heldBy.some((h) => h.actor === actor && h.t0 <= abs && h.t1 > abs)) return id;
+    return undefined;
+  }
+  /**
+   * Fits a held prop to the body (a phone at the ear, a cigarette at the mouth): its contact points
+   * (`kit.props[kind].points`) on anchors of the rig (`ear`, `mouth`…), following the head every
+   * frame; the hand holds it by its `grip` point. Back in the hand at `until`.
+   */
+  use(actor: string, prop: string, fit: Record<string, string>, at: number, until: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
+    if (!st.heldBy.some((h) => h.actor === actor && h.t0 <= at && h.t1 > at)) return this.issue("error", `${actor} cannot use "${prop}": not holding it (pick it up first, or heldBy)`);
+    const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+    const list = Object.entries(fit).slice(0, 2);
+    for (const [pt, an] of list) {
+      if (!points[pt]) return this.issue("error", `prop "${prop}" has no contact point "${pt}"${closest(pt, Object.keys(points))} (kit.props.<kind>.points)`);
+      if (!anchors[an]) return this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
+    }
+    const t0 = this.t(at), t1 = this.t(until);
+    this.push({ at: t0, action: "release", actor, prop });
+    this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list.map(([pt, an]) => ({ point: points[pt], anchor: an })) });
+    if (this.hasChain(actor, "handF")) {
+      this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0] }, duration: 0.3 });
+      this.push({ at: t1, actor, action: "reach", chain: "handF", target: null, duration: 0.3 });
+    }
+    this.push({ at: t1, action: "release", actor, prop });
+    this.push({ at: t1, action: "grab", actor, prop, anchor: "hand" });
+  }
+  /** The phone / smoke / drink gestures with a held prop that has contact points: `use` it. */
+  private useForGesture(actor: string, clip: string, at: number, until?: number) {
+    const fits: Record<string, [Record<string, string>, number]> = {
+      phone: [{ ear: "ear", mouth: "mouth" }, 3],
+      smoke: [{ tip: "mouth" }, 1.3],
+      drink: [{ lip: "mouth", bottom: "top" }, 1.8],
+    };
+    const f = fits[clip];
+    const prop = f && this.heldProp(actor, at);
+    if (!f || !prop) return false;
+    const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+    const fit = Object.fromEntries(Object.entries(f[0]).filter(([pt, an]) => points[pt] && anchors[an]));
+    if (!Object.keys(fit).length) return false;
+    // The arm comes up with the clip (the head tips back to drink), then the prop fits.
+    this.play(actor, clip, at - 0.1, until ? until - at + 0.1 : undefined);
+    this.use(actor, prop, fit, at + 0.25, until ?? at + f[1]);
+    return true;
   }
   release(prop: string, abs: number) {
     const st = this.propStates.get(prop);
@@ -657,6 +709,8 @@ class BlockScene {
       }
       case "gesture":
         for (const w of who) {
+          // Phone, smoke, drink with a held prop that has contact points: fitted to the body.
+          if (this.useForGesture(w, b.clip as string, at, until)) continue;
           const fg = FRONT_GESTURES[b.clip as string];
           // From the front, these are hand positions (resolved on the posed face after staging).
           if (fg && this.viewAt(w, at) === "front") this.pendingGestures.push({ actor: w, clip: b.clip as string, at, until: until ?? at + fg.hold });
@@ -688,6 +742,9 @@ class BlockScene {
         break;
       case "hide":
         for (const w of who) this.hide(w, b.behind as string, at, until);
+        break;
+      case "use":
+        if (one) this.use(one, b.prop as string, (b.at ?? {}) as Record<string, string>, at, until ?? at + 2);
         break;
       case "peek":
         for (const w of who) this.peek(w, at, until);

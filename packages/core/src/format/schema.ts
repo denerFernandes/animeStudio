@@ -469,8 +469,8 @@ export const ActionSchema = z.discriminatedUnion("action", [
     action: z.literal("reach"),
     chain: z.string().describe("IK chain id (e.g. footF, handF)"),
     target: z
-      .union([z.strictObject({ actor: z.string(), anchor: z.string() }), Vec2Schema, z.null()])
-      .describe("Anchor of another actor (followed every frame: pedals, handlebar), a scene point, or null to let go"),
+      .union([z.strictObject({ actor: z.string(), anchor: z.string() }), z.strictObject({ prop: z.string(), point: Vec2Schema }), Vec2Schema, z.null()])
+      .describe("Anchor of another actor (followed every frame: pedals, handlebar), a point of a prop (its grip, even one fitted to this actor's own body), a scene point, or null to let go"),
     duration: z.number().min(0).optional().describe("Blend in/out (default 0.3 s)"),
   }),
   z.strictObject({
@@ -492,7 +492,19 @@ export const ActionSchema = z.discriminatedUnion("action", [
     control: z.string().optional(),
     volume: z.number().optional(),
   }),
-  z.strictObject({ ...At, ...ActorRef, action: z.literal("grab"), prop: z.string(), anchor: z.string() }),
+  z.strictObject({
+    ...At,
+    ...ActorRef,
+    action: z.literal("grab"),
+    prop: z.string(),
+    anchor: z.string(),
+    fit: z
+      .array(z.strictObject({ point: Vec2Schema.describe("A point of the prop's art"), anchor: z.string().describe("An anchor of the actor") }))
+      .min(1)
+      .max(2)
+      .optional()
+      .describe("Fit the prop to the body: its first point on the first anchor, turned so its second point points at the second anchor (a phone: ear on the ear, mouthpiece towards the mouth); one point keeps the prop turning with that anchor's bone"),
+  }),
   z.strictObject({
     ...At,
     ...ActorRef,

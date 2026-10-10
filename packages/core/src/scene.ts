@@ -99,13 +99,15 @@ export interface MountKey {
 
 export interface ReachKey {
   t: number;
-  target: { actor: string; anchor: string } | Vec2 | null;
+  target: { actor: string; anchor: string } | { prop: string; point: Vec2 } | Vec2 | null;
   blend: number;
 }
 
 export interface Grab {
   actor: string;
   anchor: string;
+  /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
+  fit?: { point: Vec2; anchor: string }[];
   start: number;
   end: number;
   releaseVelocity?: Vec2;
@@ -652,7 +654,9 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         const { buffers, rig } = requireActor(a.actor, path);
         if (!rig.ik.some((k) => k.id === a.chain)) throw new SceneError(`reach: unknown IK chain "${a.chain}". Known chains: ${rig.ik.map((k) => k.id).join(", ") || "none"}.`, path);
         const tg = a.target;
-        if (tg && !Array.isArray(tg)) {
+        if (tg && !Array.isArray(tg) && "prop" in tg) {
+          if (!props.some((p) => p.id === tg.prop)) throw new SceneError(`reach: unknown prop "${tg.prop}"`, path);
+        } else if (tg && !Array.isArray(tg)) {
           const other = rigCache.get(tg.actor);
           if (!other) throw new SceneError(`reach: unknown actor "${tg.actor}"`, path);
           if (!other.anchors[tg.anchor]) throw new SceneError(`reach: "${tg.actor}" has no anchor "${tg.anchor}". Known anchors: ${Object.keys(other.anchors).join(", ") || "none"}.`, path);
@@ -695,10 +699,10 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         requireActor(a.actor, path);
         const prop = props.find((p) => p.id === a.prop);
         if (!prop) throw new SceneError(`unknown prop "${a.prop}"`, path);
-        if (!rigCache.get(a.actor)!.anchors[a.anchor]) {
-          throw new SceneError(`unknown anchor "${a.anchor}" on actor "${a.actor}"`, path);
+        for (const an of [a.anchor, ...(a.fit ?? []).map((f) => f.anchor)]) {
+          if (!rigCache.get(a.actor)!.anchors[an]) throw new SceneError(`unknown anchor "${an}" on actor "${a.actor}"`, path);
         }
-        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity });
+        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}) });
         return;
       }
       case "release": {
@@ -1273,6 +1277,17 @@ function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toC
   const resolve = (k: ReachKey | undefined): Vec2 | null => {
     if (!k?.target) return null;
     if (Array.isArray(k.target)) return k.target as Vec2;
+    if ("prop" in k.target) {
+      // A point of a prop: when the prop is fitted to this very actor (a phone at the ear), its place
+      // comes from this actor's pose without the reach (the head does not depend on the arm).
+      const tg = k.target;
+      const prop = scene.props.find((p) => p.id === tg.prop);
+      if (!prop) return null;
+      const own = prop.grabs.some((g) => g.actor === actor.id && t >= g.start && t < g.end);
+      const poses = own ? new Map([[actor.id, evaluatePose(actor.rig, { time: t, clips: actor.clips, tracks: actor.tracks, seed: actor.seed })]]) : undefined;
+      const pl = propPlacement(scene, prop, t, poses);
+      return apply(placementMatrix(pl), tg.point);
+    }
     const other = scene.actors.find((a) => a.id === (k.target as { actor: string }).actor);
     if (!other || resolvingAim.has(other)) return null;
     return anchorPosition(scene, other.id, (k.target as { anchor: string }).anchor, t);
@@ -1383,11 +1398,36 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
   return (mirrored ? -deg : deg) * a.turn;
 }
 
+/**
+ * A prop fitted to the body: its first point on the first anchor, turned so its second point points
+ * at the second anchor (or, with one point, turning with that anchor's bone).
+ */
+function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number } {
+  const [f1, f2] = grab.fit!;
+  const a1 = anchorPosition(scene, grab.actor, f1.anchor, t, pose);
+  let rot: number;
+  if (f2) {
+    const a2 = anchorPosition(scene, grab.actor, f2.anchor, t, pose);
+    rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
+  } else {
+    const actor = scene.actors.find((a) => a.id === grab.actor)!;
+    const an = actor.rig.anchors[f1.anchor];
+    const p = pose ?? actorPose(scene, actor, t);
+    const m = multiply(actorPlacement(actor, t), multiply(p.world[an.bone], actor.rig.bones[an.bone].setupWorldInv));
+    rot = Math.atan2(m[1], m[0] * Math.sign(m[0] * m[3] - m[1] * m[2] || 1));
+  }
+  const c = Math.cos(rot), s = Math.sin(rot);
+  const px = f1.point[0] * scale[0], py = f1.point[1] * scale[1];
+  void prop;
+  return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI };
+}
+
 export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {
   const base = samplePlacement(prop.placement, prop.def, t);
   const rigid = scene.rigid?.sample(prop.id, t);
   if (rigid) return { ...base, x: rigid.x, y: rigid.y, rotation: rigid.rotation };
   const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
+  if (grab?.fit) return { ...base, ...fittedPlacement(scene, prop, grab, t, base.scale, poses?.get(grab.actor)) };
   if (grab) {
     const pose = poses?.get(grab.actor);
     const p = anchorPosition(scene, grab.actor, grab.anchor, t, pose);

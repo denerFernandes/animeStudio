@@ -213,7 +213,12 @@ export interface Kit {
   narrators?: string[];
   sets: Record<string, SetDef>;
   /** Props by kind: art drawn around the origin, and the radius (half height) so it rests on the ground. */
-  props: Record<string, { art: (o: { color?: string }) => string; radius: number }>;
+  /**
+   * Props by kind: art drawn around the origin, the radius (half height) so it rests on the ground,
+   * and contact `points` of the art (a phone's `grip`, `ear`, `mouth`; a glass's `grip`, `lip`) for
+   * fitting it to the body (`use` beat, the phone / smoke / drink gestures).
+   */
+  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]> }>;
   /**
    * Vehicles by kind. `scale` is for a cast member of scale 1 (a ridden vehicle is multiplied by its
    * rider's scale). A vehicle whose rig has a `seat` anchor can be ridden (see DIRECTOR.md, Riding).

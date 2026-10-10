@@ -1097,6 +1097,17 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   const shortsTo = look.bottom === "bermuda" ? 0.9 : 0.45;
 
   const seatOpen = seatedLegs(m, look, j, false), seatCrossed = seatedLegs(m, look, j, true);
+  // Points of the head for props fitted to the body (a phone at the ear, a cigarette at the mouth),
+  // where each drawn angle puts them: the near ear, the middle of the mouth, between the eyes, the top.
+  const headPoints = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => {
+    const th = VIEWS[v], sp = onSurface(m.head, th);
+    return [v, {
+      ear: project([-u * 1.0, m.y.ear, -u * 0.06], th),
+      mouth: sp.point(0, m.y.mouth, u * 0.04),
+      eye: sp.point(0, m.y.eye, u * 0.04),
+      top: [0, m.y.top] as P2,
+    }];
+  })) as Record<ViewKey, Record<"ear" | "mouth" | "eye" | "top", P2>>;
   const art: Record<string, string> = {
     shoe: shoeArt(look, b.shoe),
     shoeFront: shoeFrontArt(look, b.shoe),
@@ -1235,11 +1246,14 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
       { id: "hair", parent: "head", from: [0, r(m.y.head)], to: [0, r(m.y.top - u * 0.2)], mass: 0.6 },
       ...(tail ? [{ id: "tail", parent: "head", from: [r(tail[0][0]), r(tail[0][1])], to: [r(tail[1][0]), r(tail[1][1])], mass: 0.4 }] : []),
       { id: "pupils", parent: "head", from: [r(eyeMid[0]), r(m.y.eye)] },
+      ...(["ear", "mouth", "eye", "top"] as const).map((k) => ({ id: `${k}Pt`, parent: "head", from: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] })),
       ...limbBones({ ...j, toeF: 30 * b.shoe, toeB: 30 * b.shoe }),
     ],
     parts,
     anchors: {
       head: { bone: "head", at: [r(eyeMid[0] * 0.5), r(m.y.eye - u * 0.1)] },
+      // Where props fit on the head, in every view (the points move with the drawing).
+      ...Object.fromEntries((["ear", "mouth", "eye", "top"] as const).map((k) => [k, { bone: `${k}Pt`, at: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] }])),
       face: { bone: "head", at: [r(eyeMid[0]), r(m.y.eye + u * 0.2)] },
       // Held props turn with the hand (a phone at the ear, a bottle tipped to the mouth).
       hand: { bone: "handF", at: j.handF, turn: 1 },
@@ -1275,7 +1289,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     }),
   };
   (doc as { palette: Record<string, string> }).palette = withTones(doc.palette);
-  return withTurnaround(doc, views, sx, hx, !!tail);
+  return withTurnaround(doc, views, sx, hx, !!tail, headPoints);
 }
 
 /**
@@ -1305,7 +1319,7 @@ function withTones(palette: Record<string, string>): Record<string, string> {
  * move to where each angle puts them, the face parts of each angle follow the same emotions,
  * blinks and lip sync.
  */
-function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face: ReturnType<typeof faceView> }>, sx: number, hx: number, tail: boolean): ToonDoc {
+function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face: ReturnType<typeof faceView> }>, sx: number, hx: number, tail: boolean, headPoints: Record<ViewKey, Record<"ear" | "mouth" | "eye" | "top", P2>>): ToonDoc {
   const { stroke: LIPS, strokeWidth: LIPS_W } = doc.parts.find((p: { id: string }) => p.id === "mouth");
   const cq = Math.cos(Q);
   const others = (Object.keys(VIEWS) as ViewKey[]).filter((v) => v !== "profile");
@@ -1349,9 +1363,10 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
   };
   const face = ["eyes", "pupils", "lids", "mouth", "teeth", "tongue", "brows"];
   // Where an angle puts the shoulders and hips (relative to the three-quarter skeleton).
-  const move = (theta: number) => {
+  const move = (theta: number, v: ViewKey) => {
     const c = Math.cos(theta);
-    return { armF1: [r(sx * (cq - c)), 0] as P, armB1: [r(sx * (c - cq)), 0] as P, legF1: [r(hx * (cq - c)), 0] as P, legB1: [r(hx * (c - cq)), 0] as P };
+    const pts = Object.fromEntries((["ear", "mouth", "eye", "top"] as const).map((k) => [`${k}Pt`, [r(headPoints[v][k][0] - headPoints.profile[k][0]), r(headPoints[v][k][1] - headPoints.profile[k][1])] as P]));
+    return { armF1: [r(sx * (cq - c)), 0] as P, armB1: [r(sx * (c - cq)), 0] as P, legF1: [r(hx * (cq - c)), 0] as P, legB1: [r(hx * (c - cq)), 0] as P, ...pts };
   };
   const spec: ViewSpec = {
     eyes: { center: [0, 0], parts: [] },
@@ -1359,7 +1374,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     profileOnly: ["hairBack", ...doc.parts.filter((p: { id: string }) => p.id.startsWith("skirt_")).map((p: { id: string }) => p.id), "neck", "torso", "earsBack", "head", "earsFront", "nose", "over", "hairFront", ...(tail ? ["tailBack", "tailFront"] : [])],
     hide: Object.fromEntries(others.map((v) => [v, face])),
     parts: Object.fromEntries(others.map((v) => [v, viewParts(v)])),
-    move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v])])),
+    move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v], v)])),
     // Seen from the front or from behind, the shoes point at (or away from) the camera.
     extra: Object.fromEntries(others.filter((v) => v !== "side").map((v) => [v, { "parts.shoeF.variant": "front", "parts.shoeB.variant": "front" }])),
     mouths: ["teeth", "tongue", ...others.filter((v) => views[v].face.visible).flatMap((v) => ["mouth", "teeth", "tongue"].map((k) => `${k}${SUFFIX[v]}`))],
