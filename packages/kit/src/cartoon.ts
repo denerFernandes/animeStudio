@@ -1073,25 +1073,36 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   art.pupils = F.pupils;
   art.lids = F.lids;
 
-  const sleeve = (a: P, e: P, fill: string) => cuff(a, e, 0, 0.46, b.arm[0] * 0.5 + 4, b.arm[0] * 0.5 + 9, fill, 3, look.pattern === "pinstripes" ? 3 : 0);
+  // Sleeves, socks and a watch wrap the limb: hulls over points of its bone, so they follow it from
+  // any angle (foreshortened towards the camera or not).
+  const wrap = (id: string, bone: string, a: P, e: P, from: number, to: number, r0: number, r1: number, fill: string, extra: Record<string, unknown> = {}) => ({
+    id, type: "hull", fill, stroke: LINE(fill), strokeWidth: 2.6, attrs: { "stroke-linejoin": "round" }, ...extra,
+    points: [
+      { bone, at: [r(a[0] + (e[0] - a[0]) * from), r(a[1] + (e[1] - a[1]) * from)], r: r(r0) },
+      { bone, at: [r(a[0] + (e[0] - a[0]) * to), r(a[1] + (e[1] - a[1]) * to)], r: r(r1) },
+    ],
+  });
+  const sleeve = (id: string, bone: string, a: P, e: P, fill: string) => wrap(id, bone, a, e, 0.02, 0.4, b.arm[0] * 0.5 + 5, b.arm[0] * 0.5 + 7, fill);
   const tail = m.tail ? [project(m.tail.pivot, Q), project(m.tail.end, Q)] : undefined;
   const parts: Record<string, unknown>[] = [
+    // Which side of the body faces the camera (set by the `side` control): shows the watch's wrist.
+    { id: "sideSwitch", type: "switch", bone: "root", variants: { r: "", l: "" }, default: "r" },
     { id: "shadow", type: "rigid", bone: "ground", art: `<ellipse cx="4" cy="2" rx="${r(b.H * 1.6 + 20)}" ry="${r(8 + b.H * 0.08)}" fill="#000" opacity="0.18"/>` },
     ...(tail ? [{ id: "tailBack", type: "rigid", bone: "tail", art: "tailBack" }] : []),
     { id: "hairBack", type: "rigid", bone: "hair", art: "hairBack" },
     // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
     { id: "thighB", type: "hose", bones: ["legB1"], width: [r(b.leg[0] * 1.32), r(b.leg[0] * 1.12)], fill: bareLegs && !shorts ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     { id: "legB", type: "hose", bones: ["legB1", "legB2"], width: b.leg, fill: bareLegs ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    ...(look.socks ? [{ id: "sockB", type: "rigid", bone: "legB2", art: cuff(j.kneeB, j.footB, 0.8, 1.02, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)", 2.6) }] : []),
+    ...(look.socks ? [wrap("sockB", "legB2", j.kneeB, j.footB, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
     { id: "shoeB", type: "switch", bone: "footB", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     { id: "armB", type: "hose", bones: ["armB1", "armB2"], width: b.arm, fill: longSleeves ? "palette(top2Shade)" : "palette(skinShade)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
-    ...(look.watch ? [{ id: "watchB", type: "switch", bone: "armB2", default: "off", variants: { off: "", on: cuff(j.elbowB, j.handB, 0.8, 0.9, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", 2) } }] : []),
+    ...(look.watch ? [wrap("watchB", "armB2", j.elbowB, j.handB, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "l" } })] : []),
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
-    ...(shortSleeves ? [{ id: "sleeveB", type: "rigid", bone: "armB1", art: sleeve(j.shoulderB, j.elbowB, "palette(topDark)") }] : []),
+    ...(shortSleeves ? [sleeve("sleeveB", "armB1", j.shoulderB, j.elbowB, "palette(topShade)")] : []),
     // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
     { id: "thighF", type: "hose", bones: ["legF1"], width: [r(b.leg[0] * 1.32), r(b.leg[0] * 1.12)], fill: bareLegs && !shorts ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    ...(look.socks ? [{ id: "sockF", type: "rigid", bone: "legF2", art: cuff(j.kneeF, j.footF, 0.8, 1.02, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)", 2.6) }] : []),
+    ...(look.socks ? [wrap("sockF", "legF2", j.kneeF, j.footF, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
     { id: "shoeF", type: "switch", bone: "footF", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
@@ -1128,9 +1139,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
     { id: "armF", type: "hose", bones: ["armF1", "armF2"], width: b.arm, fill: longSleeves ? "palette(top2)" : "palette(skin)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
     // A wristwatch on the body's left wrist: the near arm facing right, the far arm facing left.
-    ...(look.watch ? [{ id: "watch", type: "switch", bone: "armF2", default: "on", variants: { off: "", on: cuff(j.elbowF, j.handF, 0.8, 0.9, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", 2) } }] : []),
+    ...(look.watch ? [wrap("watch", "armF2", j.elbowF, j.handF, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "r" } })] : []),
     { id: "handF", type: "switch", bone: "handF", variants: { open: "handF_open", fist: "handF_fist", point: "handF_point", grip: "handF_grip" }, default: "fist" },
-    ...(shortSleeves ? [{ id: "sleeveF", type: "rigid", bone: "armF1", art: sleeve(j.shoulderF, j.elbowF, look.top === "overalls" ? "palette(top)" : sleeveColor) }] : []),
+    ...(shortSleeves ? [sleeve("sleeveF", "armF1", j.shoulderF, j.elbowF, look.top === "overalls" ? "palette(top)" : sleeveColor)] : []),
   ];
 
   // Secondary motion, as in hand-drawn animation: the body jiggles, forearms and the head drag a
@@ -1375,8 +1386,8 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     Object.assign(p, { type: "switch", default: "r", variants: { r: key, l: `${key}M` } });
     sideLeft[`parts.${p.id}.variant`] = "l";
   }
-  if (out.parts.some((p: { id: string }) => p.id === "watch")) Object.assign(sideLeft, { "parts.watch.variant": "off", "parts.watchB.variant": "on" });
-  if (Object.keys(sideLeft).length) out.controls.side = { type: "pose", poses: { right: {}, left: sideLeft } };
+  sideLeft["parts.sideSwitch.variant"] = "l";
+  if (Object.keys(sideLeft).length > 1 || out.parts.some((p: { id: string }) => p.id === "watch")) out.controls.side = { type: "pose", poses: { right: {}, left: sideLeft } };
   // Each angle's eyes follow the main eyes' variant (blinks, emotions) and show only in their view.
   const gated: Record<string, string[]> = {};
   for (const p of out.parts) {

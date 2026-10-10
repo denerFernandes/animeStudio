@@ -1906,7 +1906,7 @@ class BlockScene {
     // they are standing in front of it.
     if (legs && floor - seatY > hipY * 0.95 && floor - seatY <= legs * 1.05) this.issue("warning", `${actor}'s seat on "${on}" is too high (${Math.round(floor - seatY)} px, ${Math.round(((floor - seatY) / hipY) * 100)}% of the hip height): seated they would look like standing — lower the seat or scale the furniture`);
     if (legs && floor - seatY > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seatY)} px high, legs ${Math.round(legs)} px): they dangle`);
-    if (d3) this.sit3d(actor, (floor - seatY) / s, at, how);
+    if (d3) this.sit3d(actor, (floor - seatY) / s, at, how, !("furniture" in place) && !place.h);
     else if (front) this.frontLegs(actor, sitX, seatY + ("furniture" in place ? (this.sitFrontOf(actor)?.sink ?? 0) * s : 0), floor, dir, at, how, seatView as "front" | "half");
     // Feet on the floor ahead, or (seat too high) dangling: knees bent, shins hanging.
     else if (!d3) this.feetDown(actor, sitX + dir * thigh * (floor - seatY > hipY * 0.3 ? 0.95 : 1.3), dir, Math.min(floor, seatY + (legs ?? 0) * 0.6), at, 0.5);
@@ -1930,7 +1930,8 @@ class BlockScene {
    * floor, the body a little back; hands on the knees or in the lap; `legs: "crossed"` crosses the
    * far leg over the near knee. The same pose reads from any angle the rig is drawn at.
    */
-  private sit3d(actor: string, seatH: number, at: number, how: { legs?: "crossed"; hands?: "knees" | "lap" }) {
+  private sit3d(actor: string, seatH: number, at: number, how: { legs?: string; hands?: "knees" | "lap" }, ground = false) {
+    if (ground) return this.sitFloor3d(actor, at, how.legs ?? "straight");
     const rig = this.member(actor)?.rig;
     const tl = (rig?.legLength?.F ?? 200) / 2, sl = tl;
     // Knees up when the seat is lower than the shins (a low sofa), dangling a little when higher.
@@ -1956,11 +1957,51 @@ class BlockScene {
       set(`bones.arm${side}1.spread`, side === "F" ? 6 : -6);
     }
   }
+  /**
+   * Sitting on the floor in 3D: `straight` — legs out in front, leaning back on the hands behind;
+   * `crossed` — cross-legged, the knees out to the sides, hands on the knees; `hug` — knees up to the
+   * chest, arms around them.
+   */
+  private sitFloor3d(actor: string, at: number, legs: string) {
+    const set = (ch: string, v: number) => this.set(actor, ch, v, at, 0.5, "easeOut");
+    for (const side of ["F", "B"]) if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 0, at, 0.3);
+    const out = (side: string) => (side === "F" ? -1 : 1);
+    for (const side of ["F", "B"]) {
+      if (legs === "crossed") {
+        set(`bones.leg${side}1.rotation`, -78);
+        set(`bones.leg${side}1.turn`, out(side) * 52);
+        set(`bones.leg${side}2.rotation`, 150);
+        set(`bones.leg${side}2.turn`, -out(side) * 40);
+        set(`bones.arm${side}1.rotation`, -12);
+        set(`bones.arm${side}2.rotation`, -40);
+        set(`bones.arm${side}1.spread`, out(side) * 18);
+      } else if (legs === "hug") {
+        set(`bones.leg${side}1.rotation`, -138);
+        set(`bones.leg${side}1.spread`, out(side) * 4);
+        set(`bones.leg${side}2.rotation`, 128);
+        set(`bones.arm${side}1.rotation`, -48);
+        set(`bones.arm${side}2.rotation`, -70);
+        set(`bones.arm${side}1.spread`, -out(side) * 10);
+      } else {
+        set(`bones.leg${side}1.rotation`, -86);
+        set(`bones.leg${side}1.spread`, out(side) * 6);
+        set(`bones.leg${side}2.rotation`, 4);
+        // Leaning back on the hands, behind the hips.
+        set(`bones.arm${side}1.rotation`, 38);
+        set(`bones.arm${side}2.rotation`, -8);
+        set(`bones.arm${side}1.spread`, out(side) * 10);
+      }
+    }
+    set("bones.body.rotation", legs === "straight" ? 16 : legs === "hug" ? -8 : 0);
+  }
   private unsit3d(actor: string, at: number) {
     const set = (ch: string, v: number) => this.set(actor, ch, v, at, 0.45, "easeOut");
     for (const side of ["F", "B"]) {
       for (const b of [`leg${side}1`, `leg${side}2`, `arm${side}1`, `arm${side}2`]) set(`bones.${b}.rotation`, 0);
-      set(`bones.leg${side}1.turn`, 0);
+      for (const b of [`leg${side}1`, `leg${side}2`]) {
+        set(`bones.${b}.turn`, 0);
+        set(`bones.${b}.spread`, 0);
+      }
       set(`bones.arm${side}1.spread`, 0);
       if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 1, at + 0.3, 0.3);
     }

@@ -102,7 +102,9 @@ export interface Rig3dFrame {
  * then switched off for the 2D pass.
  */
 export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat[], ikTargets: Record<string, unknown> | undefined): Rig3dFrame {
-  const view = typeof s.controls.view === "string" ? s.controls.view : "profile";
+  // The view control holds a name or (while blending) weights per name: the heaviest wins.
+  const vc = s.controls.view as unknown;
+  const view = typeof vc === "string" ? vc : vc && typeof vc === "object" && !Array.isArray(vc) ? Object.entries(vc as Record<string, number>).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "profile" : "profile";
   const yaw = ((r3.views[view] ?? r3.views.profile ?? 0) * Math.PI) / 180;
   const pitch = (r3.pitch * Math.PI) / 180;
   // Leg IK in the side plane (forward = the 2D target's x, down = its y).
