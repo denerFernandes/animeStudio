@@ -154,6 +154,19 @@ export const FRONT_GESTURES: Record<string, { hand: [number, number]; both?: boo
 
 // ------------------------------------------------------------------ one block = one continuous scene
 
+/** How a rig sits facing the camera (`meta.sitFront`): see DIRECTOR.md, `sit`. */
+interface SitFront {
+  /** Share of the thigh that shows (rigs without a seated drawing). */
+  thigh?: number;
+  spread?: number;
+  hands?: "knees";
+  /** Drawn knees (setup space), open and crossed: the shins hang from them. */
+  knees?: { F: [number, number]; B: [number, number] };
+  crossedKnees?: { F: [number, number]; B: [number, number] };
+  /** How far the body sinks into the cushion (setup px). */
+  sink?: number;
+}
+
 interface Walk { actor: string; t0: number; t1: number; x0: number; x1: number }
 interface PropState { id: string; radius: number; x: Key[]; y: Key[]; scale: Key[]; rotation: Key[]; heldBy: { actor: string; t0: number; t1: number }[] }
 
@@ -621,7 +634,7 @@ class BlockScene {
         for (const w of who) this.fallDown(w, at, (b.side ?? b.dir) === "front" ? "front" : "back");
         break;
       case "sit":
-        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at, b.view as string | undefined);
+        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at, b.view as string | undefined, { legs: b.legs as "crossed" | undefined, hands: b.hands as "knees" | "lap" | undefined });
         break;
       case "lie":
         for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at);
@@ -1773,7 +1786,7 @@ class BlockScene {
     return void this.issue("error", `${actor} cannot ${kind} on "${on}": not furniture of the block nor a seat of set "${this.block.set}"${closest(on, [...this.furnitureOf.keys(), ...seats])}`);
   }
   /** Sits on furniture (`seat` anchor), a set seat (mark with `seat`) or the ground: hips down, knees up, feet on the floor. */
-  sit(actor: string, on: string | null, at: number, view?: string) {
+  sit(actor: string, on: string | null, at: number, view?: string, how: { legs?: "crossed"; hands?: "knees" | "lap" } = {}) {
     if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot sit: riding then (dismount first)`);
     const rest = this.restAt(actor, at);
     if (rest?.kind === "sit" && rest.on === on) return;
@@ -1799,7 +1812,9 @@ class BlockScene {
       if (Math.abs(this.xAt(actor, at - 0.9) - seat[0]) > 30) this.walk(actor, seat[0], at - 0.9, 0.8);
       this.face(actor, dir > 0 ? "right" : "left", at);
       if (front) this.view(actor, "front", at);
-      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: hip, duration: 0.5 });
+      // Facing the camera the body sinks a little into the cushion (`meta.sitFront.sink`).
+      const sink = front ? (this.sitFrontOf(actor)?.sink ?? 0) : 0;
+      this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: [hip[0], hip[1] - sink], duration: 0.5 });
       this.shadow(actor, at, { hide: true }, 0.3);
       [sitX, seatY, floor] = [seat[0], seat[1], this.furnitureOf.get(place.furniture)!.y];
     } else {
@@ -1817,9 +1832,9 @@ class BlockScene {
     }
     // A seat much higher than the knee (a sofa drawn too tall for the cast): seated, they look like
     // they are standing in front of it.
-    if (legs && floor - seatY > hipY * 0.7 && floor - seatY <= legs * 1.05) this.issue("warning", `${actor}'s seat on "${on}" is too high (${Math.round(floor - seatY)} px, ${Math.round(((floor - seatY) / hipY) * 100)}% of the hip height): a seat sits at about knee height (50–60%), or seated they look like standing — lower the seat or scale the furniture`);
+    if (legs && floor - seatY > hipY * 0.95 && floor - seatY <= legs * 1.05) this.issue("warning", `${actor}'s seat on "${on}" is too high (${Math.round(floor - seatY)} px, ${Math.round(((floor - seatY) / hipY) * 100)}% of the hip height): seated they would look like standing — lower the seat or scale the furniture`);
     if (legs && floor - seatY > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seatY)} px high, legs ${Math.round(legs)} px): they dangle`);
-    if (front) this.frontLegs(actor, sitX, seatY, floor, dir, at);
+    if (front) this.frontLegs(actor, sitX, seatY + ("furniture" in place ? (this.sitFrontOf(actor)?.sink ?? 0) * s : 0), floor, dir, at, how);
     // Feet on the floor ahead, or (seat too high) dangling: knees bent, shins hanging.
     else this.feetDown(actor, sitX + dir * thigh * (floor - seatY > hipY * 0.3 ? 0.95 : 1.3), dir, Math.min(floor, seatY + (legs ?? 0) * 0.6), at, 0.5);
     this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: floor, front });
@@ -1828,8 +1843,15 @@ class BlockScene {
    * Sitting seen from the front: the thighs point at the camera (foreshortened: shorter and rounder),
    * the shins hang straight down to the floor under the knees; on the ground both are foreshortened.
    */
-  private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number) {
-    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: { thigh?: number; spread?: number; hands?: "knees" } } };
+  /** A rig's seated-facing-the-camera description (`meta.sitFront`). */
+  private sitFrontOf(actor: string) {
+    return (this.kit.characters[this.characterOf(actor)]?.meta as { sitFront?: SitFront } | undefined)?.sitFront;
+  }
+  private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number, how: { legs?: "crossed"; hands?: "knees" | "lap" } = {}) {
+    const sf = this.sitFrontOf(actor);
+    const drawn = how.legs === "crossed" ? sf?.crossedKnees ?? sf?.knees : sf?.knees;
+    if (drawn && this.hasControl(actor, "seat")) return this.drawnLegs(actor, x, seatY, floor, dir, at, drawn, how);
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: SitFront } };
     const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
     const s = this.scaleOf(actor);
     const drop = floor - seatY;
@@ -1865,6 +1887,46 @@ class BlockScene {
       const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
       this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
     }
+  }
+
+  /**
+   * Seated facing the camera with a rig that draws its hips, thighs and knees (`seat` pose control,
+   * `meta.sitFront.knees`): the shins hang straight from the drawn knees to the floor (the thigh
+   * bones squashed to reach them), the hands rest on the knees or in the lap.
+   */
+  private drawnLegs(actor: string, x: number, hipY: number, floor: number, dir: number, at: number, knees: { F: [number, number]; B: [number, number] }, how: { legs?: "crossed"; hands?: "knees" | "lap" }) {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } } } };
+    const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
+    const s = this.scaleOf(actor);
+    const hipSetup = bone("hips")?.[1] ?? 0;
+    const crossed = how.legs === "crossed";
+    this.push({ at: this.t(at + 0.25), actor, action: "pose", control: "seat", value: crossed ? "crossed" : "front", duration: 0 });
+    const scene = (p: [number, number]): [number, number] => [x + dir * p[0] * s, hipY + (p[1] - hipSetup) * s];
+    for (const side of ["F", "B"] as const) {
+      if (crossed && side === "B") continue; // the crossing leg is drawn
+      const [hipJ, knee, ankle] = [bone(`leg${side}1`), bone(`leg${side}2`), bone(`foot${side}`)];
+      if (!hipJ || !knee || !ankle || !this.hasChain(actor, `foot${side}`)) continue;
+      const thigh = Math.hypot(knee[0] - hipJ[0], knee[1] - hipJ[1]) * s;
+      const shin = Math.hypot(ankle[0] - knee[0], ankle[1] - knee[1]) * s;
+      const H = scene([hipJ[0] + (doc.meta?.views?.move?.front?.[`leg${side}1`]?.[0] ?? 0), hipSetup]);
+      const K = scene(knees[side]);
+      this.set(actor, `bones.leg${side}1.squash`, r3(Math.max(-0.95, Math.min(0.5, Math.hypot(K[0] - H[0], K[1] - H[1]) / thigh - 1))), at, 0.5, "easeOut");
+      this.set(actor, `bones.leg${side}2.squash`, r3(Math.max(-0.7, Math.min(0.6, (floor - K[1]) / shin - 1))), at, 0.5, "easeOut");
+      this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [Math.round(K[0]), Math.round(floor)], duration: 0.5 });
+    }
+    // Hands on the knees (default) or in the lap; crossed, both on the top knee. The forearm comes
+    // towards the camera: foreshortened, the elbow folding outwards.
+    const hands = crossed ? "top" : how.hands ?? "knees";
+    const kF = scene(knees.F), kB = scene(knees.B);
+    const lap: [number, number] = [x, hipY + ((kF[1] + kB[1]) / 2 - hipY) * 0.55];
+    for (const side of ["F", "B"] as const) {
+      if (!this.hasChain(actor, `hand${side}`)) continue;
+      const k = side === "F" ? kF : kB;
+      const target: [number, number] = hands === "top" ? [kB[0] + (side === "F" ? -1 : 1) * dir * 10 * s, kB[1] - 6 * s] : hands === "lap" ? [lap[0] + (side === "F" ? -1 : 1) * dir * 12 * s, lap[1]] : [k[0], k[1] - 4 * s];
+      this.set(actor, `bones.arm${side}2.squash`, -0.25, at + 0.1, 0.5, "easeOut");
+      this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [Math.round(target[0]), Math.round(target[1])], duration: 0.5 });
+    }
+    if (this.hasChain(actor, "handF")) this.set(actor, "ik.handF.bend", -1, at + 0.1);
   }
 
   /** Lies down face up on furniture (`bed` anchor, else `seat`), a set place (mark with `seat` and `lie`) or the ground; head towards the back. */
