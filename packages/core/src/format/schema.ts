@@ -162,6 +162,7 @@ export const SolidPartSchema = z.strictObject({
         stroke: z.string().optional(),
         strokeWidth: z.number().min(0).optional(),
         blend: z.number().min(0).optional().describe("Smooth union of the shapes over this distance"),
+        seamless: z.boolean().optional().describe("No outline where it meets an occluder: cloth continuing the drawing under it (a dress's skirt out of the torso)"),
         shapes: z.array(SolidShapeSchema).min(1),
       }),
     )
@@ -175,6 +176,7 @@ export const MorphPartSchema = z.strictObject({
   bone: z.string(),
   base: z.string(),
   shapes: z.record(z.string(), z.string()),
+  clip: z.string().optional().describe("Another morph part whose current shape clips this one (teeth and tongue inside the mouth)"),
   space: Space.optional(),
 });
 
@@ -262,6 +264,7 @@ export const AimControlSchema = z.strictObject({
 export const PoseControlSchema = z.strictObject({
   type: z.literal("pose"),
   poses: z.record(z.string(), z.record(z.string(), ValueSchema)),
+  override: z.boolean().optional().describe("Numbers set their channels instead of adding to them (a later control placing points a former one also moved)"),
 });
 
 export const ControlSchema = z.discriminatedUnion("type", [

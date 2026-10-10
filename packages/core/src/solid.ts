@@ -11,7 +11,7 @@
  * solid shows there (the torso drawn by the rig, with the legs' solid over it only where they are
  * nearer than the torso).
  */
-import { type Grid, fieldPath } from "./field";
+import { type Grid, fieldPath, fieldStroke } from "./field";
 import type { CompiledRig3d, Rig3dFrame, V3 } from "./pose3d";
 
 /** A point of the skeleton: along a 3D bone (`t`: 0 = its joint, 1 = its tip) plus an offset (body space, rest pose). */
@@ -33,6 +33,8 @@ export interface SolidBody {
   strokeWidth: number;
   /** Smooth union of the shapes over this distance (0: a plain union). */
   blend: number;
+  /** No outline where it meets an occluder: cloth that continues the drawing under it (a dress's skirt out of the torso). */
+  seamless?: boolean;
   shapes: SolidShape[];
 }
 
@@ -210,9 +212,18 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
     depths[k] = depth;
   };
   for (const k of drawn) castBody(k);
-  // Occluders only where a drawn body is.
+  // Occluders only where a drawn body is (and a few cells around: where a seam is looked for).
   const covered = new Uint8Array(n);
-  for (const k of drawn) for (let c = 0; c < n; c++) if (vals[k][c] < 0) covered[c] = 1;
+  const R = 7;
+  for (const k of drawn)
+    for (let c = 0; c < n; c++) {
+      if (vals[k][c] >= 0) continue;
+      const ci = c % g.w, cj = Math.floor(c / g.w);
+      for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) {
+        const i = ci + di, j = cj + dj;
+        if (i >= 0 && j >= 0 && i < g.w && j < g.h) covered[j * g.w + i] = 1;
+      }
+    }
   bodies.forEach((b, k) => {
     if (!b.fill && posed[k].length) castBody(k, covered);
   });
@@ -244,7 +255,26 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
       const d = fieldPath(light, g, 6);
       if (d) fills.push({ d, attrs: { fill: b.shade, "fill-rule": "evenodd" } });
     }
-    if (b.stroke && b.strokeWidth > 0) lines.push({ d: outline, attrs: { fill: "none", stroke: b.stroke, "stroke-width": b.strokeWidth, "stroke-linejoin": "round", "stroke-linecap": "round", "fill-rule": "evenodd" } });
+    if (b.stroke && b.strokeWidth > 0) {
+      let d = outline;
+      if (b.seamless) {
+        // Left out where an occluder is right there (the drawing it continues).
+        const occ = bodies.map((x, i) => i).filter((i) => !bodies[i].fill && vals[i]);
+        const at = (x: number, y: number) => {
+          const i = Math.round((x - g.x0) / step), j = Math.round((y - g.y0) / step);
+          // (The drawing is a little larger than its occluder: a few cells' margin.)
+          const M = Math.max(2, Math.round(10 / step));
+          for (let dj = -M; dj <= M; dj++) for (let di = -M; di <= M; di++) {
+            const ii = i + di, jj = j + dj;
+            if (ii < 0 || jj < 0 || ii >= g.w || jj >= g.h) continue;
+            if (occ.some((o) => vals[o][jj * g.w + ii] < 0)) return true;
+          }
+          return false;
+        };
+        d = fieldStroke(field, g, (x, y) => !at(x, y));
+      }
+      if (d) lines.push({ d, attrs: { fill: "none", stroke: b.stroke, "stroke-width": b.strokeWidth, "stroke-linejoin": "round", "stroke-linecap": "round", "fill-rule": "evenodd" } });
+    }
   }
   return [...fills, ...lines];
 }

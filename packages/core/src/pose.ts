@@ -417,7 +417,7 @@ export function evaluatePose(
         const entries = control.poses[name];
         if (!entries || w <= 0) continue;
         for (const { ref, value: v } of entries) {
-          if (typeof v === "number") applyChannel(s, ref, v, w, "additive");
+          if (typeof v === "number") applyChannel(s, ref, v, w, control.override ? "override" : "additive");
           else if (ref.kind === "part" && typeof v === "string") {
             const key = String(ref.index);
             if ((best[key] ?? 0) < w && w >= 0.5) {

@@ -9,7 +9,7 @@
  * Heads, hair and torsos are modelled as volumes (`volume.ts`) and drawn from each angle, so the
  * three views always match. Measure with `cartoonInfo(doc)`.
  */
-import { type ToonDoc, parsePath, pathPoints, pathToString, withPoints } from "@animestudio/core";
+import { type ToonDoc, parsePath, pathPoints, pathToString, reach3d, rig3dPoint, withPoints } from "@animestudio/core";
 import { humanClips } from "./human";
 import { type P, cartoonHands, characterClips, emotions, fluid, limbBones, limbIk, mouthInside, mouthShapes } from "./rig";
 import { type RigInfo, rigInfo } from "./info";
@@ -203,7 +203,7 @@ export function cartoonAnatomy(look: CartoonLook): CartoonAnatomy {
     face: {
       eyeY: 0.12, eyeX: 0.3, eye: [r(0.185 * base.eye), r(0.235 * base.eye)], pupil: r(0.075 * base.eye), brow: 0.13,
       noseY: 0.38, nose: [r(nose.size[0] * nk), r(nose.size[1] * nk), r(nose.size[2] * nk)], noseOut: r(nose.out * nk),
-      mouthY: 0.74, mouthW: 0.36, mouthMargin: 0.45, earY: 0.3, chinY: CHINS[look.jaw ?? "round"],
+      mouthY: 0.74, mouthW: 0.28, mouthMargin: 0.45, earY: 0.3, chinY: CHINS[look.jaw ?? "round"],
     },
     physics: { body: [0.75, 0.6], forearms: [0.55, 0.45], head: [0.7, 0.55], tail: [0.32, 0.25], hair: [0.45, 0.35] },
   };
@@ -826,7 +826,17 @@ function bodyView(m: Model, look: CartoonLook, vw: View) {
     const X = g.x0 + i * g.step, Y = g.y0 + j * g.step;
     return ((X - 2) / (m.neckR * 1.7)) ** 2 + ((Y - m.y.torsoTop) / (b.T * 0.13)) ** 2 < 1;
   };
-  const torso = piece(tc, g, { sdf: m.torso, theta: vw, color: m.torsoColor, base: "top", edges, shadow: neckShadow });
+  // No line along the torso's bottom (its cut at the hips): the legs, the trousers or a skirt carry
+  // on from it (a dress is one piece).
+  const cut = m.y.hip + 5;
+  const atCut = (i: number, j: number) => {
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
+      const k = (j + dj) * g.w + (i + di);
+      if (k >= 0 && k < g.w * g.h && tc.val[k] < 0 && tc.hit[k * 3 + 1] > cut - 4) return true;
+    }
+    return false;
+  };
+  const torso = piece(tc, g, { sdf: m.torso, theta: vw, color: m.torsoColor, base: "top", edges, shadow: neckShadow, keep: (i, j) => !atCut(i, j) });
   const nb: Box3 = { x: [-m.neckR - 4, m.neckR + 4], y: [m.y.torsoTop - 4, m.y.head + m.b.u * 0.7], z: [-m.b.u, m.b.u * 0.5] };
   const ng = gridFor([nb], vw, 1.5);
   // The neck is in the head's shadow.
@@ -951,7 +961,8 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
         const c = j * ng.w + i;
         if (hc.val[c] < 0 && !Number.isNaN(hc.hit[c * 3]) && m.nose(hc.hit[c * 3], hc.hit[c * 3 + 1], hc.hit[c * 3 + 2]) < u * 0.015) noseCells.push([ng.x0 + i * ng.step, ng.y0 + j * ng.step]);
       }
-  const gap = u * 0.05 + 2;
+  // A visible gap between the nose and the upper lip.
+  const gap = u * 0.08 + 2;
   // Near profile the mouth is on the face's edge: the lips may stand a little out of it.
   const edge = theta > 1.1 ? u * 0.1 : 0;
   const onFace = (p: P2) => {
@@ -961,7 +972,16 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   let my = m.y.mouth, kL = 1, kR = 1, lift = Math.max(0.6, Math.min(1, m.mouthW / (u * 0.3)));
   let mid = s.point(0, my)[0];
   const check = (shapes: { base: string; shapes: Record<string, string> }) => {
-    const pts = [shapes.base, ...Object.values(shapes.shapes)].flatMap((d) => pathPoints(parsePath(d)));
+    // Every shape, and every expression with every viseme on top (smiling while talking: the
+    // morphs add up).
+    const base = pathPoints(parsePath(shapes.base));
+    const of = (k: string) => pathPoints(parsePath(shapes.shapes[k]));
+    const exprs = ["smile", "grin", "frown"].filter((k) => shapes.shapes[k]), visemes = Object.keys(shapes.shapes).filter((k) => !exprs.includes(k));
+    const combos = exprs.flatMap((e) => visemes.map((v) => {
+      const E = of(e), V = of(v);
+      return base.map((b, i): [number, number] => [b[0] + (E[i][0] - b[0]) + (V[i][0] - b[0]), b[1] + (E[i][1] - b[1]) + (V[i][1] - b[1])]);
+    }));
+    const pts = [shapes.base, ...Object.values(shapes.shapes)].flatMap((d) => pathPoints(parsePath(d))).concat(combos.flat());
     const v = { noseL: 0, noseR: 0, sideL: 0, sideR: 0, below: 0 };
     for (const p of pts) {
       if (noseCells.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < gap)) p[0] < mid ? v.noseL++ : v.noseR++;
@@ -986,7 +1006,14 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   for (let i = 0; i < 60; i++) {
     const v = check(made.shapes);
     if (!v.noseL && !v.noseR && !v.sideL && !v.sideR && !v.below) { clear = true; break; }
-    if ((v.noseR || v.sideR) && v.noseR + v.sideR >= v.noseL + v.sideL && kR > 0.5) kR *= 0.92;
+    // Facing the camera the nose is above the middle of the mouth: shortening the corners does not
+    // clear it — flatten the smile and lower the mouth first.
+    const frontal = theta < 0.35 || theta > 2.8;
+    if (frontal && (v.noseL || v.noseR) && lift > 0.3) lift *= 0.85;
+    else if (frontal && (v.noseL || v.noseR) && my - m.y.mouth < m.chinRoom * 0.4) {
+      my += u * 0.015;
+      open = Math.min(open, (m.chinRoom - (my - m.y.mouth)) / 27);
+    } else if ((v.noseR || v.sideR) && v.noseR + v.sideR >= v.noseL + v.sideL && kR > 0.5) kR *= 0.92;
     else if ((v.noseL || v.sideL) && kL > 0.5) kL *= 0.92;
     else if ((v.noseL || v.noseR) && lift > 0.3) lift *= 0.85;
     else if (v.below && open > open0 * 0.45) open *= 0.9;
@@ -1070,7 +1097,7 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
     }
   }
   const visible = theta < 1.6;
-  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, nose, extras, over, visible, mouthClear: clear };
+  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, nose, extras, over, visible, mouthClear: clear, mouthAt: s.point(0, my, u * 0.04) };
 }
 
 // ------------------------------------------------------------------ shoes, sleeves, shorts
@@ -1106,7 +1133,8 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
   bodies.push({ shapes: [{ from: pt("body", 0, [0, (top + bottom) / 2 + L, heavy * b.D * 0.3]), box: [r(halfW), r((bottom - top) / 2), r(D * 0.85)], round: r(D * 0.5) }] });
   // The hips: between the hip joints, a little back (the seat).
   const hipsKey = look.top === "dress" ? "top" : bare && !shorts && !skirted ? "skin" : "bottom";
-  bodies.push({ ...paint(hipsKey), blend: 6, shapes: [{ from: pt("legF1", 0, [0, -4, -6]), to: pt("legB1", 0, [0, -4, -6]), r: r(b.H * 0.5 * (1 + heavy * 0.15)) }] });
+  // (Under a skirt the cloth is the hips; otherwise no line where they come out of the torso.)
+  if (!skirted) bodies.push({ ...paint(hipsKey), blend: 6, seamless: true, shapes: [{ from: pt("legF1", 0, [0, -4, -6]), to: pt("legB1", 0, [0, -4, -6]), r: r(b.H * 0.5 * (1 + heavy * 0.15)) }] });
   for (const side of ["B", "F"] as const) {
     const legKey = bare ? "skin" : "bottom";
     bodies.push({ ...paint(legKey), blend: 5, shapes: [
@@ -1147,9 +1175,12 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
     const long = look.bottom === "longSkirt";
     // The cloth hugs the thighs (a valley between the knees) and ends just above them: seated,
     // the knees show under the hem.
-    const kneeR = long ? thigh[1] + b.H * 0.16 : thigh[1] + 6;
-    bodies.push({ ...paint(look.top === "dress" ? "top" : "bottom"), blend: r(b.H * 0.25), shapes: [
-      { from: pt("legF1", 0, [0, -6, -4]), to: pt("legB1", 0, [0, -6, -4]), r: r(b.H * 0.62 * (1 + heavy * 0.15)) },
+    // The top: the torso's own cross-section (wide, not as deep), just under its drawing, so the
+    // cloth comes out of it with no step at the waist; then an A-line over the thighs.
+    const kneeR = long ? thigh[1] + b.H * 0.16 : thigh[1] + b.H * 0.14;
+    const hipHalf = Math.max(b.W * 0.98, b.H * 0.95) * (look.female ? 0.9 : 1) + heavy * b.W * 0.3;
+    bodies.push({ ...paint(look.top === "dress" ? "top" : "bottom"), blend: r(b.H * 0.3), seamless: true, shapes: [
+      { from: pt("hips", 0, [0, r(b.H * 0.1), heavy * b.D * 0.3]), box: [r(hipHalf * 0.88), r(b.H * 0.12), r(D * 0.78)], round: r(D * 0.4) },
       ...(["F", "B"] as const).flatMap((side) => [
         { from: pt(`leg${side}1`, 0.05), to: pt(`leg${side}1`, long ? 1 : 0.9), r: [r(thigh[0] + 5), r(kneeR)] },
         ...(long ? [{ from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.72), r: [r(kneeR), r(kneeR + b.H * 0.3)] }] : []),
@@ -1220,7 +1251,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     return [v, {
       // The ear canal: on the near ear, between the height of the eyes and of the nose.
       ear: project([-u * 0.97, m.y.head + u * 0.22, -u * 0.02], th),
-      mouth: sp.point(0, m.y.mouth, u * 0.04),
+      // (Where the face's rules put the mouth in this angle.)
+      mouth: views[v].face.mouthAt,
       eye: sp.point(0, m.y.eye, u * 0.04),
       top: [0, m.y.top] as P2,
     }];
@@ -1296,8 +1328,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "pupils", type: "rigid", bone: "pupils", art: "pupils", visibleWhen: { part: "eyes", variant: ["open", "wide", "half"] } },
     { id: "lids", type: "rigid", bone: "head", art: "lids", visibleWhen: { part: "eyes", variant: "half" } },
     { id: "mouth", type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes },
-    { id: "tongue", type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes },
-    { id: "teeth", type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes },
+    // Inside the mouth: clipped by its shape (never past the lips).
+    { id: "tongue", type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes, clip: "mouth" },
+    { id: "teeth", type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes, clip: "mouth" },
     { id: "hairFront", type: "rigid", bone: "hair", art: "hairFront" },
     ...(tail ? [{ id: "tailFront", type: "rigid", bone: "tail", art: "tailFront" }] : []),
     { id: "earsFront", type: "rigid", bone: "head", art: "earsFront" },
@@ -1431,6 +1464,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       // thing, a little to the near side).
       points: {
         mouth: { bone: "head", at: [0, r(m.y.mouth - m.y.neckTop), r(u * 0.92)] },
+        eye: { bone: "head", at: [0, r(m.y.eye - m.y.neckTop), r(u * 0.88)] },
         ear: { bone: "head", at: [r(-u * 0.97), r(m.y.ear - m.y.neckTop), 0] },
         chest: { bone: "body", at: [r(-b.S * 0.3), r(-b.T * 0.42), r(b.D * (1 + (look.heavy ?? 0) * 0.6) + b.T * 0.32)] },
       },
@@ -1463,7 +1497,67 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     }),
   };
   (doc as { palette: Record<string, string> }).palette = withTones(doc.palette);
+  gestures3d(doc as never, { u, top: m.y.top, head: m.y.head, sh: j3.shoulderF[1], sx: -j3.shoulderF[0], T: b.T, W: b.W, hip: m.y.hip, D: b.D, arm: armLen });
   return withTurnaround(doc, views, sx, hx, !!tail, headPoints);
+}
+
+/**
+ * Gestures in 3D: the clips that bring a hand somewhere (the ear, the mouth, the chin, the eyes, up
+ * by the head, in front of the chest) get their arm tracks from 3D reaches to body points for this
+ * rig's own proportions — a hand to the ear bends the elbow up beside the head, from any angle, where
+ * a 2D arm swing (made for a profile) would go round the front in 3D. Keys are hand targets at
+ * fractions of the clip; `null` is the arm at rest.
+ */
+function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head: number; sh: number; sx: number; T: number; W: number; hip: number; D: number; arm: number }) {
+  const { u, top, head, sh, sx, T, W, hip, D, arm } = o;
+  const P = (n: string): V3 => rig3dPoint(doc as never, {}, n) ?? [0, 0, 0];
+  const add = (p: V3, d: V3): V3 => [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
+  const lerp3 = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const mouth = P("mouth"), ear = P("ear"), chest = P("chest"), eye = P("eye");
+  const mx = (p: V3): V3 => [-p[0], p[1], p[2]];
+  type Key = [number, V3 | null];
+  const hold = (p: V3): Key[] => [[0, p], [1, p]];
+  const visit = (p: V3, a = 0.3, b = 0.7): Key[] => [[0, null], [a, p], [b, p], [1, null]];
+  const earHold = add(lerp3(ear, mouth, 0.45), [0, u * 0.3, 0]);
+  const up: V3 = [-(sx + u * 0.35), head - u * 0.2, u * 0.35];
+  const G: Record<string, { F?: Key[]; B?: Key[]; pole?: (side: number) => V3 }> = {
+    phone: { F: hold(earHold), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    smoke: { F: [[0, null], [0.3, add(mouth, [0, u * 0.1, u * 0.35])], [0.55, add(mouth, [0, u * 0.1, u * 0.35])], [0.85, [-sx * 1.1, sh + T * 0.45, T * 0.35]], [1, null]], pole: (sd) => [sd * 0.5, 1, 0.2] },
+    drink: { F: visit(add(mouth, [0, u * 0.3, u * 0.4]), 0.25, 0.75), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    think: { F: hold(add(mouth, [0, u * 0.35, u * 0.2])), pole: (sd) => [sd * 0.4, 1, 0.3] },
+    facepalm: { F: visit(add(eye, [0, 0, u * 0.25])), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    cry: { F: [[0, add(eye, [-u * 0.25, 0, u * 0.3])], [0.5, add(eye, [-u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [-u * 0.25, 0, u * 0.3])]], B: [[0, add(eye, [u * 0.25, 0, u * 0.3])], [0.5, add(eye, [u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [u * 0.25, 0, u * 0.3])]], pole: (sd) => [sd * 0.6, 1, 0.2] },
+    wave: { F: [[0, up], [0.5, add(up, [-u * 0.3, 0, 0])], [1, up]], pole: (sd) => [sd, 0.4, -0.2] },
+    scared: { F: hold(add(mouth, [-u * 0.6, u * 0.5, u * 0.5])), B: hold(add(mouth, [u * 0.6, u * 0.5, u * 0.5])), pole: (sd) => [sd * 0.6, 1, 0.1] },
+    clap: { F: [[0, add(chest, [-sx * 0.2, 0, T * 0.15])], [0.5, add(chest, [sx * 0.25 - 4, 0, T * 0.2])], [1, add(chest, [-sx * 0.2, 0, T * 0.15])]], B: [[0, [sx * 0.45, chest[1], chest[2] + T * 0.15]], [0.5, [sx * 0.25 + 4, chest[1], chest[2] + T * 0.2]], [1, [sx * 0.45, chest[1], chest[2] + T * 0.15]]], pole: (sd) => [sd * 0.6, 1, -0.2] },
+    cheer: { F: [[0, [-sx * 1.1, top - u * 0.3, u * 0.2]], [0.5, [-sx * 1.15, top - u * 0.1, u * 0.2]], [1, [-sx * 1.1, top - u * 0.3, u * 0.2]]], B: [[0, [sx * 1.1, top - u * 0.3, u * 0.2]], [0.5, [sx * 1.15, top - u * 0.1, u * 0.2]], [1, [sx * 1.1, top - u * 0.3, u * 0.2]]], pole: (sd) => [sd, 0.3, -0.2] },
+    pointUp: { F: hold([-sx * 0.7, top - u * 0.6, u * 0.25]), pole: (sd) => [sd, 0.3, -0.2] },
+    shrug: { F: visit([-(sx + u * 0.6), sh + T * 0.55, T * 0.45], 0.35, 0.7), B: visit([sx + u * 0.6, sh + T * 0.55, T * 0.45], 0.35, 0.7), pole: (sd) => [sd * 0.4, 1, -0.4] },
+    point: { F: hold([-sx, sh + T * 0.1, arm * 0.9]), pole: (sd) => [sd * 0.3, 1, -0.2] },
+    present: { F: hold([-(sx + arm * 0.5), sh + T * 0.3, arm * 0.6]), pole: (sd) => [sd * 0.3, 1, -0.3] },
+    talk: { F: [[0, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])], [0.5, add(chest, [-sx * 0.6, T * 0.05, T * 0.18])], [1, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])]], pole: (sd) => [sd * 0.5, 1, -0.4] },
+    sing: { F: [[0, [-sx * 0.9, sh + T * 0.25, T * 0.5]], [0.5, [-sx * 1.2, sh + T * 0.1, T * 0.6]], [1, [-sx * 0.9, sh + T * 0.25, T * 0.5]]], pole: (sd) => [sd * 0.5, 1, -0.4] },
+    read: { F: hold([-sx * 0.35, sh + T * 0.4, T * 0.55]), B: hold([sx * 0.35, sh + T * 0.4, T * 0.55]), pole: (sd) => [sd * 0.5, 1, -0.3] },
+    laugh: { F: hold([-W * 0.5, hip - T * 0.3, D + T * 0.1]), B: hold([W * 0.5, hip - T * 0.3, D + T * 0.1]), pole: (sd) => [sd * 0.6, 1, -0.4] },
+  };
+  void mx;
+  for (const [name, g] of Object.entries(G)) {
+    const clip = doc.clips?.[name];
+    if (!clip) continue;
+    const tracks: Record<string, unknown> = Object.fromEntries(Object.entries(clip.tracks as Record<string, unknown>).filter(([k]) => !/^bones\.arm[FB][12]\./.test(k)));
+    for (const side of ["F", "B"] as const) {
+      const keys = g[side];
+      if (!keys) continue;
+      const sd = side === "F" ? -1 : 1;
+      const ch: Record<string, [number, number, string?][]> = {};
+      for (const [f, target] of keys) {
+        const v = target ? reach3d(doc as never, `arm${side}1`, `arm${side}2`, target, {}, g.pole?.(sd) ?? [sd * 0.5, 1, -0.3]) : { [`arm${side}1`]: { rotation: 0, spread: 0, turn: 0 }, [`arm${side}2`]: { rotation: 0, turn: 0, spread: 0 } };
+        for (const [b, vals] of Object.entries(v)) for (const [k, x] of Object.entries(vals)) (ch[`bones.${b}.${k}`] ??= []).push([r(f * clip.duration), r(x!), "sineInOut"]);
+      }
+      Object.assign(tracks, ch);
+    }
+    doc.clips[name] = { ...clip, tracks };
+  }
 }
 
 /**
@@ -1522,8 +1616,8 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
         before("armF", { id: `pupils${s}`, type: "rigid", bone: "pupils", art: `pupils${s}` }),
         before("armF", { id: `lids${s}`, type: "rigid", bone: "head", art: `lids${s}` }),
         before("armF", { id: `mouth${s}`, type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes }),
-        before("armF", { id: `tongue${s}`, type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes }),
-        before("armF", { id: `teeth${s}`, type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes }),
+        before("armF", { id: `tongue${s}`, type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes, clip: `mouth${s}` }),
+        before("armF", { id: `teeth${s}`, type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes, clip: `mouth${s}` }),
       );
     }
     list.push(
@@ -1631,7 +1725,7 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
     let dup: Record<string, any> | undefined;
     if (p.type === "rigid") dup = { ...p, id, art: flipArt(p.art) };
     else if (p.type === "morph") {
-      dup = { ...p, id, base: flipPath(p.base), shapes: Object.fromEntries(Object.entries(p.shapes as Record<string, string>).map(([k, d]) => [k, flipPath(d)])) };
+      dup = { ...p, id, base: flipPath(p.base), shapes: Object.fromEntries(Object.entries(p.shapes as Record<string, string>).map(([k, d]) => [k, flipPath(d)])), ...(p.clip ? { clip: `${p.clip}~` } : {}) };
       morphMirrors[p.id] = id;
     } else if (p.type === "switch" && kind === "eyes") {
       // The main eyes switch holds the variant: its mirror is one drawing per variant.
@@ -1665,7 +1759,33 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
     const m = /^parts\.([^.]+)\.variant$/.exec(k);
     if (m && out.parts.some((q: { id: string }) => q.id === `${m[1]}~`)) side[`parts.${m[1]}~.variant`] = val;
   }
-  out.controls.head = { type: "pose", poses: Object.fromEntries(allHead.map((v) => [v, { "parts.headView.variant": v }])) };
+  // The head's points (where props fit: the mouth, an ear…) go with the head's drawing, not the
+  // body's view: the head control sets them (override) for its angle, mirrored ones flipped about the
+  // head's middle.
+  const pts = (["ear", "mouth", "eye", "top"] as const).filter((k) => out.skeleton.some((b: { id: string }) => b.id === `${k}Pt`));
+  const fromX = (k: string) => (out.skeleton.find((b: { id: string; from?: number[] }) => b.id === `${k}Pt`)?.from?.[0] ?? 0) as number;
+  const ptPose = (v: string): Record<string, number> => {
+    const mirror = v.startsWith("~"), base = mirror ? v.slice(1) : v;
+    const vp = (out.controls.view.poses[base] ?? {}) as Record<string, number>;
+    const o: Record<string, number> = {};
+    // (Offsets are in the head bone's frame: turned to setup space to mirror them.)
+    const hb = out.skeleton.find((b: { id: string }) => b.id === "head") as { from: number[]; to: number[] };
+    const th = Math.atan2(hb.to[1] - hb.from[1], hb.to[0] - hb.from[0]), c = Math.cos(th), sn = Math.sin(th);
+    for (const k of pts) {
+      const dx = vp[`bones.${k}Pt.x`] ?? 0, dy = vp[`bones.${k}Pt.y`] ?? 0;
+      if (!mirror) {
+        o[`bones.${k}Pt.x`] = r(dx);
+        o[`bones.${k}Pt.y`] = r(dy);
+        continue;
+      }
+      const sx = dx * c - dy * sn, sy = dx * sn + dy * c;
+      const mx = -2 * fromX(k) - sx, my = sy;
+      o[`bones.${k}Pt.x`] = r(mx * c + my * sn);
+      o[`bones.${k}Pt.y`] = r(-mx * sn + my * c);
+    }
+    return o;
+  };
+  out.controls.head = { type: "pose", override: true, poses: Object.fromEntries(allHead.map((v) => [v, { "parts.headView.variant": v, ...ptPose(v) }])) };
 }
 
 /** Director measurements of a cartoon character. */

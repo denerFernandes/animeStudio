@@ -586,6 +586,17 @@ class BlockScene {
     this.hung.delete(prop);
     this.push({ at: t0, action: "release", actor, prop });
     this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list });
+    // A 2.5D rig brings the near hand up in 3D (no 2D swing of the arm, which in 3D goes round the
+    // front): near the first anchor, below it and a little forward; the 2D reach then only corrects.
+    const first = Object.values(fit).find((a): a is string => typeof a === "string");
+    const p0 = first ? this.point3d(actor, first) : undefined;
+    if (p0) {
+      const ear = this.point3d(actor, "ear"), mouth = this.point3d(actor, "mouth");
+      const d = ear && mouth ? Math.hypot(ear[0] - mouth[0], ear[1] - mouth[1], ear[2] - mouth[2]) : 40;
+      const target: [number, number, number] = first === "ear" && mouth ? [p0[0] + (mouth[0] - p0[0]) * 0.45, p0[1] + d * 0.3, p0[2] + (mouth[2] - p0[2]) * 0.45] : [p0[0], p0[1] + d * 0.3, p0[2] + d * 0.35];
+      this.arm3d(actor, target, at + 0.3, 0.4);
+      this.armRest(actor, until, 0.45);
+    }
     if (this.hasChain(actor, "handF")) {
       // The hand holds it by its grip, the elbow low and forward (the forearm along the face).
       this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0], from: pdef?.gripFrom ?? 70 }, duration: 0.3 });
@@ -690,8 +701,9 @@ class BlockScene {
     const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
     const fit = Object.fromEntries(Object.entries(f[0]).filter(([pt, an]) => points[pt] && (typeof an === "number" || anchors[an])));
     if (!Object.keys(fit).length) return false;
-    // The arm comes up with the clip (the head tips back to drink), then the prop fits.
-    this.play(actor, clip, at - 0.1, until ? until - at + 0.1 : undefined);
+    // The arm comes up with the clip (the head tips back to drink), then the prop fits. A 2.5D rig's
+    // arm comes up in 3D instead (`use`): the clip's 2D arm swing would go round the front.
+    if (!this.is3d(actor)) this.play(actor, clip, at - 0.1, until ? until - at + 0.1 : undefined);
     this.use(actor, prop, fit, at + 0.25, until ?? at + f[1]);
     return true;
   }

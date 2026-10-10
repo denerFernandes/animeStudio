@@ -109,6 +109,38 @@ function simplify(pts: P2[], tol: number): P2[] {
   return out.length >= 3 ? out : pts;
 }
 
+/**
+ * Open outline pieces of a field (grid units → model units), keeping only the stretches where `keep`
+ * holds at the point (a line left out where a shape meets another drawing).
+ */
+export function fieldStroke(val: ArrayLike<number>, g: Grid, keep: (x: number, y: number) => boolean): string {
+  let d = "";
+  for (const loop of contours(val, g.w, g.h)) {
+    const pts = loop.map(([i, j]) => [g.x0 + i * g.step, g.y0 + j * g.step] as P2);
+    const ok = pts.map(([x, y]) => keep(x, y));
+    if (ok.every(Boolean)) {
+      d += " " + smoothPath(simplify(pts, g.step * 0.35));
+      continue;
+    }
+    const start = ok.indexOf(false);
+    let run: P2[] = [];
+    const flush = () => {
+      if (run.length > 3) {
+        const p = run.filter((_, i) => i % 2 === 0 || i === run.length - 1);
+        d += ` M${r2(p[0][0])} ${r2(p[0][1])}` + p.slice(1).map((q, i) => (i < p.length - 2 ? ` Q${r2(q[0])} ${r2(q[1])} ${r2((q[0] + p[i + 2][0]) / 2)} ${r2((q[1] + p[i + 2][1]) / 2)}` : ` L${r2(q[0])} ${r2(q[1])}`)).join("");
+      }
+      run = [];
+    };
+    for (let s = 1; s <= pts.length; s++) {
+      const i = (start + s) % pts.length;
+      if (ok[i]) run.push(pts[i]);
+      else flush();
+    }
+    flush();
+  }
+  return d.trim();
+}
+
 /** A smooth closed path through a polygon (quadratic curves between edge midpoints). */
 export function smoothPath(pts: P2[]): string {
   const n = pts.length;

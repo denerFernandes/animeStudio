@@ -883,6 +883,10 @@
                       "type": "number",
                       "minimum": 0
                     },
+                    "seamless": {
+                      "description": "No outline where it meets an occluder: cloth continuing the drawing under it (a dress's skirt out of the torso)",
+                      "type": "boolean"
+                    },
                     "shapes": {
                       "minItems": 1,
                       "type": "array",
@@ -1146,6 +1150,10 @@
                 "additionalProperties": {
                   "type": "string"
                 }
+              },
+              "clip": {
+                "description": "Another morph part whose current shape clips this one (teeth and tongue inside the mouth)",
+                "type": "string"
               },
               "space": {
                 "type": "string",
@@ -1527,6 +1535,10 @@
                     ]
                   }
                 }
+              },
+              "override": {
+                "description": "Numbers set their channels instead of adding to them (a later control placing points a former one also moved)",
+                "type": "boolean"
               }
             },
             "required": [

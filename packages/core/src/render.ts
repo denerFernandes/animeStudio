@@ -107,23 +107,35 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
       return { kind: "group", key, opacity: op, children: paths.map((p, i) => ({ kind: "path", key: `${key}.${i}`, d: p.d, attrs: p.attrs })) };
     }
     case "morph": {
-      const weights = s.morph[part.index];
-      const basePts = pathPoints(part.base);
-      const pts = basePts.map((p): Vec2 => [p[0], p[1]]);
-      for (const [name, w] of Object.entries(weights)) {
-        const shape = part.shapes[name];
-        if (!shape || w === 0) continue;
-        const sp = pathPoints(shape);
-        for (let i = 0; i < pts.length; i++) {
-          pts[i][0] += (sp[i][0] - basePts[i][0]) * w;
-          pts[i][1] += (sp[i][1] - basePts[i][1]) * w;
-        }
+      const d = morphD(rig, pose, part);
+      const clip = part.clip !== undefined ? rig.parts[part.clip] : undefined;
+      if (clip?.type === "morph") {
+        // Clipped by the other part's current shape (an id unique to this part of this actor).
+        const id = `clip-${key.replace(/[^\w-]/g, "_")}`;
+        const attrs = Object.entries(styleAttrs(part.style)).map(([k, v]) => ` ${k}="${String(v).replace(/"/g, "&quot;")}"`).join("");
+        return { kind: "markup", key, opacity: op, markup: `<clipPath id="${id}"><path d="${morphD(rig, pose, clip)}"/></clipPath><path d="${d}"${attrs} clip-path="url(#${id})"/>` };
       }
-      const m = partMatrix(rig, world, part.bone, part.space);
-      const d = pathToString(transformPath(withPoints(part.base, pts), m));
       return { kind: "path", key, opacity: op, d, attrs: styleAttrs(part.style) };
     }
   }
+}
+
+/** A morph part's current path (its shapes blended by the pose's weights), in character space. */
+function morphD(rig: Rig, pose: EvaluatedPose, part: Extract<RigPart, { type: "morph" }>): string {
+  const weights = pose.state.morph[part.index];
+  const basePts = pathPoints(part.base);
+  const pts = basePts.map((p): Vec2 => [p[0], p[1]]);
+  for (const [name, w] of Object.entries(weights)) {
+    const shape = part.shapes[name];
+    if (!shape || w === 0) continue;
+    const sp = pathPoints(shape);
+    for (let i = 0; i < pts.length; i++) {
+      pts[i][0] += (sp[i][0] - basePts[i][0]) * w;
+      pts[i][1] += (sp[i][1] - basePts[i][1]) * w;
+    }
+  }
+  const m = partMatrix(rig, pose.world, part.bone, part.space);
+  return pathToString(transformPath(withPoints(part.base, pts), m));
 }
 
 /** Smooth closed path around the convex hull of points (monotone chain, corners rounded). */

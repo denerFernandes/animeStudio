@@ -96,6 +96,8 @@ export type RigPart =
       shapes: Record<string, CubicPath>;
       space: "setup" | "bone";
       style: PathStyle;
+      /** A morph part whose current shape clips this one. */
+      clip?: number;
     });
 
 export type BoneProp = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "squash" | "rotationMix" | "turn" | "spread";
@@ -151,7 +153,7 @@ export type RigControl =
       name: string;
       targets: { bone: number; weight: number; mode: "rotate" | "translate"; forward: number; maxAngle: number; radius: number }[];
     }
-  | { type: "pose"; name: string; poses: Record<string, { ref: ChannelRef; value: Value }[]> };
+  | { type: "pose"; name: string; poses: Record<string, { ref: ChannelRef; value: Value }[]>; override?: boolean };
 
 export type RigBehavior =
   | { type: "blink"; id: string; part: number; open: string; closed: string; interval: [number, number]; duration: number }
@@ -499,6 +501,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
           stroke: color(bd.stroke),
           strokeWidth: bd.strokeWidth ?? 0,
           blend: bd.blend ?? 0,
+          ...(bd.seamless ? { seamless: true } : {}),
           shapes: bd.shapes.map((sh): SolidShape => {
             if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box) };
             const r = sh.r ?? 0;
@@ -663,7 +666,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
         return { ref, value };
       });
     }
-    partial.controls[name] = { type: "pose", name, poses };
+    partial.controls[name] = { type: "pose", name, poses, ...(def.override ? { override: true } : {}) };
   }
 
   // Clips --------------------------------------------------------------------
@@ -689,6 +692,13 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
   const colliders = (doc.colliders ?? []).map((c, i) => ({ bone: boneRef(c.bone, `colliders[${i}]`), radius: c.radius }));
 
   const rig3d = doc.rig3d ? compileRig3d({ bones, boneIndex, partIndex }, doc.rig3d as never) : undefined;
+  // Morph parts clipped by another morph part (teeth inside the mouth).
+  for (const def of doc.parts) {
+    if (def.type !== "morph" || !def.clip) continue;
+    const c = partIndex.get(def.clip), self = parts[partIndex.get(def.id)!];
+    if (c === undefined || parts[c].type !== "morph") throw new RigError(`clip "${def.clip}" is not a morph part`, `parts.${def.id}`);
+    if (self.type === "morph") self.clip = c;
+  }
   // Solids are posed by the 3D skeleton: their bones must be 3D bones.
   for (const p of parts) {
     if (p.type !== "solid") continue;

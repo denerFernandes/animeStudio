@@ -134,7 +134,7 @@ part shows one of these variants; `and: { part, variant }` adds a second conditi
 | `hose` | Procedural "rubber hose" limb through a bone chain | `bones`, `width`, `cap`, `smooth`, style |
 | `hull` | A soft shape stretched over points of the skeleton: the rounded convex hull of circles (a skirt over the waist and the knees, a cape) | `points: [{ bone, at, r }]` (setup space), style |
 | `solid` | Volumes on the bones of a 2.5D rig, drawn from the view every frame: cel shaded, composited per pixel by depth (legs, a lap, a skirt) | `bodies: [{ fill?, shade?, stroke?, strokeWidth?, blend?, shapes }]`, `step?` |
-| `morph` | Blend shapes on a path (expressions, squish) | `bone`, `base`, `shapes: {name → path}`, `space`, style |
+| `morph` | Blend shapes on a path (expressions, squish) | `bone`, `base`, `shapes: {name → path}`, `space`, `clip?` (another morph part whose current shape clips it: teeth and tongue inside the mouth), style |
 
 Style fields (for path-based parts): `fill`, `stroke`, `strokeWidth`, `attrs` (extra SVG
 attributes).
@@ -161,7 +161,8 @@ joint, 1 = its tip) plus an offset `[x, y, z]` in body space at rest, turned wit
 frame the shapes are posed and seen from the view, ray cast on a grid of `step` units (default 2)
 and composited per cell by depth: the nearest body wins and is outlined where it passes in front of
 another (a knee over its shin, a thigh over the other). A body is drawn as its `fill`, a `shade`
-(the side turned away from the light, upper left) and a `stroke` outline. A body without a `fill`
+(the side turned away from the light, upper left) and a `stroke` outline. A `seamless` body has no outline where it meets an occluder: cloth that carries on from the drawing
+under it (a dress's skirt coming out of the torso). A body without a `fill`
 is an **occluder**: it hides the bodies behind it and draws nothing, so what was drawn before the
 solid shows through. Put the solid after a flat drawing of the torso with an occluder roughly inside
 it (a little smaller: a larger one would cut holes): the legs are drawn over the torso only where
@@ -289,7 +290,9 @@ towards the target by at most `radius` (pupils).
 
 `pose` entries may contain any character channel, including `parts.<id>.variant`, so poses
 can also express **views** (front / profile) and **emotions**. Numeric pose values are **added**
-on top of the current animation (an emotion layers over a walk); variants override.
+on top of the current animation (an emotion layers over a walk); variants override. A pose control
+with `override: true` sets its numbers instead (a head turned on its own placing the head's points
+where another control — the body's view — also moved them).
 
 **Fluid lip sync:** with a `morph` mouth, the `say` action cross-fades visemes (~60 ms) so the
 mouth flows between shapes. With a `switch` mouth the strongest viseme is shown (classic cut-out).
