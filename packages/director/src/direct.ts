@@ -675,7 +675,9 @@ class BlockScene {
     // Heavy vector art (long extruded text, many filters) may be captured half painted by a browser
     // rendering in parallel: rasterize it, or give the render more time to paint.
     const filters = (art.match(/<fe(Morphology|GaussianBlur|DisplacementMap|Turbulence)\b/g) ?? []).length;
-    if (art.length > 80000 || filters > 3) this.issue("warning", `graphic "${g.id}" is heavy (${Math.round(art.length / 1000)} kB of SVG, ${filters} costly filters): a browser rendering in parallel may capture it half painted — rasterize it (an <image>) or raise the composition's paintSettle`);
+    // (Embedded pictures — data URIs — are cheap to paint: only the vector markup counts.)
+    const vector = art.replace(/(href|xlink:href)=(["'])data:[^"']*\2/g, "$1=$2$2").length;
+    if (vector > 80000 || filters > 3) this.issue("warning", `graphic "${g.id}" is heavy (${Math.round(vector / 1000)} kB of vector SVG, ${filters} costly filters): a browser rendering in parallel may capture it half painted — rasterize it (an <image>) or raise the composition's paintSettle`);
     this.props.push({ id: g.id, art, x, y, z: 1000 + (g.z ?? 0), parallax: 0, opacity: 0, scale: s, rotation: rot });
     const ch: Record<string, [number, number, string?][]> = { x: [], y: [], scale: [], rotation: [], opacity: [] };
     const key = (c: string, at: number, v: number, ease?: string) => ch[c].push([this.t(at), r3(v), ...(ease ? [ease] : [])] as [number, number, string?]);
