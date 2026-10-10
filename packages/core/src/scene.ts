@@ -110,7 +110,7 @@ export interface Grab {
   actor: string;
   anchor: string;
   /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
-  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number })[];
+  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean })[];
   start: number;
   end: number;
   releaseVelocity?: Vec2;
@@ -1416,7 +1416,7 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
  * at the second anchor (or, with one point, turning with that anchor's bone).
  */
 function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number } {
-  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number })?];
+  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean })?];
   const a1 = anchorPosition(scene, grab.actor, f1.anchor, t, pose);
   // The first anchor's bone: how it turns from rest (scene space) and whether the actor is mirrored.
   const actor = scene.actors.find((a) => a.id === grab.actor)!;
@@ -1431,7 +1431,7 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
     rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
   } else if (f2) {
     // A direction in the actor's frame (mirrored when it faces left), turning with the bone.
-    const dir = (f2.angle * Math.PI) / 180 + (mirrored ? -boneTurn : boneTurn);
+    const dir = (f2.angle * Math.PI) / 180 + (f2.fixed ? 0 : mirrored ? -boneTurn : boneTurn);
     const world = mirrored ? Math.PI - dir : dir;
     rot = world - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
   } else rot = boneTurn;

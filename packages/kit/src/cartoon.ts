@@ -1427,6 +1427,13 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
       front: "armF",
       back: "hairBack",
+      // Where the director's 3D reaches go: the mouth, the near ear, in front of the chest (a held
+      // thing, a little to the near side).
+      points: {
+        mouth: { bone: "head", at: [0, r(m.y.mouth - m.y.neckTop), r(u * 0.92)] },
+        ear: { bone: "head", at: [r(-u * 0.97), r(m.y.ear - m.y.neckTop), 0] },
+        chest: { bone: "body", at: [r(-b.S * 0.3), r(-b.T * 0.42), r(b.D * (1 + (look.heavy ?? 0) * 0.6) + b.T * 0.32)] },
+      },
     },
     physics,
     controls: {

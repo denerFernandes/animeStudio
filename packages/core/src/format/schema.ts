@@ -335,6 +335,10 @@ export const ToonSchema = z.strictObject({
       front: z.string().optional().describe("Part before which a limb nearer than the body is drawn"),
       back: z.string().optional().describe("Part after which a limb farther than the body is drawn"),
       body: z.array(z.string()).optional().describe("Bones whose depth is the body's (default body, neck)"),
+      points: z
+        .record(z.string(), z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]).describe("Offset from the bone's rest joint, body space") }))
+        .optional()
+        .describe("Named points on the 3D bones (the mouth, the chest): where the director's 3D reaches go"),
     })
     .optional()
     .describe("A 2.5D rig: its bones posed in 3D (rotations about the body's sideways axis, plus `turn` and `spread`) and projected for the current view each frame"),
@@ -572,7 +576,11 @@ export const ActionSchema = z.discriminatedUnion("action", [
       .array(
         z.union([
           z.strictObject({ point: Vec2Schema.describe("A point of the prop's art"), anchor: z.string().describe("An anchor of the actor") }),
-          z.strictObject({ point: Vec2Schema, angle: z.number().describe("Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone") }),
+          z.strictObject({
+            point: Vec2Schema,
+            angle: z.number().describe("Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone"),
+            fixed: z.boolean().optional().describe("Keep the direction in the actor's frame, not turning with the bone (a cigarette held upright between the fingers)"),
+          }),
         ]),
       )
       .min(1)

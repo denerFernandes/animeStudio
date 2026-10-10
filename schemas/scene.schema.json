@@ -1719,6 +1719,10 @@
                         "angle": {
                           "type": "number",
                           "description": "Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone"
+                        },
+                        "fixed": {
+                          "description": "Keep the direction in the actor's frame, not turning with the bone (a cigarette held upright between the fingers)",
+                          "type": "boolean"
                         }
                       },
                       "required": [

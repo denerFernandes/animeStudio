@@ -194,7 +194,9 @@ A rig with a pose control named `side` (`right` / `left`) gets it from the actor
 A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
 above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
 prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
-second anchor, every frame; with one point it turns with that anchor's bone. A `reach` target can be a
+second anchor, every frame; with one point it turns with that anchor's bone. The second entry may be a
+direction instead, `{ point, angle }` (degrees in the actor's frame: 0 forward, -90 up), turning with
+the first anchor's bone — or, with `fixed: true`, not (a cigarette held upright between the fingers). A `reach` target can be a
 prop's point (`{ prop, point, from? }`), even on a prop fitted to the reaching actor's own body (a hand
 holding the phone at its ear); `from` (degrees in the actor's frame: 0 forward, 90 from below) is where
 the forearm comes from — the elbow goes there, the upper arm foreshortened when the hand is close to
@@ -227,7 +229,9 @@ head is a drawing of a volume and is never squashed). A bone that does not inher
 rotation (`inheritRotation: false`: a foot staying level) turns with the body, not its parent. Leg IK (feet planted while walking) is solved in the
 side plane first, so walks foreshorten from the front. Limbs (`chains`) clearly nearer than the body
 are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
-clearly farther ones just after the `back` part.
+clearly farther ones just after the `back` part. `points` names points on the 3D bones
+(`{ "mouth": { "bone": "head", "at": [0, -40, 44] } }`: an offset from the bone's rest joint) — where
+the director's 3D reaches go (a hand taking something from the mouth, holding it at the chest).
 
 ### 2.7 `ik`
 

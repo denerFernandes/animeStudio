@@ -241,7 +241,15 @@ export type Rig3dValues = Record<string, { rotation?: number; turn?: number; spr
 
 interface Rig3dDocLike {
   skeleton: { id: string; parent?: string; inheritRotation?: boolean }[];
-  rig3d?: { bones: Record<string, { from: V3; to: V3 }> };
+  rig3d?: { bones: Record<string, { from: V3; to: V3 }>; points?: Record<string, { bone: string; at: V3 }> };
+}
+
+/** Where a named point of a document's `rig3d` (`points`) is in a pose (body space), or undefined. */
+export function rig3dPoint(doc: Rig3dDocLike, values: Rig3dValues, name: string): V3 | undefined {
+  const pt = doc.rig3d?.points?.[name];
+  if (!pt) return undefined;
+  const b = rig3dPose(doc, values)[pt.bone];
+  return b ? add3(b.from, mv(b.rot, pt.at)) : undefined;
 }
 
 /**

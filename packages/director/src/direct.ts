@@ -12,6 +12,7 @@ import {
   cuesFromText,
   mergeCues,
   reach3d,
+  rig3dPoint,
   rig3dPose,
   validateScene,
   validateSequence,
@@ -138,7 +139,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -188,6 +189,11 @@ class BlockScene {
   private busy: { actor: string; t0: number; t1: number }[] = [];
   private views: { actor: string; t: number; view: string }[] = [];
   private holds: { actor: string; t0: number; t1: number }[] = [];
+  /** 2.5D rigs: the pose set in 3D (sitting), what the arms rest at, props hung on the body. */
+  private pose3d = new Map<string, Rig3dValues>();
+  private restArms = new Map<string, Rig3dValues>();
+  private hung = new Map<string, { actor: string; fit: Record<string, string | number> }>();
+  private lastHang = new Map<string, Record<string, string | number>>();
   /** Who holds whose hand (a on the left), so a new hold extends the chain instead of breaking it. */
   private handPairs: { a: string; b: string; t1: number }[] = [];
   private faces: { actor: string; t: number }[] = [];
@@ -542,27 +548,44 @@ class BlockScene {
     for (const [id, st] of this.propStates) if (st.heldBy.some((h) => h.actor === actor && h.t0 <= abs && h.t1 > abs)) return id;
     return undefined;
   }
+  /** The fit of a prop (`{ point: anchor | angle }`) as grab fit entries, or undefined (issues reported). */
+  private fitList(actor: string, prop: string, fit: Record<string, string | number>, what: string) {
+    const st = this.propStates.get(prop);
+    if (!st) return void this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
+    if (!st.heldBy.some((h) => h.actor === actor && h.t1 === Infinity) && this.hung.get(prop)?.actor !== actor) return void this.issue("error", `${actor} cannot ${what} "${prop}": not holding it (pick it up first, or heldBy)`);
+    const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+    const list = Object.entries(fit).slice(0, 2);
+    for (const [k, [pt, an]] of list.entries()) {
+      if (!points[pt]) return void this.issue("error", `prop "${prop}" has no contact point "${pt}"${closest(pt, Object.keys(points))} (kit.props.<kind>.points)`);
+      if (typeof an === "number" && k === 0) return void this.issue("error", `${what}: the first contact point of "${prop}" goes on an anchor, not an angle`);
+      if (typeof an === "string" && !anchors[an]) return void this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
+    }
+    return list.map(([pt, an]) => (typeof an === "number" ? { point: points[pt], angle: an } : { point: points[pt], anchor: an }));
+  }
   /**
    * Fits a held prop to the body (a phone at the ear, a cigarette at the mouth): its contact points
    * (`kit.props[kind].points`) on anchors of the rig (`ear`, `mouth`…), following the head every
    * frame; the hand holds it by its `grip` point. Back in the hand at `until`.
    */
-  use(actor: string, prop: string, fit: Record<string, string | number>, at: number, until: number) {
-    const st = this.propStates.get(prop);
-    if (!st) return this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
-    if (!st.heldBy.some((h) => h.actor === actor && h.t0 <= at && h.t1 > at)) return this.issue("error", `${actor} cannot use "${prop}": not holding it (pick it up first, or heldBy)`);
+  use(actor: string, prop: string, fit: Record<string, string | number>, at: number, until: number | undefined, hands = true) {
+    const list = this.fitList(actor, prop, fit, "use");
+    if (!list) return;
+    if (!hands) {
+      // Hung on the body (a cigarette on the lips): fitted to the anchors, no hand, until taken.
+      this.push({ at: this.t(at), action: "release", actor, prop });
+      this.push({ at: this.t(at), action: "grab", actor, prop, anchor: list.find((f) => "anchor" in f)!.anchor as string, fit: list });
+      this.hung.set(prop, { actor, fit });
+      this.lastHang.set(prop, fit);
+      return;
+    }
+    until ??= at + 2;
     const pdef = this.kit.props[this.propKinds.get(prop) ?? ""];
     const points = pdef?.points ?? {};
-    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
-    const list = Object.entries(fit).slice(0, 2);
-    for (const [k, [pt, an]] of list.entries()) {
-      if (!points[pt]) return this.issue("error", `prop "${prop}" has no contact point "${pt}"${closest(pt, Object.keys(points))} (kit.props.<kind>.points)`);
-      if (typeof an === "number" && k === 0) return this.issue("error", `use: the first contact point of "${prop}" goes on an anchor, not an angle`);
-      if (typeof an === "string" && !anchors[an]) return this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
-    }
     const t0 = this.t(at), t1 = this.t(until);
+    this.hung.delete(prop);
     this.push({ at: t0, action: "release", actor, prop });
-    this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list.map(([pt, an]) => (typeof an === "number" ? { point: points[pt], angle: an } : { point: points[pt], anchor: an })) });
+    this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list });
     if (this.hasChain(actor, "handF")) {
       // The hand holds it by its grip, the elbow low and forward (the forearm along the face).
       this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0], from: pdef?.gripFrom ?? 70 }, duration: 0.3 });
@@ -572,6 +595,84 @@ class BlockScene {
     }
     this.push({ at: t1, action: "release", actor, prop });
     this.push({ at: t1, action: "grab", actor, prop, anchor: "hand" });
+  }
+  /**
+   * A 2.5D rig's near arm (F) reached in 3D to a body-space point, arriving at `at` after `dur`
+   * (the elbow down and out). Returns false for other rigs.
+   */
+  private arm3d(actor: string, target: [number, number, number], at: number, dur: number): boolean {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as Parameters<typeof rig3dPose>[0];
+    if (!doc?.rig3d?.bones?.armF1 || !doc.rig3d.bones.armF2) return false;
+    const sol = reach3d(doc, "armF1", "armF2", target, this.pose3d.get(actor) ?? {}, [-0.5, 1, -0.25]);
+    for (const [b, val] of Object.entries(sol)) for (const [k, x] of Object.entries(val)) this.set(actor, `bones.${b}.${k}`, x!, at - dur, dur, "easeInOut");
+    return true;
+  }
+  /** The near arm back to where it rests (on the knees, on the floor behind… or hanging). */
+  private armRest(actor: string, at: number, dur: number) {
+    const rest = this.restArms.get(actor) ?? { armF1: { rotation: 0, spread: 0, turn: 0 }, armF2: { rotation: 0, turn: 0, spread: 0 } };
+    for (const b of ["armF1", "armF2"]) for (const [k, x] of Object.entries(rest[b] ?? {})) this.set(actor, `bones.${b}.${k}`, x!, at, dur, "easeInOut");
+  }
+  /** A 3D point of the rig (`rig3d.points`) in the actor's current pose. */
+  private point3d(actor: string, name: string) {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as Parameters<typeof rig3dPose>[0];
+    return doc?.rig3d ? rig3dPoint(doc, this.pose3d.get(actor) ?? {}, name) : undefined;
+  }
+  /**
+   * How a prop is held in the hand: by its `grip` (else a third of the way from the point that sat on
+   * the body to the other one), standing up — the free end (the other point of its fit) upward.
+   */
+  private handHold(prop: string): { grip?: [number, number]; up?: [number, number] } {
+    const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
+    const fit = this.lastHang.get(prop);
+    const keys = fit ? Object.keys(fit) : [];
+    const on = keys[0] ? points[keys[0]] : undefined;
+    const free = keys[1] ? points[keys[1]] : Object.entries(points).find(([k]) => k !== "grip" && k !== keys[0])?.[1];
+    const grip = points.grip ?? (on && free ? ([on[0] + (free[0] - on[0]) * 0.3, on[1] + (free[1] - on[1]) * 0.3] as [number, number]) : on);
+    return { grip, up: free ?? on };
+  }
+  /** Held in the hand by its grip, standing up between the fingers. */
+  private inHand(actor: string, prop: string, at: number) {
+    const { grip, up } = this.handHold(prop);
+    this.push({ at: this.t(at), action: "release", actor, prop });
+    this.push({ at: this.t(at), action: "grab", actor, prop, anchor: "hand", ...(grip ? { fit: [{ point: grip, anchor: "hand" }, ...(up ? [{ point: up, angle: -90, fixed: true }] : [])] } : {}) });
+    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "grip", at - 0.15);
+  }
+  /**
+   * Takes a prop hung on the body (a cigarette from the lips): the near hand goes to it, takes it by
+   * its grip and brings it in front of the chest, standing between the fingers.
+   */
+  take(actor: string, prop: string, at: number) {
+    const h = this.hung.get(prop);
+    if (!h || h.actor !== actor) return this.issue("error", `${actor} cannot take "${prop}": it is not on ${actor}'s body (put it there with use … hands: false)`);
+    const anchor = Object.values(h.fit).find((a): a is string => typeof a === "string")!;
+    const where = this.point3d(actor, anchor);
+    if (where) this.arm3d(actor, [where[0], where[1], where[2] + 4], at, 0.35);
+    this.hung.delete(prop);
+    this.inHand(actor, prop, at);
+    const chest = this.point3d(actor, "chest");
+    if (chest) this.arm3d(actor, chest, at + 0.45, 0.45);
+  }
+  /** Holds a prop up in front of the chest (taking it from the body first if it hangs there) until `until`. */
+  holdProp(actor: string, prop: string, at: number, until?: number) {
+    if (this.hung.get(prop)?.actor === actor) this.take(actor, prop, at);
+    else {
+      if (!this.propStates.get(prop)?.heldBy.some((x) => x.actor === actor && x.t1 === Infinity)) return this.issue("error", `${actor} cannot hold "${prop}": not holding it (pick it up first, or heldBy)`);
+      this.inHand(actor, prop, at);
+      const chest = this.point3d(actor, "chest");
+      if (chest) this.arm3d(actor, chest, at + 0.4, 0.4);
+    }
+    if (until !== undefined) this.armRest(actor, until, 0.45);
+  }
+  /** Puts a held prop back where it hung on the body (the lips) and the arm back to rest. */
+  putBack(actor: string, prop: string, at: number) {
+    const fit = this.lastHang.get(prop);
+    if (!fit) return this.issue("error", `${actor} cannot put "${prop}" back: it never hung on the body (use … hands: false)`);
+    const anchor = Object.values(fit).find((a): a is string => typeof a === "string")!;
+    const where = this.point3d(actor, anchor);
+    if (where) this.arm3d(actor, [where[0], where[1], where[2] + 4], at, 0.4);
+    this.use(actor, prop, fit, at, undefined, false);
+    this.armRest(actor, at + 0.05, 0.45);
+    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "fist", at + 0.1);
   }
   /** The phone / smoke / drink gestures with a held prop that has contact points: `use` it. */
   private useForGesture(actor: string, clip: string, at: number, until?: number) {
@@ -757,7 +858,13 @@ class BlockScene {
         for (const w of who) this.hide(w, b.behind as string, at, until);
         break;
       case "use":
-        if (one) this.use(one, b.prop as string, (b.at ?? {}) as Record<string, string>, at, until ?? at + 2);
+        if (one) this.use(one, b.prop as string, (b.at ?? {}) as Record<string, string>, at, until, b.hands !== false);
+        break;
+      case "take":
+        if (one) this.take(one, b.prop as string, at);
+        break;
+      case "putBack":
+        if (one) this.putBack(one, b.prop as string, at);
         break;
       case "peek":
         for (const w of who) this.peek(w, at, until);
@@ -779,7 +886,10 @@ class BlockScene {
         for (const w of who) this.view(w, b.value as string, at);
         break;
       case "hold":
-        this.hold(who, at, (b.view as "profile" | "back") ?? "profile");
+        // With a prop: held up in front of the chest; without: two people holding hands.
+        if (b.prop) {
+          if (one) this.holdProp(one, b.prop as string, at, until);
+        } else this.hold(who, at, (b.view as "profile" | "back") ?? "profile");
         break;
       case "release":
         for (const w of who) this.releaseHands(w, at);
@@ -1965,6 +2075,7 @@ class BlockScene {
     const lap = how.hands === "lap";
     const v: Rig3dValues = { body: { rotation: 4 } };
     for (const side of ["F", "B"]) v[`leg${side}1`] = { rotation: -90 - up }, v[`leg${side}2`] = { rotation: 90 + up - slope };
+    this.pose3d.set(actor, v);
     this.handsOnLegs(actor, at, v, (P, side) => {
       return lap ? P.on(`leg${side}1`, 0.55, side === "F" ? 0.45 : -0.45) : P.on(`leg${side}1`, 0.85, 0);
     });
@@ -1991,6 +2102,7 @@ class BlockScene {
     }
     for (const [b, val] of Object.entries(v)) if (b.startsWith("leg")) for (const [k, x] of Object.entries(val)) set(`bones.${b}.${k}`, x!);
     set("bones.body.rotation", v.body.rotation!);
+    this.pose3d.set(actor, v);
     // Straight: leaning back on the hands, flat on the floor behind the hips; hug: hands clasped in
     // front of the shins, elbows out.
     this.handsOnLegs(actor, at, v, (P, side) => {
@@ -2032,10 +2144,13 @@ class BlockScene {
       if (!bones[`arm${side}1`] || !bones[`arm${side}2`]) continue;
       const out = side === "F" ? -1 : 1;
       const sol = reach3d(doc, `arm${side}1`, `arm${side}2`, pick(P, side), values, pole?.(side) ?? [out * 0.6, 0.15, -1]);
+      if (side === "F") this.restArms.set(actor, sol);
       for (const [b, val] of Object.entries(sol)) for (const [k, x] of Object.entries(val)) this.set(actor, `bones.${b}.${k}`, x!, at, 0.5, "easeOut");
     }
   }
   private unsit3d(actor: string, at: number) {
+    this.pose3d.delete(actor);
+    this.restArms.delete(actor);
     const set = (ch: string, v: number) => this.set(actor, ch, v, at, 0.45, "easeOut");
     for (const side of ["F", "B"]) {
       for (const b of [`leg${side}1`, `leg${side}2`, `arm${side}1`, `arm${side}2`]) set(`bones.${b}.rotation`, 0);

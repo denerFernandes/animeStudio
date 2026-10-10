@@ -2040,6 +2040,44 @@
           "items": {
             "type": "string"
           }
+        },
+        "points": {
+          "description": "Named points on the 3D bones (the mouth, the chest): where the director's 3D reaches go",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "bone": {
+                "type": "string"
+              },
+              "at": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "Offset from the bone's rest joint, body space"
+              }
+            },
+            "required": [
+              "bone",
+              "at"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
