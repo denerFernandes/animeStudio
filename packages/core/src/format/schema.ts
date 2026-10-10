@@ -469,7 +469,7 @@ export const ActionSchema = z.discriminatedUnion("action", [
     action: z.literal("reach"),
     chain: z.string().describe("IK chain id (e.g. footF, handF)"),
     target: z
-      .union([z.strictObject({ actor: z.string(), anchor: z.string() }), z.strictObject({ prop: z.string(), point: Vec2Schema }), Vec2Schema, z.null()])
+      .union([z.strictObject({ actor: z.string(), anchor: z.string() }), z.strictObject({ prop: z.string(), point: Vec2Schema, from: z.number().optional().describe("Where the forearm comes from at that point, degrees in the reaching actor's frame (0 = forward, 90 = from below): the elbow goes there, the upper arm foreshortened if needed") }), Vec2Schema, z.null()])
       .describe("Anchor of another actor (followed every frame: pedals, handlebar), a point of a prop (its grip, even one fitted to this actor's own body), a scene point, or null to let go"),
     duration: z.number().min(0).optional().describe("Blend in/out (default 0.3 s)"),
   }),

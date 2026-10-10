@@ -247,6 +247,23 @@ function solveTwoBone(rig: Rig, s: PoseState, world: Mat[], a: number, b: number
   computeWorld(rig, s, world);
 }
 
+/** The bend (1 / -1) whose elbow lies most in direction `from` (unit vector) from the target. */
+function elbowSide(rig: Rig, world: Mat[], a: number, b: number, target: Vec2, from: Vec2): 1 | -1 {
+  const pa = origin(world[a]), pb = origin(world[b]);
+  const l1 = dist(pa, pb), l2 = dist(pb, tip(rig, world, b));
+  if (l1 < 1e-6 || l2 < 1e-6) return 1;
+  const d = clamp(dist(pa, target), Math.abs(l1 - l2) + 1e-4, l1 + l2 - 1e-4);
+  const base = angleOf(sub(target, pa));
+  const A = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1)) / DEG;
+  const score = (bend: number) => {
+    const ang = (base - bend * A) * DEG;
+    const elbow: Vec2 = [pa[0] + Math.cos(ang) * l1, pa[1] + Math.sin(ang) * l1];
+    const v = sub(elbow, target), l = Math.hypot(v[0], v[1]) || 1;
+    return (v[0] * from[0] + v[1] * from[1]) / l;
+  };
+  return score(1) >= score(-1) ? 1 : -1;
+}
+
 function solveFabrik(rig: Rig, s: PoseState, world: Mat[], chain: number[], target: Vec2, mix: number): void {
   const n = chain.length;
   const pts: Vec2[] = chain.map((i) => origin(world[i]));
@@ -333,7 +350,7 @@ export interface CharacterInput {
    * Absolute IK targets (character space) per chain, e.g. feet on a bicycle's pedals: the chain
    * aims at `point` with at least `weight` mix, blending from its own target.
    */
-  ikTarget?: Record<string, { point: Vec2; weight: number }>;
+  ikTarget?: Record<string, { point: Vec2; weight: number; from?: Vec2 }>;
 }
 
 export interface EvaluatedPose {
@@ -447,7 +464,19 @@ export function evaluatePose(
     const extra = input.ikOffset?.[k.id];
     let target: Vec2 = [k.restTarget[0] + s.ikX[i] + (extra?.[0] ?? 0), k.restTarget[1] + s.ikY[i] + (extra?.[1] ?? 0)];
     if (held) target = [target[0] + (held.point[0] - target[0]) * w, target[1] + (held.point[1] - target[1]) * w];
-    if (k.bones.length === 2) solveTwoBone(rig, s, world, k.bones[0], k.bones[1], target, (s.ikBend[i] < 0 ? -k.bend : k.bend) as 1 | -1, mix);
+    let bend = (s.ikBend[i] < 0 ? -k.bend : k.bend) as 1 | -1;
+    // Held with a direction (where the forearm comes from at a grip, e.g. from below): the upper arm
+    // is foreshortened so the elbow can sit there (it points at the camera), and bends that way.
+    if (held?.from && k.bones.length === 2) {
+      const [a, b] = k.bones;
+      const l2 = dist(origin(world[b]), tip(rig, world, b));
+      const elbow: Vec2 = [target[0] + held.from[0] * l2 * 0.92, target[1] + held.from[1] * l2 * 0.92];
+      const l1 = rig.bones[a].length || dist(origin(world[a]), origin(world[b]));
+      s.bsq[a] = clamp(dist(origin(world[a]), elbow) / l1 - 1, -0.7, 0);
+      computeWorld(rig, s, world);
+      bend = elbowSide(rig, world, a, b, target, held.from);
+    }
+    if (k.bones.length === 2) solveTwoBone(rig, s, world, k.bones[0], k.bones[1], target, bend, mix);
     else solveFabrik(rig, s, world, k.bones, target, mix);
   });
 

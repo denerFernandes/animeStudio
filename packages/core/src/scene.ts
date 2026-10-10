@@ -32,6 +32,7 @@ import {
   type Mat,
   type Vec2,
   apply,
+  applyLinear,
   clamp,
   fromTRS,
   hashString,
@@ -99,7 +100,7 @@ export interface MountKey {
 
 export interface ReachKey {
   t: number;
-  target: { actor: string; anchor: string } | { prop: string; point: Vec2 } | Vec2 | null;
+  target: { actor: string; anchor: string } | { prop: string; point: Vec2; from?: number } | Vec2 | null;
   blend: number;
 }
 
@@ -1272,7 +1273,14 @@ function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { 
 /** IK chains held on another actor's anchor (pedals, a handlebar) or a scene point, in character space. */
 function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toChar: Mat): Record<string, { point: Vec2; weight: number }> | undefined {
   if (!actor.reach) return undefined;
-  const out: Record<string, { point: Vec2; weight: number }> = {};
+  const out: Record<string, { point: Vec2; weight: number; from?: Vec2 }> = {};
+  // The forearm's direction at a prop's grip, in character space.
+  const fromOf = (k: ReachKey | undefined): Vec2 | undefined => {
+    if (!k?.target || Array.isArray(k.target) || !("prop" in k.target) || k.target.from === undefined) return undefined;
+    // In the actor's own frame (character space: facing right, y down).
+    const a = (k.target.from * Math.PI) / 180;
+    return [Math.cos(a), Math.sin(a)];
+  };
   const ease = getEasing("sineInOut");
   const resolve = (k: ReachKey | undefined): Vec2 | null => {
     if (!k?.target) return null;
@@ -1301,7 +1309,7 @@ function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toC
     const cur = resolve(key);
     const prev = u < 1 ? resolve(keys[idx - 1]) : null;
     if (cur && prev) out[chain] = { point: apply(toChar, [lerp(prev[0], cur[0], u), lerp(prev[1], cur[1], u)]), weight: 1 };
-    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u };
+    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u, ...(fromOf(key) ? { from: fromOf(key) } : {}) };
     else if (prev) out[chain] = { point: apply(toChar, prev), weight: 1 - u };
   }
   return out;

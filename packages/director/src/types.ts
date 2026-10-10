@@ -216,9 +216,11 @@ export interface Kit {
   /**
    * Props by kind: art drawn around the origin, the radius (half height) so it rests on the ground,
    * and contact `points` of the art (a phone's `grip`, `ear`, `mouth`; a glass's `grip`, `lip`) for
-   * fitting it to the body (`use` beat, the phone / smoke / drink gestures).
+   * fitting it to the body (`use` beat, the phone / smoke / drink gestures); `gripFrom`: where the
+   * holder's forearm comes from at the grip, degrees in the holder's frame (0 = forward, 90 = from
+   * below; default 70, down and a little forward): the elbow goes there.
    */
-  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]> }>;
+  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number }>;
   /**
    * Vehicles by kind. `scale` is for a cast member of scale 1 (a ridden vehicle is multiplied by its
    * rider's scale). A vehicle whose rig has a `seat` anchor can be ridden (see DIRECTOR.md, Riding).

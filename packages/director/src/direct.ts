@@ -545,7 +545,8 @@ class BlockScene {
     const st = this.propStates.get(prop);
     if (!st) return this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
     if (!st.heldBy.some((h) => h.actor === actor && h.t0 <= at && h.t1 > at)) return this.issue("error", `${actor} cannot use "${prop}": not holding it (pick it up first, or heldBy)`);
-    const points = this.kit.props[this.propKinds.get(prop) ?? ""]?.points ?? {};
+    const pdef = this.kit.props[this.propKinds.get(prop) ?? ""];
+    const points = pdef?.points ?? {};
     const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
     const list = Object.entries(fit).slice(0, 2);
     for (const [k, [pt, an]] of list.entries()) {
@@ -558,16 +559,10 @@ class BlockScene {
     this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list.map(([pt, an]) => (typeof an === "number" ? { point: points[pt], angle: an } : { point: points[pt], anchor: an })) });
     if (this.hasChain(actor, "handF")) {
       // The hand holds it by its grip, the elbow low and forward (the forearm along the face).
-      this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0] }, duration: 0.3 });
-      this.set(actor, "ik.handF.bend", -1, at);
-      // The elbow points at the camera: the arm is foreshortened, close to the body.
-      this.set(actor, "bones.armF1.squash", -0.3, at, 0.3);
-      this.set(actor, "bones.armF2.squash", -0.15, at, 0.3);
+      this.push({ at: t0, actor, action: "reach", chain: "handF", target: { prop, point: points.grip ?? [0, 0], from: pdef?.gripFrom ?? 70 }, duration: 0.3 });
       if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "grip", at);
       this.push({ at: t1, actor, action: "reach", chain: "handF", target: null, duration: 0.3 });
-      this.set(actor, "ik.handF.bend", 1, until + 0.3);
-      this.set(actor, "bones.armF1.squash", 0, until, 0.3);
-      this.set(actor, "bones.armF2.squash", 0, until, 0.3);
+
     }
     this.push({ at: t1, action: "release", actor, prop });
     this.push({ at: t1, action: "grab", actor, prop, anchor: "hand" });

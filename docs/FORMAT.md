@@ -166,8 +166,10 @@ A held prop is drawn just above its holder, and the parts on the holding anchor'
 above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
 prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
 second anchor, every frame; with one point it turns with that anchor's bone. A `reach` target can be a
-prop's point (`{ prop, point }`), even on a prop fitted to the reaching actor's own body (a hand holding
-the phone at its ear).
+prop's point (`{ prop, point, from? }`), even on a prop fitted to the reaching actor's own body (a hand
+holding the phone at its ear); `from` (degrees in the actor's frame: 0 forward, 90 from below) is where
+the forearm comes from — the elbow goes there, the upper arm foreshortened when the hand is close to
+the shoulder (the elbow points at the camera).
 `turn` (0..1, optional) makes a prop held at the anchor turn with the bone: 1 turns it as much as
 the hand turns from its rest pose (a phone at the ear, a bottle tipped to the mouth), 0 keeps it
 upright. Draw held props the way they look in the hand at rest (arm hanging).
