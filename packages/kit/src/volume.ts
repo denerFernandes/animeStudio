@@ -118,7 +118,12 @@ export const bumpy = (f: Sdf, amp: number, size: number): Sdf => {
  * towards +x), seen from `pitch` above (radians; positive looks down at it: tops show). A number is a
  * yaw with no pitch.
  */
-export interface View { yaw: number; pitch: number }
+export interface View {
+  yaw: number;
+  pitch: number;
+  /** Screen offset down of the drawing (a part drawn at its own pitch, put back where the camera's pitch puts its pivot). */
+  dy?: number;
+}
 export type ViewLike = number | View;
 export const toView = (v: ViewLike): View => (typeof v === "number" ? { yaw: v, pitch: 0 } : v);
 
@@ -140,7 +145,7 @@ export function fromCam(X: number, Y: number, Z: number, view: ViewLike): V3 {
 /** Screen position of a model point in a view. */
 export function project(p: V3, view: ViewLike): P2 {
   const c = toCam(p, view);
-  return [c[0], c[1]];
+  return [c[0], c[1] + (toView(view).dy ?? 0)];
 }
 /** Depth of a model point in a view (larger = nearer the camera). */
 export const depthOf = (p: V3, view: ViewLike) => toCam(p, view)[2];
@@ -171,7 +176,8 @@ export function gridFor(boxes: Box3[], view: ViewLike, step: number): Grid & { z
     for (const x of b.x)
       for (const y of b.y)
         for (const z of b.z) {
-          const [X, Y, Z] = toCam([x, y, z], view);
+          const [X, Y0, Z] = toCam([x, y, z], view);
+          const Y = Y0 + (toView(view).dy ?? 0);
           x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y); z0 = Math.min(z0, Z); z1 = Math.max(z1, Z);
         }
   // One empty cell all around: every traced outline closes.
@@ -183,12 +189,12 @@ export function gridFor(boxes: Box3[], view: ViewLike, step: number): Grid & { z
 export function cast(f: Sdf, g: Grid & { zr: [number, number] }, view: ViewLike): Cast {
   const n = g.w * g.h;
   const val = new Float32Array(n), depth = new Float32Array(n).fill(-Infinity), hit = new Float32Array(n * 3).fill(NaN);
-  const { yaw, pitch } = toView(view);
+  const { yaw, pitch, dy = 0 } = toView(view);
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
   const [zmin, zmax] = g.zr;
   const minStep = g.step * 0.25;
   for (let j = 0; j < g.h; j++) {
-    const Y = g.y0 + j * g.step;
+    const Y = g.y0 + j * g.step - dy;
     for (let i = 0; i < g.w; i++) {
       const X = g.x0 + i * g.step;
       const k = j * g.w + i;

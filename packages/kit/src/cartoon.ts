@@ -119,6 +119,8 @@ const SW = 2.8;
 /** The three-quarter angle of the main view. */
 const Q = (36 * Math.PI) / 180;
 const deg = (d: number) => (d * Math.PI) / 180;
+/** How much of the camera's pitch the head is drawn with. */
+const HEAD_PITCH = 0.3;
 /** Drawn angles, in turning order (the in-betweens make turns fluid). */
 const VIEWS = {
   front: 0, half: deg(12), q24: deg(24), profile: Q, q50: deg(50), q64: deg(64), q77: deg(77), side: deg(90),
@@ -222,7 +224,7 @@ function model(look: CartoonLook, mirror = false): Model {
   const y = {
     hip, waist, shoulder, torsoTop, neckTop, head: hy, eye: ey, brow: ey - eye.ry - u * 0.13,
     // The mouth between the nose and the chin, with room for a chin below it.
-    nose: hy + u * 0.42, mouth: hy + u * 0.62, ear: hy + u * 0.3, top: hy - u * 1.14,
+    nose: hy + u * 0.38, mouth: hy + u * 0.68, ear: hy + u * 0.3, top: hy - u * 1.14,
   };
 
   // Head: a cranium and a face (jaw), blended.
@@ -241,7 +243,7 @@ function model(look: CartoonLook, mirror = false): Model {
     noseKind === "round" ? ellipsoid([0, y.nose, zn + u * 0.09], [u * 0.22, u * 0.18, u * 0.22])
       : noseKind === "long" ? blend(u * 0.06, ellipsoid([0, y.nose - u * 0.14, zn], [u * 0.1, u * 0.26, u * 0.15]), ellipsoid([0, y.nose + u * 0.02, zn + u * 0.12], [u * 0.13, u * 0.11, u * 0.15]))
         : noseKind === "wide" ? ellipsoid([0, y.nose, zn + u * 0.03], [u * 0.24, u * 0.15, u * 0.17])
-          : ellipsoid([0, y.nose, zn + u * 0.05], [u * 0.17, u * 0.15, u * 0.19]);
+          : ellipsoid([0, y.nose, zn + u * 0.05], [u * 0.16, u * 0.13, u * 0.18]);
   const head = blend(u * 0.05, skullFace, nose);
   const ears = union(ellipsoid([-u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]), ellipsoid([u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]));
 
@@ -596,7 +598,7 @@ export function piece(c: Cast, g: Grid, o: PieceOpts): string {
     const f = new Float32Array(n);
     for (let i = 0; i < n; i++) f[i] = key[i] === k ? light[i] * 20 : 1;
     const d = fieldPath(f, g, 6);
-    if (d) out += `<path d="${d}" fill="palette(${k}Shade)" fill-rule="evenodd"/>`;
+    if (d) out += `<path d="${d}" fill="palette(${k.endsWith("Shade") ? k : `${k}Shade`})" fill-rule="evenodd"/>`;
   }
   const line = o.line ?? o.base;
   if (o.keep) {
@@ -1007,6 +1009,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   const pitch = deg(opts.pitch ?? 0);
   /** A drawn angle seen from the camera's pitch. */
   const vw = (v: ViewKey): View => ({ yaw: VIEWS[v], pitch });
+  /** The head seen nearly level (a cartoon draws the face at eye level: seen from above, the nose
+   * would come down over the mouth). */
+  const vh = (v: ViewKey): View => ({ yaw: VIEWS[v], pitch: pitch * HEAD_PITCH, dy: m.y.neckTop * (Math.cos(pitch) - Math.cos(pitch * HEAD_PITCH)) });
   // Joints in body space (the front view), and where the main view (three-quarter) draws them.
   const j3: Record<string, V3> = {};
   const at = (x: number, y: number, z = 0): P => {
@@ -1028,9 +1033,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     hipF: joint("hipF", -hx, m.y.hip), kneeF: joint("kneeF", -hx, m.y.hip / 2, 6), footF: joint("footF", -hx, -ankle),
     hipB: joint("hipB", hx, m.y.hip), kneeB: joint("kneeB", hx, m.y.hip / 2, 6), footB: joint("footB", hx, -ankle),
   };
-  const eyeMid = project([0, m.y.eye, u * 0.9], vw("profile"));
+  const eyeMid = project([0, m.y.eye, u * 0.9], vh("profile"));
 
-  const views = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, { head: headView(m, vw(v)), body: bodyView(m, look, vw(v)), face: faceView(m, look, vw(v)) }])) as Record<ViewKey, { head: HeadView; body: ReturnType<typeof bodyView>; face: ReturnType<typeof faceView> }>;
+  const views = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, { head: headView(m, vh(v)), body: bodyView(m, look, vw(v)), face: faceView(m, look, vh(v)) }])) as Record<ViewKey, { head: HeadView; body: ReturnType<typeof bodyView>; face: ReturnType<typeof faceView> }>;
 
   const longSleeves = ["jacket", "cardigan", "blazer"].includes(look.top);
   const sleeveColor = longSleeves ? "palette(top2)" : "palette(top)";
@@ -1043,7 +1048,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // Points of the head for props fitted to the body (a phone at the ear, a cigarette at the mouth),
   // where each drawn angle puts them: the near ear, the middle of the mouth, between the eyes, the top.
   const headPoints = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => {
-    const th = vw(v), sp = onSurface(m.head, th);
+    const th = vh(v), sp = onSurface(m.head, th);
     return [v, {
       // The ear canal: on the near ear, between the height of the eyes and of the nose.
       ear: project([-u * 0.97, m.y.head + u * 0.22, -u * 0.02], th),
@@ -1062,7 +1067,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   if (asym) {
     const mm = model(look, true);
     for (const v of Object.keys(VIEWS) as ViewKey[]) {
-      const s = SUFFIX[v], H = headView(mm, vw(v)), B = bodyView(mm, look, vw(v));
+      const s = SUFFIX[v], H = headView(mm, vh(v)), B = bodyView(mm, look, vw(v));
       art[`hairBack${s}M`] = H.hairBack;
       art[`hairFront${s}M`] = H.hairFront;
       art[`torso${s}M`] = B.torso;
@@ -1480,7 +1485,7 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
 /** Director measurements of a cartoon character. */
 export function cartoonInfo(doc: ToonDoc, look: CartoonLook, opts: CartoonOptions = {}): RigInfo {
   const m = model(look);
-  const hv = headView(m, { yaw: Q, pitch: deg(opts.pitch ?? 0) });
+  const hv = headView(m, { yaw: Q, pitch: deg(opts.pitch ?? 0) * HEAD_PITCH });
   return rigInfo(doc, {
     extent: { front: r(Math.max(hv.bounds[2], m.b.S)), back: r(Math.max(-hv.bounds[0], m.b.S)) },
     height: r(-hv.bounds[1]),
