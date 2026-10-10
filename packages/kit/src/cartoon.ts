@@ -148,6 +148,101 @@ const mix = (a: string, b: string, t: number) => {
 };
 const pts = (p: P2[]) => p.map((q) => `${r(q[0])} ${r(q[1])}`).join(" L");
 
+// ------------------------------------------------------------------ anatomy
+
+/**
+ * A character's anatomy: every measure the drawings, the 3D skeleton, the director and the physics
+ * are made from — one document, kept with the character (`meta.anatomy`), editable, and checked by
+ * rules (`checkAnatomy`) before anything is drawn. `cartoonAnatomy(look)` derives it from a look.
+ */
+export interface CartoonAnatomy {
+  /**
+   * Body (character units): hip height, torso length, neck length, head radius (`head`: the face's
+   * unit); half widths of the shoulders, waist and hips, half depth of the body — before the look's
+   * shaping (`female`: narrower waist, wider hips; `heavy`: a belly).
+   */
+  body: { hip: number; torso: number; neck: number; head: number; shoulders: number; waist: number; hips: number; depth: number };
+  /** Diameters at the root and the end of the arms and legs; hand radius; shoe scale. */
+  limbs: { arm: [number, number]; leg: [number, number]; hand: number; shoe: number };
+  /**
+   * Face, in head radii from the head's centre (down is +): eye height, eye centre's distance from
+   * the middle, eye half width and half height, pupil radius; gap between eye and brow; nose height,
+   * nose half sizes (width, height, depth) and how far it stands out of the face; mouth height and
+   * half width (the widest it gets), how squarely a mouth corner must face the camera to be drawn
+   * (0..1: higher keeps it off the face's edge in a three-quarter view); ear height; chin bottom.
+   */
+  face: {
+    eyeY: number; eyeX: number; eye: [number, number]; pupil: number; brow: number;
+    noseY: number; nose: [number, number, number]; noseOut: number;
+    mouthY: number; mouthW: number; mouthMargin: number; earY: number; chinY: number;
+  };
+  /** Secondary motion: [stiffness, damping] (0..1) of the body's jiggle, forearms, head, ponytail, big hair. */
+  physics: { body: [number, number]; forearms: [number, number]; head: [number, number]; tail: [number, number]; hair: [number, number] };
+}
+
+const NOSES: Record<CartoonNose, { size: [number, number, number]; out: number }> = {
+  button: { size: [0.16, 0.13, 0.2], out: 0.08 },
+  round: { size: [0.22, 0.15, 0.22], out: 0.09 },
+  wide: { size: [0.24, 0.14, 0.17], out: 0.04 },
+  long: { size: [0.13, 0.11, 0.15], out: 0.12 },
+};
+const CHINS: Record<CartoonJaw, number> = { round: 1.14, chubby: 1.14, pointy: 1.14, square: 1.16 };
+
+/** The anatomy of a look (the defaults of its build, limbs, height, nose and jaw). */
+export function cartoonAnatomy(look: CartoonLook): CartoonAnatomy {
+  const base = BUILDS[look.build];
+  const k = look.tall ?? 1;
+  // Limb thickness: thin (the default, long thin limbs), normal or thick.
+  const lk = look.limbs === "thick" ? 1.6 : look.limbs === "normal" ? 1.32 : 1;
+  const nose = NOSES[look.nose ?? "button"];
+  // A smaller nose on a female face.
+  const nk = look.female ? 0.85 : 1;
+  return {
+    body: { hip: r(base.L * k), torso: r(base.T * k), neck: base.n, head: base.u, shoulders: base.S, waist: base.W, hips: base.H, depth: base.D },
+    limbs: { arm: [r(base.arm[0] * lk), r(base.arm[1] * lk)], leg: [r(base.leg[0] * lk), r(base.leg[1] * lk)], hand: r(base.hand * (1 + (lk - 1) * 0.5)), shoe: base.shoe },
+    face: {
+      eyeY: 0.12, eyeX: 0.3, eye: [r(0.185 * base.eye), r(0.235 * base.eye)], pupil: r(0.075 * base.eye), brow: 0.13,
+      noseY: 0.38, nose: [r(nose.size[0] * nk), r(nose.size[1] * nk), r(nose.size[2] * nk)], noseOut: r(nose.out * nk),
+      mouthY: 0.74, mouthW: 0.36, mouthMargin: 0.45, earY: 0.3, chinY: CHINS[look.jaw ?? "round"],
+    },
+    physics: { body: [0.75, 0.6], forearms: [0.55, 0.45], head: [0.7, 0.55], tail: [0.32, 0.25], hair: [0.45, 0.35] },
+  };
+}
+
+/** A broken rule of an anatomy: `error` (it would draw wrong) or `warning`. */
+export interface AnatomyIssue { severity: "error" | "warning"; rule: string; message: string }
+
+/**
+ * The rules an anatomy must follow: features that do not touch (the mouth below the nose with room
+ * for a smile, the nose below the eyes, the eyes apart and inside the face), a chin under the mouth,
+ * limbs that fit the body, hands that reach the lap seated, physics in range.
+ */
+export function checkAnatomy(a: CartoonAnatomy): AnatomyIssue[] {
+  const out: AnatomyIssue[] = [];
+  const f = a.face, B = a.body, Lm = a.limbs;
+  const err = (rule: string, message: string) => out.push({ severity: "error", rule, message });
+  const warn = (rule: string, message: string) => out.push({ severity: "warning", rule, message });
+  // A smile lifts the corners about 0.1 head radius; the lips need 0.06 more below the nose.
+  const noseBottom = f.noseY + f.nose[1];
+  if (f.mouthY - 0.1 - noseBottom < 0.06) err("mouth-nose", `the mouth (at ${f.mouthY}) touches the nose (its bottom at ${r(noseBottom)}): keep mouthY ≥ ${r(noseBottom + 0.16)}`);
+  if (f.chinY - f.mouthY < 0.3) err("chin", `no chin under the mouth (mouth at ${f.mouthY}, chin at ${f.chinY}): an open mouth needs 0.3 head radius`);
+  if (f.noseY - f.nose[1] < f.eyeY) warn("nose-eyes", "the nose starts above the eyes' centre: it will cover them in a three-quarter view");
+  if (f.eyeX - f.eye[0] < 0.04) err("eyes-apart", "the eyes touch each other");
+  if (f.eyeX + f.eye[0] > 0.8) err("eyes-inside", "the eyes go past the side of the face");
+  if (f.eyeY - f.eye[1] - f.brow < -0.95) err("brows", "the brows are above the top of the head");
+  if (f.mouthW < 0.15 || f.mouthW > 0.45) err("mouth-width", `mouthW ${f.mouthW} out of 0.15..0.45 head radii`);
+  if (f.mouthMargin < 0 || f.mouthMargin > 0.9) err("mouth-margin", "mouthMargin out of 0..0.9");
+  if (f.pupil > f.eye[0] * 0.8) err("pupil", "the pupil is bigger than the eye");
+  if (Lm.leg[0] / 2 > B.hips) err("legs-fit", "the legs are wider than the hips");
+  if (Lm.arm[0] / 2 > B.shoulders * 0.6) warn("arms-fit", "the arms are very thick for the shoulders");
+  // Seated, a hand reaches the middle of the thigh: from the shoulder, down the torso, forward half a thigh.
+  const arm = B.torso * 0.9 + B.hip * 0.34, need = Math.hypot(B.torso * 0.82, B.hip * 0.28);
+  if (arm < need) warn("reach", `the arms (${r(arm)}) are too short for the hands to rest in the lap seated (${r(need)})`);
+  if (B.head > (B.hip + B.torso) * 0.5) warn("head", "the head is wider than half the body's height: it will hide the shoulders when it turns");
+  for (const [k, v] of Object.entries(a.physics)) if (v.some((x) => x <= 0 || x > 1)) err("physics", `physics.${k} must be in (0, 1]`);
+  return out;
+}
+
 // ------------------------------------------------------------------ the model
 
 interface Model {
@@ -175,6 +270,10 @@ interface Model {
   skirtColor?: (p: V3) => string;
   eye: { x: number; rx: number; ry: number };
   mouthW: number;
+  /** How squarely a mouth corner must face the camera to be drawn. */
+  mouthMargin: number;
+  /** Pupil radius (head radii). */
+  pupil: number;
   /** Room between the mouth and the bottom of the chin (an open mouth stays inside the face). */
   chinRoom: number;
 }
@@ -204,13 +303,10 @@ const m_ry = (u: number) => u * 0.235;
  * side part, something behind an ear) — drawn for a character facing left (the rig is mirrored, so
  * the details land back on the same side of the body).
  */
-function model(look: CartoonLook, mirror = false): Model {
+function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look)): Model {
   const M = mirror ? -1 : 1;
-  const base = BUILDS[look.build];
-  const k = look.tall ?? 1;
-  // Limb thickness: thin (the default, long thin limbs), normal or thick.
-  const lk = look.limbs === "thick" ? 1.6 : look.limbs === "normal" ? 1.32 : 1;
-  const b: Build = { ...base, L: base.L * k, T: base.T * k, arm: [base.arm[0] * lk, base.arm[1] * lk], leg: [base.leg[0] * lk, base.leg[1] * lk], hand: base.hand * (1 + (lk - 1) * 0.5) };
+  const A = a.body, F = a.face;
+  const b: Build = { L: A.hip, T: A.torso, n: A.neck, u: A.head, S: A.shoulders, W: A.waist, H: A.hips, D: A.depth, arm: a.limbs.arm, leg: a.limbs.leg, hand: a.limbs.hand, shoe: a.limbs.shoe, eye: F.eye[1] / 0.235 };
   const heavy = look.heavy ?? 0;
   const u = b.u;
   const L = b.L, T = b.T;
@@ -219,12 +315,11 @@ function model(look: CartoonLook, mirror = false): Model {
   const hip = -L, waist = -L - T * 0.1, torsoTop = -L - T, shoulder = torsoTop + T * 0.1;
   const neckTop = torsoTop - b.n;
   const hy = neckTop - u * 0.92;
-  const eye = { x: u * 0.3, rx: u * 0.185 * b.eye, ry: u * 0.235 * b.eye };
-  const ey = hy + u * 0.12;
+  const eye = { x: u * F.eyeX, rx: u * F.eye[0], ry: u * F.eye[1] };
+  const ey = hy + u * F.eyeY;
   const y = {
-    hip, waist, shoulder, torsoTop, neckTop, head: hy, eye: ey, brow: ey - eye.ry - u * 0.13,
-    // The mouth between the nose and the chin, with room for a chin below it.
-    nose: hy + u * 0.38, mouth: hy + u * 0.68, ear: hy + u * 0.3, top: hy - u * 1.14,
+    hip, waist, shoulder, torsoTop, neckTop, head: hy, eye: ey, brow: ey - eye.ry - u * F.brow,
+    nose: hy + u * F.noseY, mouth: hy + u * F.mouthY, ear: hy + u * F.earY, top: hy - u * 1.14,
   };
 
   // Head: a cranium and a face (jaw), blended.
@@ -239,11 +334,10 @@ function model(look: CartoonLook, mirror = false): Model {
   // A nose with volume (it catches the light and casts a shadow), on the face.
   const zn = surfaceZ(skullFace, 0, y.nose) ?? u * 0.8;
   const noseKind = look.nose ?? "button";
-  const nose =
-    noseKind === "round" ? ellipsoid([0, y.nose, zn + u * 0.09], [u * 0.22, u * 0.18, u * 0.22])
-      : noseKind === "long" ? blend(u * 0.06, ellipsoid([0, y.nose - u * 0.14, zn], [u * 0.1, u * 0.26, u * 0.15]), ellipsoid([0, y.nose + u * 0.02, zn + u * 0.12], [u * 0.13, u * 0.11, u * 0.15]))
-        : noseKind === "wide" ? ellipsoid([0, y.nose, zn + u * 0.03], [u * 0.24, u * 0.15, u * 0.17])
-          : ellipsoid([0, y.nose, zn + u * 0.05], [u * 0.16, u * 0.13, u * 0.18]);
+  // (A long nose has a bridge up from its tip.)
+  const ns: V3 = [u * F.nose[0], u * F.nose[1], u * F.nose[2]];
+  const tip = ellipsoid([0, y.nose, zn + u * F.noseOut], ns);
+  const nose = noseKind === "long" ? blend(u * 0.06, ellipsoid([0, y.nose - u * 0.16, zn], [ns[0] * 0.78, u * 0.26, ns[2]]), tip) : tip;
   const head = blend(u * 0.05, skullFace, nose);
   const ears = union(ellipsoid([-u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]), ellipsoid([u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]));
 
@@ -525,10 +619,11 @@ function model(look: CartoonLook, mirror = false): Model {
   const headColor = (p: V3): string => {
     const [x, yy, z] = p;
     if (look.flushed && (nose(x, yy, z) < u * 0.02 || (z > 0 && Math.hypot(Math.abs(x) - u * 0.48, yy - (y.eye + u * 0.42)) < u * 0.17))) return "flush";
-    if (look.stubble && z > -u * 0.25 && yy > y.nose + u * 0.12 && !(Math.abs(x) < u * 0.42 && Math.abs(yy - y.mouth) < u * 0.07) && nose(x, yy, z) > u * 0.02) return "stubble";
+    // Stubble: the chin and jaw below the mouth and the upper lip — not the cheeks.
+    if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { b, y, head, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * 0.36, frontHalf(head, y.mouth, u) * 0.82), chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { b, y, head, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -646,6 +741,8 @@ interface HeadView {
   /** A ponytail behind the head (most views) or in front of it (seen from behind). */
   tailBack: string;
   tailFront: string;
+  /** The nose again, drawn over the mouth: in a three-quarter view it hides the mouth's far corner. */
+  noseOver: string;
   /** Screen bounds of everything drawn (for the measurements). */
   bounds: [number, number, number, number];
 }
@@ -684,15 +781,19 @@ function headView(m: Model, vw: View): HeadView {
     for (let d = 1; d <= drop; d++) if (at(front, i - Math.round((side * d) / drop), j - d) < 0) return true;
     return false;
   };
-  // The nose: outlined only where it stands out of the face (a jump in depth), like a drawn nose.
-  const noseField = new Float32Array(n).fill(1);
-  if (m.nose) for (let i = 0; i < n; i++) if (head.val[i] < 0 && !Number.isNaN(head.hit[i * 3]) && m.nose(head.hit[i * 3], head.hit[i * 3 + 1], head.hit[i * 3 + 2]) < u * 0.02) noseField[i] = -1;
+  // A jump in depth: where the nose stands out of the face (outlined there, like a drawn nose).
   const jump = (i: number, j: number) => {
     let d = 0;
     for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]]) d = Math.max(d, Math.abs(at(head.depth, i + a, j + b) - at(head.depth, i, j)));
     return d > g.step * 2;
   };
-  const noseLine = theta < 1.6 ? strokeWhere(noseField, g, (i, j) => jump(i, j) && at(front, i, j) > 0) : "";
+  // The nose as its own layer over the mouth (filled and shaded like the face, outlined only where
+  // it stands out), so the far corner of a mouth seen from three-quarters goes behind it.
+  const noseVal = new Float32Array(n).fill(1);
+  if (m.nose && theta < 1.6)
+    for (let i = 0; i < n; i++) if (head.val[i] < 0 && !Number.isNaN(head.hit[i * 3])) noseVal[i] = m.nose(head.hit[i * 3], head.hit[i * 3 + 1], head.hit[i * 3 + 2]) - u * 0.015;
+  // (Over the hair too: hair at the side of the face never hides the nose.)
+  const noseOver = m.nose && theta < 1.6 ? piece(head, g, { sdf: m.head, theta: vw, color: m.headColor, base: "skin", field: noseVal, keep: (i, j) => jump(i, j) && at(noseVal, i, j) < u * 0.02 }) : "";
   const tailArt = m.tail ? piece(cast(m.tail.sdf, g, vw), g, { sdf: m.tail.sdf, theta: vw, color: m.tail.color, base: "hair", edges: ["accent"] }) : "";
   const tailInFront = !!m.tail && depthOf(m.tail.pivot, vw) > depthOf([0, m.y.head, 0], vw) + u * 0.2;
   // The front hair's outline is drawn against the face only, not where it meets the hair behind.
@@ -700,7 +801,8 @@ function headView(m: Model, vw: View): HeadView {
   return {
     hairBack: piece(hair, g, { sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], smooth: u * 0.18 }),
     earsBack: piece(ears, g, { sdf: m.ears, theta: vw, base: "skin" }),
-    head: piece(head, g, { sdf: m.head, theta: vw, color: m.headColor, base: "skin", shadow: underHair }) + (noseLine ? `<path d="${noseLine}" fill="none" ${stc("skin", 2.2)}/>` : ""),
+    head: piece(head, g, { sdf: m.head, theta: vw, color: m.headColor, base: "skin", shadow: underHair }),
+    noseOver,
     earsFront: theta > 0.2 && theta < 2 ? piece(ears, g, { sdf: m.ears, theta: vw, base: "skin", field: earF }) : "",
     hairFront: piece(hair, g, { sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], field: front, keep: keepHair, smooth: u * 0.18 }),
     tailBack: tailArt && !tailInFront ? tailArt : "",
@@ -751,7 +853,9 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
     });
   const curve = (p: P2[]) => `M${r(p[0][0])} ${r(p[0][1])}` + p.slice(1).map((q) => ` L${r(q[0])} ${r(q[1])}`).join("");
   const eyes = [-1, 1].map((side) => side * ex);
-  const vis = eyes.map((x) => s.visible(x, ey));
+  // An eye turned well away is left out (the classic near-profile: one eye), not drawn as a sliver
+  // on the face's edge.
+  const vis = eyes.map((x) => s.visible(x, ey, 0.4));
   const each = (fn: (x: number, i: number) => string) => eyes.map((x, i) => (vis[i] ? fn(x, i) : "")).join("");
   const white = (k: number) =>
     each((x) => {
@@ -778,7 +882,7 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
       });
       return `<path d="${curve(p)}" fill="none" ${st(3.6)}/>`;
     });
-  const pupilR = u * 0.075 * m.b.eye;
+  const pupilR = u * m.pupil;
   const pupil = (k = 1) =>
     each((x) => {
       const c = s.point(x, ey + ry * 0.08);
@@ -829,17 +933,71 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   // Mouth.
   // Each corner stays on the part of the face turned to the camera (turned away, a mouth seen from
   // the side is short: its far corner goes round the face, out of sight).
-  const corner = (side: number) => {
-    let x = side * m.mouthW;
-    for (let k = 0; k < 14 && !s.visible(x, m.y.mouth, 0.42); k++) x *= 0.86;
-    return s.point(x, m.y.mouth);
+  const corner = (side: number, my: number, k: number) => {
+    let x = side * m.mouthW * k;
+    for (let i = 0; i < 20 && !s.visible(x, my, m.mouthMargin); i++) x *= 0.88;
+    return s.point(x, my);
   };
-  const L = corner(-1), R = corner(1);
-  // Open mouths stay above the chin: the widest opening (D, about 27 × scale below the corners)
-  // fits in the room between the mouth and the chin. Seen from the front the mouth is symmetric.
-  const open = Math.min((u / 50) * 1.0, m.chinRoom / 27);
-  const style = { symmetric: theta < 0.35 || theta > 2.8, lift: Math.max(0.6, Math.min(1, m.mouthW / (u * 0.3))) };
-  const mouth = mouthShapes(L as P, R as P, open, style);
+  // The rules: every mouth shape (expressions and the visemes of speech) stays on the face, inside its
+  // outline, and never touches the nose — from every angle. The nose as drawn here (where the face's
+  // surface is the nose's) with a gap around it; the face where a ray goes well into the head.
+  const ng = gridFor([{ x: [-u * 1.2, u * 1.2], y: [m.y.nose - u * 0.4, m.y.mouth + u * 0.7], z: [-u * 1.2, u * 1.6] }], vw, u / 40);
+  const hc = cast(m.head, ng, vw);
+  const noseCells: P2[] = [];
+  if (m.nose)
+    for (let j = 0; j < ng.h; j++)
+      for (let i = 0; i < ng.w; i++) {
+        const c = j * ng.w + i;
+        if (hc.val[c] < 0 && !Number.isNaN(hc.hit[c * 3]) && m.nose(hc.hit[c * 3], hc.hit[c * 3 + 1], hc.hit[c * 3 + 2]) < u * 0.015) noseCells.push([ng.x0 + i * ng.step, ng.y0 + j * ng.step]);
+      }
+  const gap = u * 0.05 + 2;
+  // Near profile the mouth is on the face's edge: the lips may stand a little out of it.
+  const edge = theta > 1.1 ? u * 0.1 : 0;
+  const onFace = (p: P2) => {
+    const i = Math.round((p[0] - ng.x0) / ng.step), j = Math.round((p[1] - ng.y0) / ng.step);
+    return i >= 0 && j >= 0 && i < ng.w && j < ng.h && hc.val[j * ng.w + i] < edge;
+  };
+  let my = m.y.mouth, kL = 1, kR = 1, lift = Math.max(0.6, Math.min(1, m.mouthW / (u * 0.3)));
+  let mid = s.point(0, my)[0];
+  const check = (shapes: { base: string; shapes: Record<string, string> }) => {
+    const pts = [shapes.base, ...Object.values(shapes.shapes)].flatMap((d) => pathPoints(parsePath(d)));
+    const v = { noseL: 0, noseR: 0, sideL: 0, sideR: 0, below: 0 };
+    for (const p of pts) {
+      if (noseCells.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < gap)) p[0] < mid ? v.noseL++ : v.noseR++;
+      if (!onFace(p)) {
+        if (p[1] > s.point(0, my)[1] + u * 0.12) v.below++;
+        else p[0] < mid ? v.sideL++ : v.sideR++;
+      }
+    }
+    return v;
+  };
+  const open0 = Math.min((u / 50) * 1.0, m.chinRoom / 27);
+  let open = open0;
+  const build = () => {
+    const style = { symmetric: theta < 0.35 || theta > 2.8, lift };
+    mid = s.point(0, my)[0];
+    const L = corner(-1, my, kL), R = corner(1, my, kR);
+    return { L, R, style, shapes: mouthShapes(L as P, R as P, open, style) };
+  };
+  let made = build(), clear = false;
+  // Fix what breaks, cheapest change first: shorten the corner that touches (the nose's side or the
+  // face's edge), flatten the smile, open less, then lower the mouth (never into the chin).
+  for (let i = 0; i < 60; i++) {
+    const v = check(made.shapes);
+    if (!v.noseL && !v.noseR && !v.sideL && !v.sideR && !v.below) { clear = true; break; }
+    if ((v.noseR || v.sideR) && v.noseR + v.sideR >= v.noseL + v.sideL && kR > 0.5) kR *= 0.92;
+    else if ((v.noseL || v.sideL) && kL > 0.5) kL *= 0.92;
+    else if ((v.noseL || v.noseR) && lift > 0.3) lift *= 0.85;
+    else if (v.below && open > open0 * 0.45) open *= 0.9;
+    else if ((v.noseL || v.noseR) && my - m.y.mouth < m.chinRoom * 0.4) {
+      my += u * 0.015;
+      open = Math.min(open, (m.chinRoom - (my - m.y.mouth)) / 27);
+    } else if (v.below && my > m.y.mouth - u * 0.06) my -= u * 0.01;
+    else break;
+    made = build();
+  }
+  const { L, R, style } = made;
+  const mouth = made.shapes;
   const inside = mouthInside(L as P, R as P, open, style);
 
   // Nostrils (the nose itself is a volume of the head).
@@ -911,7 +1069,7 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
     }
   }
   const visible = theta < 1.6;
-  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, nose, extras, over, visible };
+  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, nose, extras, over, visible, mouthClear: clear };
 }
 
 // ------------------------------------------------------------------ shoes, sleeves, shorts
@@ -998,12 +1156,19 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>): Record<st
   return { id: "legs", type: "solid", step: 2, bodies };
 }
 
-export interface CartoonOptions { pitch?: number }
+export interface CartoonOptions {
+  pitch?: number;
+  /** The character's anatomy (default `cartoonAnatomy(look)`): an edited one changes its body, face and physics. */
+  anatomy?: CartoonAnatomy;
+}
 
 export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): ToonDoc {
   // Lipstick colours the lips (a thicker outline); the inside of the mouth stays dark.
   const [LIPS, LIPS_W] = look.lipstick ? ["palette(lips)", 3.6] : ["palette(mouthLine)", 2.4];
-  const m = model(look);
+  const anatomy = opts.anatomy ?? cartoonAnatomy(look);
+  const broken = checkAnatomy(anatomy).filter((x) => x.severity === "error");
+  if (broken.length) throw new Error(`${look.name}: anatomy breaks ${broken.length} rule(s): ${broken.map((x) => `${x.rule} — ${x.message}`).join("; ")}`);
+  const m = model(look, false, anatomy);
   const { b } = m;
   const u = b.u;
   const pitch = deg(opts.pitch ?? 0);
@@ -1065,7 +1230,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // the character faces left (`side` control).
   const asym = look.top === "shirt" || !!look.pocketItem || !!look.earItem || look.hair === "sidePart" || !!look.hairLine;
   if (asym) {
-    const mm = model(look, true);
+    const mm = model(look, true, anatomy);
     for (const v of Object.keys(VIEWS) as ViewKey[]) {
       const s = SUFFIX[v], H = headView(mm, vh(v)), B = bodyView(mm, look, vw(v));
       art[`hairBack${s}M`] = H.hairBack;
@@ -1085,8 +1250,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     art[`neck${s}`] = V.body.neck;
     art[`torso${s}`] = V.body.torso;
     art[`skirt${s}`] = V.body.skirt;
-    art[`nose${s}`] = V.face.nose + V.face.extras;
-    art[`over${s}`] = V.face.over;
+    art[`nose${s}`] = V.face.extras;
+    // Over the mouth: the nose (with its nostrils), then a moustache, glasses.
+    art[`over${s}`] = V.head.noseOver + V.face.nose + V.face.over;
   }
   const F = views.profile.face;
   for (const [k, v] of Object.entries(F.eyeVariants)) art[`eye_${k}`] = v;
@@ -1129,10 +1295,11 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "mouth", type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes },
     { id: "tongue", type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes },
     { id: "teeth", type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes },
-    { id: "over", type: "rigid", bone: "head", art: "over" },
     { id: "hairFront", type: "rigid", bone: "hair", art: "hairFront" },
     ...(tail ? [{ id: "tailFront", type: "rigid", bone: "tail", art: "tailFront" }] : []),
     { id: "earsFront", type: "rigid", bone: "head", art: "earsFront" },
+    // The nose, a moustache, glasses: over the mouth and over the hair at the sides of the face.
+    { id: "over", type: "rigid", bone: "head", art: "over" },
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
     { id: "armF", type: "hose", bones: ["armF1", "armF2"], width: b.arm, fill: longSleeves ? "palette(top2)" : "palette(skin)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
     // A wristwatch on the body's left wrist: the near arm facing right, the far arm facing left.
@@ -1144,12 +1311,12 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // Secondary motion, as in hand-drawn animation: the body jiggles, forearms and the head drag a
   // little behind and settle (follow-through), a ponytail swings, big hair bounces.
   const physics: Record<string, unknown>[] = [
-    { type: "jiggle", bone: "body", stiffness: 0.75, damping: 0.6, translate: 0.04, squash: 0.03 },
-    { type: "spring", bones: ["armF2"], stiffness: 0.55, damping: 0.45, gravity: [0, 0], inertia: 0.35 },
-    { type: "spring", bones: ["armB2"], stiffness: 0.55, damping: 0.45, gravity: [0, 0], inertia: 0.35 },
-    { type: "spring", bones: ["head"], stiffness: 0.7, damping: 0.55, gravity: [0, 0], inertia: 0.15 },
-    ...(tail ? [{ type: "spring", bones: ["tail"], stiffness: 0.32, damping: 0.25, gravity: [0, 260], inertia: 0.7 }] : []),
-    ...(m.bouncy ? [{ type: "jiggle", bone: "hair", stiffness: 0.45, damping: 0.35, translate: 0.05, squash: 0.06 }] : []),
+    { type: "jiggle", bone: "body", stiffness: anatomy.physics.body[0], damping: anatomy.physics.body[1], translate: 0.04, squash: 0.03 },
+    { type: "spring", bones: ["armF2"], stiffness: anatomy.physics.forearms[0], damping: anatomy.physics.forearms[1], gravity: [0, 0], inertia: 0.35 },
+    { type: "spring", bones: ["armB2"], stiffness: anatomy.physics.forearms[0], damping: anatomy.physics.forearms[1], gravity: [0, 0], inertia: 0.35 },
+    { type: "spring", bones: ["head"], stiffness: anatomy.physics.head[0], damping: anatomy.physics.head[1], gravity: [0, 0], inertia: 0.15 },
+    ...(tail ? [{ type: "spring", bones: ["tail"], stiffness: anatomy.physics.tail[0], damping: anatomy.physics.tail[1], gravity: [0, 260], inertia: 0.7 }] : []),
+    ...(m.bouncy ? [{ type: "jiggle", bone: "hair", stiffness: anatomy.physics.hair[0], damping: anatomy.physics.hair[1], translate: 0.05, squash: 0.06 }] : []),
   ];
 
   const top2 = look.top2 ?? shade(look.topColor, 0.75);
@@ -1158,7 +1325,16 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     version: 1,
     name: look.name,
     // Seated facing the camera: half the thigh shows; skirts sit with the knees together.
-    meta: { description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)` },
+    // The anatomy it was made from travels with it (edit it and rebuild with `opts.anatomy`).
+    meta: {
+      description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)`,
+      anatomy,
+      // Rules checked on the drawings (the mouth clear of the nose in every drawn angle).
+      anatomyIssues: [
+        ...checkAnatomy(anatomy).filter((x) => x.severity === "warning"),
+        ...(Object.keys(VIEWS) as ViewKey[]).filter((v) => views[v].face.visible && !views[v].face.mouthClear).map((v) => ({ severity: "error", rule: "mouth-nose-view", message: `in the ${v} view a mouth shape still touches the nose or leaves the face` })),
+      ],
+    },
     palette: {
       ink: INK,
       skin: look.skin,
@@ -1183,7 +1359,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       tongue: "#d8606a",
       stripe: look.stripe ?? top2,
       flush: mix(look.skin, "#e0584f", 0.32),
-      stubble: mix(look.skin, "#5b6577", 0.28),
+      stubble: mix(look.skin, "#5b6577", 0.2),
       item: look.pocketItem?.color ?? "#f4f1ea",
       band: look.pocketItem?.band ?? "#c8282e",
       earItem: look.earItem === "pencil" ? "#f2c230" : "#f7f5ee",
@@ -1341,10 +1517,10 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       );
     }
     list.push(
-      before("armF", { id: `over${s}`, type: "rigid", bone: "head", art: `over${s}` }),
       before("armF", { id: `hairFront${s}`, type: "rigid", bone: "hair", art: `hairFront${s}` }),
       ...(tail ? [before("armF", { id: `tailFront${s}`, type: "rigid", bone: "tail", art: `tailFront${s}` })] : []),
       before("armF", { id: `earsFront${s}`, type: "rigid", bone: "head", art: `earsFront${s}` }),
+      before("armF", { id: `over${s}`, type: "rigid", bone: "head", art: `over${s}` }),
     );
     if (F.visible) list.push(before("armF", { id: `brows${s}`, type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes }));
     return list;
@@ -1484,7 +1660,7 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
 
 /** Director measurements of a cartoon character. */
 export function cartoonInfo(doc: ToonDoc, look: CartoonLook, opts: CartoonOptions = {}): RigInfo {
-  const m = model(look);
+  const m = model(look, false, opts.anatomy ?? (doc.meta as { anatomy?: CartoonAnatomy } | undefined)?.anatomy ?? cartoonAnatomy(look));
   const hv = headView(m, { yaw: Q, pitch: deg(opts.pitch ?? 0) * HEAD_PITCH });
   return rigInfo(doc, {
     extent: { front: r(Math.max(hv.bounds[2], m.b.S)), back: r(Math.max(-hv.bounds[0], m.b.S)) },

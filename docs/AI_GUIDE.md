@@ -192,6 +192,11 @@ Lessons from converting a 66-shot storyboard into an episode:
   as drawings of volumes: only the chains' bones foreshorten (a squashed head bares the scalp's
   edges under the hair). Clothes over a solid hug it: a skirt as a body ending just above the
   knees, so the knees show under the hem seated (a skirt covering the knees reads as a ball).
+- Cartoon characters: fix a character's body or face in its anatomy (`cartoonAnatomy(look)`, edit,
+  `cartoonCharacter(look, { anatomy })`), not in the drawing code — `checkAnatomy` says which rule an
+  edit breaks before anything is drawn. Faces seen from above or from three-quarters go wrong in
+  ways a front view hides: the nose comes down over the mouth (draw the head nearly level), the
+  mouth's far corner hugs the face's edge (let the nose, drawn over the mouth, hide it).
 - A change of view (profile ↔ front/back) is hidden by the kit's `turn` clip (a quick squeeze);
   the director plays it automatically on every `view` change.
   Hide the switch with a quick squash clip (e.g. `bones.root.scaleX` 1 → 0.8 → 1) at the change.

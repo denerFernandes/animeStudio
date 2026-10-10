@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileRig, evaluatePose, makeTrack, resolveChannel, validateToon } from "@animestudio/core";
-import { type CartoonLook, cast, ellipsoid, fieldPath, fluid, gridFor, mouthInside, onSurface, cartoonCharacter, cartoonInfo, sphere } from "../src";
+import { type CartoonLook, cartoonAnatomy, cast, checkAnatomy, ellipsoid, fieldPath, fluid, gridFor, mouthInside, onSurface, cartoonCharacter, cartoonInfo, sphere } from "../src";
 
 const kid: CartoonLook = {
   name: "kid", build: "kid", skin: "#f6d3b5", hair: "ponytail", hairColor: "#5a3a22", accent: "#ff4fa0",
@@ -94,6 +94,35 @@ describe("sitcom characters", () => {
       expect(p[`${k}Shade`]).toMatch(/^#[0-9a-f]{6}$/);
       expect(p[`${k}Line`]).toMatch(/^#[0-9a-f]{6}$/);
     }
+  });
+});
+
+describe("anatomy", () => {
+  it("every build, nose and jaw makes an anatomy that keeps the rules", () => {
+    for (const build of ["child", "kid", "teen", "woman", "man", "big", "elder"] as const)
+      for (const nose of ["button", "round", "long", "wide"] as const)
+        for (const jaw of ["round", "square", "pointy", "chubby"] as const)
+          for (const limbs of ["thin", "normal", "thick"] as const) {
+            const errors = checkAnatomy(cartoonAnatomy({ ...kid, build, nose, jaw, limbs })).filter((i) => i.severity === "error");
+            expect(errors, `${build} ${nose} ${jaw} ${limbs}`).toEqual([]);
+          }
+  });
+  it("the mouth never touches the nose, in any expression, from any angle", () => {
+    for (const look of [kid, { ...kid, build: "woman", female: true, lipstick: "#c2334a", nose: "round" }, { ...kid, build: "man", nose: "long", moustache: true }, { ...kid, build: "elder", nose: "wide", jaw: "square" }] as CartoonLook[]) {
+      const issues = (cartoonCharacter(look).meta as { anatomyIssues: { rule: string; message: string }[] }).anatomyIssues;
+      expect(issues.filter((i) => i.rule === "mouth-nose-view").map((i) => i.message), look.build).toEqual([]);
+    }
+  });
+  it("travels with the character, can be edited, and is checked", () => {
+    const a = cartoonAnatomy(kid);
+    expect((cartoonCharacter(kid).meta as { anatomy: unknown }).anatomy).toEqual(a);
+    // A mouth moved onto the nose is refused, with the rule that says why.
+    const bad = { ...a, face: { ...a.face, mouthY: 0.45 } };
+    expect(checkAnatomy(bad).map((i) => i.rule)).toContain("mouth-nose");
+    expect(() => cartoonCharacter(kid, { anatomy: bad })).toThrow(/mouth-nose/);
+    // Longer legs: a taller rig.
+    const tall = { ...a, body: { ...a.body, hip: a.body.hip * 1.2 } };
+    expect(cartoonInfo(cartoonCharacter(kid, { anatomy: tall }), kid, { anatomy: tall }).height).toBeGreaterThan(cartoonInfo(cartoonCharacter(kid), kid).height + 20);
   });
 });
 
