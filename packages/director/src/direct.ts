@@ -1826,31 +1826,43 @@ class BlockScene {
    * the shins hang straight down to the floor under the knees; on the ground both are foreshortened.
    */
   private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number) {
-    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } } } };
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: { thigh?: number; spread?: number } } };
     const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
     const s = this.scaleOf(actor);
     const drop = floor - seatY;
+    // How much of the thigh shows (seen from a little above: the top of the lap) and how far apart
+    // the knees and feet are (`meta.sitFront` of the rig).
+    const seen = doc.meta?.sitFront?.thigh ?? 0.4, spread = doc.meta?.sitFront?.spread ?? 1;
     for (const side of ["F", "B"] as const) {
       const [hipJ, knee, ankle] = [bone(`leg${side}1`), bone(`leg${side}2`), bone(`foot${side}`)];
       if (!hipJ || !knee || !ankle || !this.hasChain(actor, `foot${side}`)) continue;
       const thigh = Math.hypot(knee[0] - hipJ[0], knee[1] - hipJ[1]) * s;
       const shin = Math.hypot(ankle[0] - knee[0], ankle[1] - knee[1]) * s;
       const ax = (ankle[0] + (doc.meta?.views?.move?.front?.[`leg${side}1`]?.[0] ?? 0)) * s;
-      const footX = Math.round(x + dir * ax);
+      const footX = Math.round(x + dir * ax * spread);
       // The thigh points at the camera (seen end-on: short); the shin hangs from the knee, foreshortened
       // too when the seat is low (knees up), and the foot rests on the floor or dangles.
-      const fore = thigh * 0.4;
+      const fore = thigh * seen;
       const shinSq = Math.max(-0.6, Math.min(0, (drop - fore) / shin - 1));
-      this.set(actor, `bones.leg${side}1.squash`, -0.6, at, 0.5, "easeOut");
+      this.set(actor, `bones.leg${side}1.squash`, r3(seen - 1), at, 0.5, "easeOut");
       this.set(actor, `bones.leg${side}2.squash`, r3(shinSq), at, 0.5, "easeOut");
       // A rig can draw the thigh seen end-on (a "lap": short and round, the knee on top).
-      if (this.hasPart(actor, `lap${side}`)) this.set(actor, `parts.lap${side}.variant`, "on", at + 0.25);
+      // A rig with a `seat` pose control draws the whole seated look itself (the lap, a skirt over it).
+      if (this.hasControl(actor, "seat")) {
+        if (side === "F") this.push({ at: this.t(at + 0.25), actor, action: "pose", control: "seat", value: "front", duration: 0 });
+      } else if (this.hasPart(actor, `lap${side}`)) this.set(actor, `parts.lap${side}.variant`, "on", at + 0.25);
       const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
       this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
       // Hands resting on the knees (a lap drawn by the rig), unless a gesture takes them.
-      if (this.hasPart(actor, `lap${side}`) && this.hasChain(actor, `hand${side}`)) {
-        const handX = Math.round(footX + (side === "F" ? -1 : 1) * dir * 6 * s);
-        this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [handX, Math.round(seatY + fore * 0.85)], duration: 0.5 });
+      if ((this.hasPart(actor, `lap${side}`) || this.hasControl(actor, "seat")) && this.hasChain(actor, `hand${side}`)) {
+        // On the outer side of the thigh, under the shoulder: the arm hangs almost straight, never
+        // across the body.
+        const sh = bone(`arm${side}1`);
+        const shX = sh ? x + dir * (sh[0] + (doc.meta?.views?.move?.front?.[`arm${side}1`]?.[0] ?? 0)) * s : footX;
+        const handX = Math.round(footX + (shX - footX) * 0.7);
+        this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [handX, Math.round(seatY + fore * 0.9)], duration: 0.5 });
+        // Elbows out, away from the body (the near arm bends the other way from the front).
+        if (side === "F") this.set(actor, "ik.handF.bend", -1, at + 0.1);
       }
     }
   }
@@ -1992,9 +2004,11 @@ class BlockScene {
       this.set(actor, "rotation", 0, at, 0.6, "backOut");
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
     }
-    if (l.kind === "sit" && l.front) for (const side of ["F", "B"]) if (this.hasPart(actor, `lap${side}`)) {
-      this.set(actor, `parts.lap${side}.variant`, "off", at + 0.15);
+    if (l.kind === "sit" && l.front && this.hasControl(actor, "seat")) this.push({ at: this.t(at + 0.15), actor, action: "pose", control: "seat", value: "none", duration: 0 });
+    if (l.kind === "sit" && l.front) for (const side of ["F", "B"]) if (this.hasPart(actor, `lap${side}`) || this.hasControl(actor, "seat")) {
+      if (!this.hasControl(actor, "seat")) this.set(actor, `parts.lap${side}.variant`, "off", at + 0.15);
       if (this.hasChain(actor, `hand${side}`)) this.push({ at: this.t(at), actor, action: "reach", chain: `hand${side}`, target: null, duration: 0.4 });
+      if (side === "F" && this.hasChain(actor, "handF")) this.set(actor, "ik.handF.bend", 1, at + 0.4);
     }
     if (l.kind === "sit") for (const c of ["footF", "footB"]) if (this.hasChain(actor, c)) this.push({ at: this.t(at), actor, action: "reach", chain: c, target: null, duration: 0.45 });
     if (l.front) for (const b of ["legF1", "legF2", "legB1", "legB2"]) this.set(actor, `bones.${b}.squash`, 0, at, 0.45, "easeOut");

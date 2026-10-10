@@ -100,7 +100,7 @@ export type ChannelRef =
   | { kind: "bone"; index: number; prop: BoneProp }
   | { kind: "part"; index: number; prop: "variant" | "opacity" }
   | { kind: "morph"; index: number; shape: string }
-  | { kind: "ik"; index: number; prop: "x" | "y" | "mix" }
+  | { kind: "ik"; index: number; prop: "x" | "y" | "mix" | "bend" }
   | { kind: "control"; name: string }
   | { kind: "behavior"; index: number }
   | { kind: "physics"; index: number };
@@ -270,8 +270,8 @@ export function resolveChannel(rig: Pick<Rig, "boneIndex" | "partIndex" | "parts
     case "ik": {
       const index = rig.ik.findIndex((k) => k.id === seg[1]);
       if (index < 0) fail(`unknown IK chain "${seg[1]}".` + known("IK chains", rig.ik.map((k) => k.id)));
-      const prop = seg[2] as "x" | "y" | "mix";
-      if (!["x", "y", "mix"].includes(prop) || seg.length !== 3) fail("expected ik.<id>.(x|y|mix).");
+      const prop = seg[2] as "x" | "y" | "mix" | "bend";
+      if (!["x", "y", "mix", "bend"].includes(prop) || seg.length !== 3) fail("expected ik.<id>.(x|y|mix|bend).");
       return { kind: "ik", index, prop };
     }
     case "controls": {

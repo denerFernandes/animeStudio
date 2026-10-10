@@ -61,6 +61,9 @@ describe("sitcom characters", () => {
     expect(skirt.length).toBeGreaterThan(1);
     expect(skirt.every((p) => p.type === "skinned" && p.bones!.includes("legF1"))).toBe(true);
     expect((lady.anchors as Record<string, { turn?: number }>).hand.turn).toBe(1);
+    // Shoes point at the camera from the front.
+    const front = (lady.controls as Record<string, { poses: Record<string, Record<string, unknown>> }>).view.poses.front;
+    expect(front["parts.shoeF.variant"]).toBe("front");
   });
   it("gives every colour a shadow tone and a line tone", () => {
     const p = doc.palette as Record<string, string>;

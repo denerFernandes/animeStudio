@@ -284,6 +284,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 | `parts.<id>.morph.<shape>` | blend weight |
 | `ik.<id>.x`, `ik.<id>.y` | target offset from rest tip |
 | `ik.<id>.mix` | 0..1 |
+| `ik.<id>.bend` | `1` (the chain's `bend`) or `-1` (the other way): which side a two-bone chain folds to (elbows out when seen from the front) |
 | `controls.<id>` | see controls |
 | `behaviors.<id>.mix` | 0..1 |
 | `physics.<index>.mix` | 0..1 |

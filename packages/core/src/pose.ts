@@ -38,6 +38,8 @@ export interface PoseState {
   ikX: Float64Array;
   ikY: Float64Array;
   ikMix: Float64Array;
+  /** Which way each two-bone chain bends (> 0: the rig's `bend`, < 0: the other way). */
+  ikBend: Float64Array;
   controls: Record<string, Value | undefined>;
   behaviorMix: Float64Array;
   physicsMix: Float64Array;
@@ -60,6 +62,7 @@ export function createPoseState(rig: Rig): PoseState {
     ikX: new Float64Array(rig.ik.length),
     ikY: new Float64Array(rig.ik.length),
     ikMix: Float64Array.from(rig.ik.map((k) => k.mix)),
+    ikBend: new Float64Array(rig.ik.length).fill(1),
     controls: {},
     behaviorMix: new Float64Array(rig.behaviors.length).fill(1),
     physicsMix: Float64Array.from(rig.physics.map((p) => p.mix)),
@@ -121,6 +124,10 @@ export function applyChannel(state: PoseState, ref: ChannelRef, value: Value | u
     }
     case "ik": {
       if (typeof value !== "number") return;
+      if (ref.prop === "bend") {
+        if (w >= 0.5) state.ikBend[ref.index] = value < 0 ? -1 : 1;
+        return;
+      }
       const arr = ref.prop === "x" ? state.ikX : ref.prop === "y" ? state.ikY : state.ikMix;
       arr[ref.index] = blendNumber(arr[ref.index], value, w, mode, false);
       return;
@@ -440,7 +447,7 @@ export function evaluatePose(
     const extra = input.ikOffset?.[k.id];
     let target: Vec2 = [k.restTarget[0] + s.ikX[i] + (extra?.[0] ?? 0), k.restTarget[1] + s.ikY[i] + (extra?.[1] ?? 0)];
     if (held) target = [target[0] + (held.point[0] - target[0]) * w, target[1] + (held.point[1] - target[1]) * w];
-    if (k.bones.length === 2) solveTwoBone(rig, s, world, k.bones[0], k.bones[1], target, k.bend, mix);
+    if (k.bones.length === 2) solveTwoBone(rig, s, world, k.bones[0], k.bones[1], target, (s.ikBend[i] < 0 ? -k.bend : k.bend) as 1 | -1, mix);
     else solveFabrik(rig, s, world, k.bones, target, mix);
   });
 
