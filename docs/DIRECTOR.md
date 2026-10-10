@@ -124,7 +124,7 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `take` | `who`, `prop` (hung on `who` by `use … hands: false`) | 2.5D rigs: the near hand goes to where it hangs (the mouth: `rig3d.points`), takes it by its `grip` (else a third of the way along it) and brings it in front of the chest (`points.chest`), standing up between the fingers — the arm reached in 3D, so it never crosses the body, sitting (sofa, floor) or standing |
 | `hold` | `who`, `prop`, `until?` | With a prop: held up in front of the chest (taken from the body first if it hangs there) until `until`, then the arm goes back to where it rests |
 | `putBack` | `who`, `prop` | The prop back where it hung (the same fit as its `use … hands: false`), the hand lets go and the arm goes back to rest (the knees, the floor behind, hanging) |
-| `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
+| `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character; as the block opens, with no time to step, they start there) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
 | `cross` | `who`, `to` (mark), `until` | Cross to the far ground: back view, hand in hand, foreshortened walk, smaller with depth, camera goes along |
 | `pick`, `drop` | `who`, `prop` | Walks to the prop if needed and takes it / puts it down |
 | `throw` | `who`, `prop`, `to?` | Throws it up; it lands in front (or at `to`) |
@@ -286,15 +286,25 @@ montage between verses (icons, a logo, another place), shown only where a cut pu
 
 A block's `album` lies open in its set: `{ id, at: [x, y] (the spine's middle), page: [w, h],
 spreads: [{ left?, right? }] (the first left is the inside of the cover), cover (a kit.graphics name
-or SVG markup over a right page's area), binding? (colour, default brown leather), flips?: [When…],
-close?: When, turn? (s, 0.7) }`. A side has `photos` and `notes` (handwritten text on the page). A
-photo is a moment of another block (an `insert: true` block staged for it, any set and cast):
-`{ id?, block, at: When, place: [x, y] (on the page), size: [w, h], frame: "print" | "polaroid",
-age: 0…1, look?: "faded" | "sepia" | "flash" | "plain", caption?, rotation?, crop? }` — drawn as
-that block's camera saw it, cropped, aged, on paper with photo corners or as a Polaroid, the caption
-handwritten. Each `flip` turns a page (the right side narrows to the spine, the next left side opens
-out from it: the `page` sound); `close` folds the left side over and shows the cover (`close`
-sound). `camera` `{ type: "on", who: <album id | photo id | "<album id>-cover"> }` glides over to it.
+or SVG markup over a right page's area), paper? (the pages' colour, default a black album page),
+binding? (colour, default brown leather), flips?: [When…], close?: When, turn? (s, 0.7) }`. A side
+has `photos`, `notes` (handwritten text on the page) and its own `paper?`. A photo is a moment of
+another block (an `insert: true` block staged for it, any set and cast): `{ id?, block, at: When,
+place?: [x, y], size: [w, h], frame: "print" | "polaroid", age: 0…1, look?: "faded" | "sepia" |
+"flash" | "plain", caption?, ink?, rotation?, crop? }` — drawn as that block's camera saw it,
+cropped, aged, on paper with photo corners or as a Polaroid, the caption handwritten (under a print
+in an ink that shows on the page: white pencil on a dark page, blue on a light one).
+
+Everything stays on its page. `place` is the top-left of the photo's whole footprint (paper,
+caption, tilt) in that page's own pixels (0…w, 0…h from its top-left corner); a photo running off
+the page is moved in, one larger than the page drawn smaller, each with a warning; photos
+overlapping on a side are warned about. Photos without `place` share their page, one under the
+other, each as large as fits its band. A caption never runs wider than the picture (a smaller hand,
+then two lines), a note never past the page's edge, and each side's content is clipped to the page.
+Only the sides that can be seen are drawn: the open spread and, under its right side, the next one;
+once closed, only the cover. Each `flip` turns a page (the right side narrows to the spine, the next
+left side opens out from it: the `page` sound); `close` folds the left side over and shows the cover
+(`close` sound). `camera` `{ type: "on", who: <album id | photo id | "<album id>-cover"> }` glides over to it.
 
 ### Motion graphics
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cartoonCharacter, cartoonInfo } from "../../kit/src";
-import { type Kit, type Line, type Staging, direct } from "../src";
+import { type Kit, type Line, type Staging, check, direct } from "../src";
 
 // A kid sitting on the floor with a candy cigarette on the lips: takes it out, holds it while
 // talking, puts it back.
@@ -144,5 +144,43 @@ describe("albums", () => {
     expect(tracks["props.alb-r0.scale"]).toBeDefined();
     expect(tracks["props.alb-cover.opacity"]).toBeDefined();
     expect((d.scenes.x.script as { action: string; zoom?: number }[]).some((a) => a.action === "camera" && (a.zoom ?? 1) > 2)).toBe(true);
+  });
+  it("keeps photos, captions and notes on their page; shows only the sides that can be seen", () => {
+    const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 1.6, e: 3, text: "b", speaker: "n" }];
+    const caption = "Uma legenda muito comprida que nunca caberia numa linha só";
+    const pic = (place?: [number, number]) => ({ block: "pic", at: { line: 0 }, size: [470, 350] as [number, number], caption, ...(place ? { place } : {}) });
+    const s = { blocks: [
+      { id: "pic", set: "s", from: 0, to: 2, insert: true, cast: [{ id: "kid", at: "a" }] },
+      { id: "x", set: "s", from: 0, to: 2, cast: [], album: { id: "alb", at: [960, 540], page: [640, 780], cover: "<rect/>",
+        spreads: [{ right: { photos: [pic([320, 360])] } }, { left: { photos: [pic(), pic()], notes: [{ text: "Álbum da família inteira", at: [300, 80], size: 60 }] }, right: {} }, { right: {} }], flips: [{ line: 1 }] } },
+    ] } as unknown as Staging;
+    const d = direct(s, ls, kit);
+    // Placed to run off the page: moved in, said so.
+    expect(d.issues.some((i) => /runs off the 640×780 page/.test(i.message))).toBe(true);
+    // Without a place: one under the other, no overlap.
+    expect(d.issues.some((i) => /overlap/.test(i.message))).toBe(false);
+    const props = d.scenes.x.props as { id: string; art: string; opacity?: number }[];
+    const l1 = props.find((p) => p.id === "alb-l1")!.art;
+    expect(l1).toContain("clip-path=\"url(#alb-l1-page)\"");
+    // The long caption on two lines, held to the picture's width; the note held to the page.
+    const lens = [...l1.matchAll(/textLength="([\d.]+)"/g)].map((m) => +m[1]);
+    expect(lens.length).toBeGreaterThan(0);
+    expect(Math.max(...lens)).toBeLessThanOrEqual(640);
+    expect((l1.match(/<tspan/g) ?? []).length).toBe(4);
+    // The third right side is not there until the page before it turns.
+    expect(props.find((p) => p.id === "alb-r2")!.opacity).toBe(0);
+    expect((d.scenes.x.tracks as Record<string, [number, number][]>)["props.alb-r2.opacity"].some((k) => k[1] === 1)).toBe(true);
+  });
+});
+
+describe("carried", () => {
+  it("one lifted into someone's arms is carried, not walking backwards", () => {
+    const babyLook = { ...look, name: "baby", build: "baby" } as const;
+    const bdoc = cartoonCharacter(babyLook as never);
+    const k = { ...kit, characters: { ...kit.characters, baby: bdoc }, cast: { ...kit.cast, baby: { name: "baby", scale: 1, rig: cartoonInfo(bdoc, babyLook as never) } },
+      sets: { s: { ...(kit.sets as Record<string, object>).s, marks: { a: { x: 960 }, b: { x: 1200 } } } } } as unknown as Kit;
+    const s = { blocks: [{ id: "x", set: "s", from: 0, to: 2, cast: [{ id: "kid", at: "a" }, { id: "baby", at: "b", facing: "right" }], beats: [{ line: 1, do: "cradle", who: "kid", target: "baby" }] }] } as unknown as Staging;
+    const msgs = check(s, lines, k, { strict: true }).map((i) => i.message).join("\n");
+    expect(msgs).not.toMatch(/baby walks backwards/);
   });
 });

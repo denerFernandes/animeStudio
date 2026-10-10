@@ -24,7 +24,7 @@ import {
   validateScene,
   validateSequence,
 } from "@animestudio/core";
-import { type Album, photoMarkup, sideMarkup } from "./album";
+import { type Album, type AlbumSide, luminance, photoMarkup, sideMarkup } from "./album";
 import type { Beat, Block, CastMember, Graphic, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
@@ -590,27 +590,66 @@ class BlockScene {
     const turn = a.turn ?? 0.7;
     const n = a.spreads.length;
     let pid = 0;
-    const draw = (side: { photos?: import("./album").AlbumPhoto[] } | undefined, left: boolean, key: string) => {
-      const photos = (side?.photos ?? []).map((ph) => {
+    const M = 16;
+    const draw = (side: AlbumSide | undefined, left: boolean, key: string) => {
+      const paper = side?.paper ?? a.paper ?? "#2f2a26";
+      // Captions written on the page in an ink that shows on it (white pencil on a dark page).
+      const ink = luminance(paper) < 0.45 ? "#f4eedc" : "#2b3a75";
+      const list = side?.photos ?? [];
+      const free = list.filter((ph) => !ph.place).length;
+      let slot = 0;
+      const boxes: { x: number; y: number; w: number; h: number; block: string }[] = [];
+      const photos = list.map((ph) => {
         const id = `${key}-p${pid++}`;
         const frame = this.photoOf(ph.block, ph.at, id);
         if (frame === undefined) {
           this.issue("error", `album "${a.id}": photo of unknown block "${ph.block}"`);
           return "";
         }
-        const { markup, size } = photoMarkup(frame, ph, id);
-        const px = (left ? -w : 0) + ph.place[0], py = ph.place[1];
-        if (ph.id) this.photoSpots.set(ph.id, { x: x + px + size[0] / 2, y: y - h / 2 + py + size[1] / 2, w: size[0], h: size[1] });
-        return `<g transform="translate(${r3(px)} ${r3(py)}) rotate(${ph.rotation ?? 0} ${r3(size[0] / 2)} ${r3(size[1] / 2)})">${markup}</g>`;
+        let { markup, size } = photoMarkup(frame, { ink, ...ph }, id);
+        // Its footprint turned (a tilted photo takes more room).
+        const rad = ((ph.rotation ?? 0) * Math.PI) / 180, c = Math.abs(Math.cos(rad)), sn = Math.abs(Math.sin(rad));
+        const foot = (k: number): [number, number] => [(size[0] * c + size[1] * sn) * k, (size[0] * sn + size[1] * c) * k];
+        // Without a place, the photos share the page: one under the other, each centred in its band.
+        const band: [number, number, number, number] = ph.place ? [M, M, w - 2 * M, h - 2 * M] : [M, M + ((h - 2 * M) * slot) / free, w - 2 * M, (h - 2 * M) / free];
+        let k = Math.min(1, band[2] / foot(1)[0], band[3] / foot(1)[1]);
+        if (k < 0.98) {
+          if (ph.place) this.issue("warning", `album "${a.id}": photo of "${ph.block}" (${Math.round(foot(1)[0])}×${Math.round(foot(1)[1])} with its border, caption and tilt) is larger than the ${Math.round(w)}×${Math.round(h)} page: drawn at ${Math.round(k * 100)}%`);
+          markup = `<g transform="scale(${r3(k)})">${markup}</g>`;
+        } else k = 1;
+        const [fw, fh] = foot(k);
+        let px: number, py: number;
+        if (ph.place) {
+          // Kept on the page: moved in when it would run off it (`place` is its top-left on the page).
+          px = Math.max(M, Math.min(w - M - fw, ph.place[0]));
+          py = Math.max(M, Math.min(h - M - fh, ph.place[1]));
+          if (Math.abs(px - ph.place[0]) > 2 || Math.abs(py - ph.place[1]) > 2)
+            this.issue("warning", `album "${a.id}": photo of "${ph.block}" at ${ph.place.join(", ")} runs off the ${Math.round(w)}×${Math.round(h)} page (place is its top-left; it is ${Math.round(fw)}×${Math.round(fh)}): moved to ${Math.round(px)}, ${Math.round(py)}`);
+        } else {
+          px = band[0] + (band[2] - fw) / 2;
+          py = band[1] + (band[3] - fh) / 2;
+          slot++;
+        }
+        for (const o of boxes) {
+          const ox = Math.min(px + fw, o.x + o.w) - Math.max(px, o.x), oy = Math.min(py + fh, o.y + o.h) - Math.max(py, o.y);
+          if (ox > 8 && oy > 8) this.issue("warning", `album "${a.id}": photos of "${o.block}" and "${ph.block}" overlap on the same page (${Math.round(ox)}×${Math.round(oy)} px)`);
+        }
+        boxes.push({ x: px, y: py, w: fw, h: fh, block: ph.block });
+        // (Drawn from the footprint's top-left: the turned paper centred in it.)
+        const sw = size[0] * k, sh = size[1] * k;
+        const gx = (left ? -w : 0) + px + (fw - sw) / 2, gy = py + (fh - sh) / 2;
+        if (ph.id) this.photoSpots.set(ph.id, { x: x + gx + sw / 2, y: y - h / 2 + gy + sh / 2, w: fw, h: fh });
+        return `<g transform="translate(${r3(gx)} ${r3(gy)}) rotate(${ph.rotation ?? 0} ${r3(sw / 2)} ${r3(sh / 2)})">${markup}</g>`;
       });
-      return sideMarkup(side as never, a.page, left, photos, key);
+      return sideMarkup({ ...side, paper }, a.page, left, photos, key);
     };
     const binding = a.binding ?? "#5a3620";
     const put = (id: string, art: string, z: number, shown: boolean) => this.props.push({ id, art: `<g transform="translate(0 ${r3(-h / 2)})">${art}</g>`, x, y, z, opacity: shown ? 1 : 0, scale: [1, 1] });
     // The open covers under the pages, and its shadow on the table.
     put(`${a.id}-base`, `<rect x="${r3(-w - 14)}" y="-8" width="${r3(w * 2 + 34)}" height="${r3(h + 22)}" rx="10" fill="#000" opacity="0.28"/><rect x="${r3(-w - 12)}" y="-10" width="${r3(w * 2 + 24)}" height="${r3(h + 20)}" rx="8" fill="${binding}"/>`, -1, true);
     // Right sides stacked (the first on top), the left sides each shown once turned to.
-    for (let k = n - 1; k >= 0; k--) put(`${a.id}-r${k}`, draw(a.spreads[k].right, false, `${a.id}-r${k}`), (n - k) * 0.01, true);
+    // (Only what can be seen is there: the open spread's sides and, under the right one, the next.)
+    for (let k = n - 1; k >= 0; k--) put(`${a.id}-r${k}`, draw(a.spreads[k].right, false, `${a.id}-r${k}`), (n - k) * 0.01, k <= 1);
     for (let k = 0; k < n; k++) put(`${a.id}-l${k}`, draw(a.spreads[k].left, true, `${a.id}-l${k}`), k * 0.01, k === 0);
     const coverArt = this.kit.graphics?.[a.cover]?.({}) ?? a.cover;
     put(`${a.id}-cover`, `<rect x="0" y="-10" width="${r3(w + 12)}" height="${r3(h + 20)}" rx="8" fill="${binding}"/>${coverArt}`, 1, false);
@@ -630,6 +669,9 @@ class BlockScene {
       key(`${a.id}-l${k + 1}`, "opacity", t + half, 1);
       key(`${a.id}-l${k + 1}`, "scale", t + half, [0.02, 1.04]);
       key(`${a.id}-l${k + 1}`, "scale", t + turn, [1, 1], "sineOut");
+      // The left side now covered, and the right side after the next one, now under it.
+      key(`${a.id}-l${k}`, "opacity", t + turn, 0);
+      if (k + 2 < n) key(`${a.id}-r${k + 2}`, "opacity", t + half, 1);
       this.sfx("page", t);
     });
     if (a.close) {
@@ -639,6 +681,8 @@ class BlockScene {
         key(`${a.id}-l${k}`, "scale", t, [1, 1]);
         key(`${a.id}-l${k}`, "scale", t + half, [0.02, 1.04], "sineIn");
         key(`${a.id}-l${k}`, "opacity", t + half + 0.001, 0);
+        // Closed: the pages are inside, under the cover.
+        key(`${a.id}-r${k}`, "opacity", t + turn, 0);
       }
       key(`${a.id}-base`, "scale", t + half, [1, 1]);
       key(`${a.id}-base`, "opacity", t + half, 1);
@@ -1618,9 +1662,16 @@ class BlockScene {
     for (let i = 1; i < order.length; i++) xs.push(xs[i - 1] + this.holdGap(order[i - 1], order[i], view));
     const centre = order.reduce((s, id) => s + this.xAt(id, at - 0.6), 0) / order.length;
     const mid = xs.reduce((s, x) => s + x, 0) / xs.length;
+    // As the block opens (no time to step together before it), they are there already.
+    const opening = at - 0.6 < this.t0 + 0.05;
     order.forEach((id, i) => {
       const x = centre - mid + xs[i];
-      if (Math.abs(this.xAt(id, at - 0.6) - x) > 6) this.walk(id, x, at - 0.6, 0.6);
+      if (Math.abs(this.xAt(id, at - 0.6) - x) <= 6) return;
+      const actor = this.actors.find((a) => a.id === id);
+      if (opening && actor && !this.walks.some((w) => w.actor === id)) {
+        actor.x = Math.round(x);
+        this.x0[id] = x;
+      } else this.walk(id, x, at - 0.6, 0.6);
     });
   }
   /** Hand in hand, computed in scene space so each character uses its own scale. */
@@ -3734,10 +3785,13 @@ function motionIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: Ki
         if (prev.op <= 0.01 && op > 0.01 && onScreen(actor.id, t))
           report("error", `appear:${actor.id}:${Math.round(t)}`, t, `${actor.id} appears inside the frame: come in from outside the camera's view (enter from a side beyond it, or through a door: a mark with \`door\`)`);
         if (op > 0.01) {
-          // Walking backwards (moving one way while facing the other).
+          // Walking backwards (moving one way while facing the other) — not one carried: lifted onto
+          // someone, held by them or set down, it does not walk.
           const vx = (pl[4] - prev.x) / (t - prev.t);
           const faceLeft = pl[0] * pl[3] - pl[1] * pl[2] < 0 || pl[0] < 0;
-          if (Math.abs(vx) > 60 && (vx > 0) === faceLeft) report("error", `back:${actor.id}:${Math.round(t)}`, t, `${actor.id} walks backwards (moving ${vx > 0 ? "right" : "left"} while facing ${faceLeft ? "left" : "right"})`);
+          const mk = (actor.mounts ?? []).filter((k) => k.t <= t).pop();
+          const carried = !!mk && (mk.on !== null || t <= mk.t + mk.blend + dt);
+          if (Math.abs(vx) > 60 && (vx > 0) === faceLeft && !carried) report("error", `back:${actor.id}:${Math.round(t)}`, t, `${actor.id} walks backwards (moving ${vx > 0 ? "right" : "left"} while facing ${faceLeft ? "left" : "right"})`);
           const head = pose.state.controls.head as unknown;
           if (Math.abs(vx) > 60 && typeof head === "string") report("warning", `look:${actor.id}:${Math.round(t)}`, t, `${actor.id} walks with the head turned (${head}): one looks where one goes`);
           // A limb going round.

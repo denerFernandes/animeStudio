@@ -14,8 +14,10 @@ export interface PhotoStyle {
   /** 0 (new) … 1 (old: yellowed, faded, the colours gone towards sepia). */
   age?: number;
   look?: PhotoLook;
-  /** Handwritten: on the Polaroid's wide bottom border, or on the page under a print. */
+  /** Handwritten: on the Polaroid's wide bottom border, or on the page under a print. Kept within the picture's width (smaller, on two lines if long). */
   caption?: string;
+  /** The caption's ink under a print (default blue; in an album, white pencil on a dark page). */
+  ink?: string;
   /** The whole scene frame's size (default 1920 × 1080): the picture is cropped from its middle. */
   source?: [number, number];
   /** Part of the frame to show: [x, y, w, h] in its pixels (default the middle, at the photo's aspect). */
@@ -80,12 +82,46 @@ export function photoMarkup(frame: string, o: PhotoStyle, id: string): { markup:
   }
   let size: [number, number] = [pw, ph];
   if (o.caption) {
-    const fs = kind === "polaroid" ? bottom * 0.42 : Math.max(16, w * 0.085);
-    const y = kind === "polaroid" ? h + bottom * 0.62 : h + b + fs * 1.15;
-    out += `<text x="${r(w / 2)}" y="${r(y)}" text-anchor="middle" font-family="${HANDWRITING}" font-size="${r(fs)}" fill="#2b3a75" transform="rotate(-1.5 ${r(w / 2)} ${r(y)})">${esc(o.caption)}</text>`;
-    if (kind === "print") size = [pw, ph + fs * 1.5];
+    // The caption never runs wider than the picture: a smaller hand, then two lines, and each line
+    // held to the picture's width (textLength squeezes it whatever handwriting face is installed).
+    const room = w * 0.92;
+    const want = kind === "polaroid" ? bottom * 0.42 : Math.max(16, w * 0.085);
+    const lines = captionLines(o.caption, want, room);
+    const two = lines.length > 1;
+    const fs = Math.min(two ? want * 0.82 : want, fitSize(lines, room));
+    const lh = fs * 1.05;
+    const y0 = kind === "polaroid" ? h + bottom * (two ? 0.42 : 0.62) : h + b + fs * 1.15;
+    const tspans = lines.map((t, i) => {
+      const est = textWidth(t, fs);
+      const len = est > room * 0.7 ? ` textLength="${r(Math.min(est, room))}" lengthAdjust="spacingAndGlyphs"` : "";
+      return `<tspan x="${r(w / 2)}" y="${r(y0 + i * lh)}"${len}>${esc(t)}</tspan>`;
+    }).join("");
+    const color = kind === "polaroid" ? "#2b3a75" : o.ink ?? "#2b3a75";
+    out += `<text text-anchor="middle" font-family="${HANDWRITING}" font-size="${r(fs)}" fill="${color}" transform="rotate(-1.5 ${r(w / 2)} ${r(y0)})">${tspans}</text>`;
+    if (kind === "print") size = [pw, ph + fs * 0.4 + lh * lines.length];
   }
   return { markup: `<g transform="translate(${r(b)} ${r(b)})">${out}</g>`, size };
+}
+
+/** Relative luminance (0 black … 1 white) of a #rgb / #rrggbb colour. */
+export function luminance(hex: string): number {
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = [...h].map((c) => c + c).join("");
+  const v = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return Number.isFinite(v[0]) ? 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] : 0.5;
+}
+
+/** A generous width for handwriting (wider faces than Caveat may stand in for it). */
+const textWidth = (t: string, fs: number) => t.length * fs * 0.52;
+/** The largest size at which every line fits `room`. */
+const fitSize = (lines: string[], room: number) => Math.min(...lines.map((t) => room / Math.max(1, t.length * 0.52)));
+/** One line, or two split at the space nearest the middle when one line would be too small to read. */
+function captionLines(text: string, fs: number, room: number): string[] {
+  if (textWidth(text, fs) <= room || textWidth(text, fs * 0.7) <= room) return [text];
+  const mid = text.length / 2;
+  let cut = -1;
+  for (let i = 0; i < text.length; i++) if (text[i] === " " && (cut < 0 || Math.abs(i - mid) < Math.abs(cut - mid))) cut = i;
+  return cut < 0 ? [text] : [text.slice(0, cut), text.slice(cut + 1)];
 }
 
 /** A photo on a page: a moment of a block, where it goes on the page (its top-left), tilted. */
@@ -94,8 +130,12 @@ export interface AlbumPhoto extends Omit<PhotoStyle, "source"> {
   /** The block photographed (an `insert: true` block staged for it) and the moment. */
   block: string;
   at: { line: number; word?: string; end?: boolean; offset?: number };
-  /** Top-left on the page (px from the page's top-left corner). */
-  place: [number, number];
+  /**
+   * Top-left of the photo (its paper, caption and tilt) on the page, px from that page's top-left
+   * corner. Kept on the page (moved in, or made smaller if larger than it). Without it, the photos
+   * without one share the page, one under the other, each as large as fits.
+   */
+  place?: [number, number];
   rotation?: number;
 }
 
@@ -114,6 +154,8 @@ export interface Album {
   spreads: { left?: AlbumSide; right?: AlbumSide }[];
   /** The front cover: a kit.graphics name or SVG markup, drawn over a right page's area (x 0…w, y 0…h). */
   cover: string;
+  /** The pages' colour (default a black album page; a side's own `paper` wins). */
+  paper?: string;
   /** Colour of the binding (default a brown leather). */
   binding?: string;
   flips?: { line: number; word?: string; end?: boolean; offset?: number }[];
@@ -128,13 +170,21 @@ export function sideMarkup(side: AlbumSide | undefined, page: [number, number], 
   const x0 = left ? -w : 0;
   const paper = side?.paper ?? "#2f2a26";
   // Black album pages, a gutter shadow along the spine.
-  let out = `<defs><linearGradient id="${id}-gutter" x1="${left ? 1 : 0}" y1="0" x2="${left ? 0 : 1}" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0.45"/><stop offset="0.12" stop-color="#000" stop-opacity="0"/></linearGradient></defs>`;
+  // Everything on the page stays on it (clipped to the page: nothing spills onto the table or shows
+  // from a page under another).
+  let out = `<defs><linearGradient id="${id}-gutter" x1="${left ? 1 : 0}" y1="0" x2="${left ? 0 : 1}" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0.45"/><stop offset="0.12" stop-color="#000" stop-opacity="0"/></linearGradient><clipPath id="${id}-page"><rect x="${r(x0)}" y="0" width="${r(w)}" height="${r(h)}"/></clipPath></defs>`;
   out += `<rect x="${r(x0)}" y="0" width="${r(w)}" height="${r(h)}" fill="${paper}" stroke="#1c1916" stroke-width="2"/>`;
+  out += `<g clip-path="url(#${id}-page)">`;
   out += photos.join("");
   for (const n of side?.notes ?? []) {
-    const fs = n.size ?? 34;
-    out += `<text x="${r(x0 + n.at[0])}" y="${r(n.at[1])}" font-family="${HANDWRITING}" font-size="${r(fs)}" fill="#f4eedc" transform="rotate(${n.rotation ?? -3} ${r(x0 + n.at[0])} ${r(n.at[1])})">${esc(n.text)}</text>`;
+    // A note stays on its page: a smaller hand when it would run past the edge.
+    const room = Math.max(40, w - n.at[0] - 16);
+    const fs = Math.min(n.size ?? 34, room / Math.max(1, n.text.length * 0.52));
+    const est = textWidth(n.text, fs);
+    const len = est > room * 0.7 ? ` textLength="${r(Math.min(est, room))}" lengthAdjust="spacingAndGlyphs"` : "";
+    const ink = luminance(paper) < 0.45 ? "#f4eedc" : "#2b3a75";
+    out += `<text x="${r(x0 + n.at[0])}" y="${r(n.at[1])}"${len} font-family="${HANDWRITING}" font-size="${r(fs)}" fill="${ink}" transform="rotate(${n.rotation ?? -3} ${r(x0 + n.at[0])} ${r(n.at[1])})">${esc(n.text)}</text>`;
   }
-  out += `<rect x="${r(x0)}" y="0" width="${r(w)}" height="${r(h)}" fill="url(#${id}-gutter)"/>`;
+  out += `</g><rect x="${r(x0)}" y="0" width="${r(w)}" height="${r(h)}" fill="url(#${id}-gutter)"/>`;
   return out;
 }
