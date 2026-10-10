@@ -1957,6 +1957,15 @@ class BlockScene {
 
   // -------------------------------------------------- continuity checks
   /** Two characters covering each other for more than half a second (not hand in hand). */
+  /** Invisible at an episode time (opacity track at 0: waiting to enter, gone after leaving). */
+  private hiddenAt(actor: string, abs: number) {
+    const tr = this.tracks[`actors.${actor}.opacity`] as [number, number][] | undefined;
+    if (!tr?.length) return false;
+    const t = this.t(abs);
+    let v = tr[0][1];
+    for (const [k, val] of tr) if (k <= t) v = val;
+    return v <= 0.01;
+  }
   private checkOverlaps() {
     const ids = this.present;
     const reported = new Set<string>();
@@ -1973,6 +1982,11 @@ class BlockScene {
           const gap = this.xAt(r, t) - this.xAt(l, t);
           // Walking past someone is fine; standing on top of each other is not.
           const moving = this.walks.some((w) => (w.actor === a || w.actor === b) && w.t0 <= t && w.t1 > t);
+          // Nobody covers anyone while one of them is not on screen (before entering, after leaving).
+          if (this.hiddenAt(a, t) || this.hiddenAt(b, t)) {
+            run = 0;
+            continue;
+          }
           // Side by side on the same sofa or bench is where they belong.
           const ra = this.restAt(a, t), rb = this.restAt(b, t);
           if (ra?.on && ra.on === rb?.on) {

@@ -290,6 +290,11 @@ describe("director", () => {
     expect(script.filter((x) => x.action === "mount" && x.actor === "b").map((x) => x.on)).toEqual(["a", null]);
   });
 
+  it("does not report overlaps of characters still waiting to enter", () => {
+    const out = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door" }, { id: "b", at: "door", enter: { line: 2, from: "left" } }] }] }, lines, kit);
+    expect(out.issues.map((i) => i.message).join("\n")).not.toContain("cover each other");
+  });
+
   it("reports staging problems", () => {
     const bad: Staging = { blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "zed" }, { id: "a" }], beats: [{ line: 1, do: "walk", who: "a", to: "nowhere" }] }] };
     const issues = check(bad, lines, kit).map((i) => i.message).join("\n");
