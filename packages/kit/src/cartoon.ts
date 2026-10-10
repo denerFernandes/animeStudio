@@ -1003,9 +1003,26 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   // Seated facing the camera the thigh shows 60% of its length (seen from a little above) and is
   // widened by 1/0.6 across: at the knee it is a little wider than the shin.
   const skirted = look.bottom === "skirt" || look.bottom === "longSkirt";
-  const lapW = (b.leg[0] * 0.74 * 0.5) * (1 + (look.heavy ?? 0) * 0.25) * (skirted ? 1.3 : 1);
+  // As thin as the leg (a thin-limbed cartoon keeps thin thighs), a little rounder at the knee.
+  const lapW = (b.leg[0] * 0.52 * 0.5) * (1 + (look.heavy ?? 0) * 0.35) * (skirted ? 1.5 : 1);
   // A skirt over the lap falls past the knees: a drape on each shin (they overlap: one hem).
   const kneeHalf = lapW / 0.5;
+  /**
+   * A skirt seen from the front on a seated body: one piece from the waist over both knees (knees
+   * together), falling past them; a soft fold between the knees.
+   */
+  const seatedSkirt = () => {
+    const thighLen = Math.hypot(j.kneeF[0] - j.hipF[0], j.kneeF[1] - j.hipF[1]);
+    const shinLen = Math.hypot(j.footF[0] - j.kneeF[0], j.footF[1] - j.kneeF[1]);
+    const top = -b.L - b.T * 0.1, knee = -b.L + thighLen * 0.5;
+    const hem = knee + shinLen * (look.bottom === "longSkirt" ? 0.75 : 0.32);
+    const w0 = Math.max(b.W, b.H) * 1.08, w1 = b.H * 0.9 + kneeHalf * 1.4;
+    const fill = look.top === "dress" ? "palette(top)" : "palette(bottom)";
+    const d = `M${r(-w0)} ${r(top)} L${r(w0)} ${r(top)} C${r(w0 + 4)} ${r(knee - 10)} ${r(w1)} ${r(knee)} ${r(w1 + 4)} ${r(hem)} Q0 ${r(hem + 8)} ${r(-w1 - 4)} ${r(hem)} C${r(-w1)} ${r(knee)} ${r(-w0 - 4)} ${r(knee - 10)} ${r(-w0)} ${r(top)} Z`;
+    return `<path d="${d}" fill="${fill}" stroke="${LINE(fill)}" stroke-width="2.6" stroke-linejoin="round"/>` +
+      `<path d="M0 ${r(knee - (knee - top) * 0.2)} Q2 ${r((knee + hem) / 2)} 0 ${r(hem + 4)}" fill="none" stroke="${LINE(fill)}" stroke-width="1.8" stroke-linecap="round" opacity="0.7"/>` +
+      `<path d="M${r(-w1 * 0.95)} ${r(knee + 6)} Q${r(-w1 * 0.5)} ${r(knee - 4)} ${r(-4)} ${r(knee + 4)} M${r(w1 * 0.95)} ${r(knee + 6)} Q${r(w1 * 0.5)} ${r(knee - 4)} 4 ${r(knee + 4)}" fill="none" stroke="${fill.replace(")", "Shade)")}" stroke-width="5" stroke-linecap="round" opacity="0.8"/>`;
+  };
   const drape = (knee: P, foot: P) => cuff(knee, foot, -0.04, look.bottom === "longSkirt" ? 0.78 : 0.38, kneeHalf * 1.05, kneeHalf * 1.3, look.top === "dress" ? "palette(top)" : "palette(bottom)", 2.6);
   const shortsTo = look.bottom === "bermuda" ? 0.9 : 0.45;
 
@@ -1060,8 +1077,9 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
       const hip = side === "F" ? j.hipF : j.hipB, knee = side === "F" ? j.kneeF : j.kneeB;
       const covered = look.bottom === "pants" || shorts || look.bottom === "skirt" || look.bottom === "longSkirt";
       const fill = covered ? (look.bottom === "skirt" || look.bottom === "longSkirt" ? (look.top === "dress" ? "palette(top)" : "palette(bottom)") : "palette(bottom)") : "palette(skin)";
-      return { id: `lap${side}`, type: "switch", bone: `leg${side}1`, default: "off", variants: { off: "", on: thigh([hip[0], hip[1] - (knee[1] - hip[1]) * 0.25], knee, lapW * 0.7, lapW, side === "B" ? fill.replace(")", "Shade)") : fill) } };
+      return { id: `lap${side}`, type: "switch", bone: `leg${side}1`, default: "off", variants: { off: "", on: thigh([hip[0], hip[1] - (knee[1] - hip[1]) * 0.25], knee, lapW * 0.92, lapW, side === "B" ? fill.replace(")", "Shade)") : fill) } };
     }),
+    ...(skirted ? [{ id: "skirtSeat", type: "switch", bone: "hips", default: "off", variants: { off: "", on: seatedSkirt() } }] : []),
     ...(skirted ? (["B", "F"] as const).map((side) => ({ id: `drape${side}`, type: "switch", bone: `leg${side}2`, default: "off", variants: { off: "", on: drape(side === "F" ? j.kneeF : j.kneeB, side === "F" ? j.footF : j.footB) } })) : []),
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
@@ -1287,11 +1305,12 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
   const skirtParts = out.parts.filter((p: { id: string }) => /^skirt[A-Z]?_\d+$/.test(p.id)).map((p: { id: string }) => p.id);
   out.controls.seat = {
     type: "pose",
-    poses: { none: {}, front: { "parts.lapF.variant": "on", "parts.lapB.variant": "on", ...(skirtParts.length ? { "parts.drapeF.variant": "on", "parts.drapeB.variant": "on" } : {}), "parts.handF.variant": "grip", "parts.handB.variant": "grip", ...Object.fromEntries(skirtParts.map((id: string) => [`parts.${id}.opacity`, -1])) } },
+    // With a skirt, one seated skirt over both knees instead of the lap.
+    poses: { none: {}, front: { ...(skirtParts.length ? { "parts.skirtSeat.variant": "on" } : { "parts.lapF.variant": "on", "parts.lapB.variant": "on" }), ...Object.fromEntries(skirtParts.map((id: string) => [`parts.${id}.opacity`, -1])) } },
   };
   // The lap (sitting facing the camera) comes out from under the torso: drawn just before the
   // torso of every view (the shirt covers where the thighs start), after the legs.
-  const laps = ["drapeB", "drapeF", "lapB", "lapF"].map((id) => out.parts.find((p: { id: string }) => p.id === id)).filter(Boolean);
+  const laps = ["lapB", "lapF", "skirtSeat"].map((id) => out.parts.find((p: { id: string }) => p.id === id)).filter(Boolean);
   out.parts = out.parts.filter((p: { id: string }) => !laps.includes(p));
   out.parts.splice(out.parts.findIndex((p: { id: string }) => p.id === "neck"), 0, ...laps);
   // Each angle's eyes follow the main eyes' variant (blinks, emotions) and show only in their view.

@@ -1853,17 +1853,6 @@ class BlockScene {
       } else if (this.hasPart(actor, `lap${side}`)) this.set(actor, `parts.lap${side}.variant`, "on", at + 0.25);
       const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
       this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
-      // Hands resting on the knees (a lap drawn by the rig), unless a gesture takes them.
-      if ((this.hasPart(actor, `lap${side}`) || this.hasControl(actor, "seat")) && this.hasChain(actor, `hand${side}`)) {
-        // On the outer side of the thigh, under the shoulder: the arm hangs almost straight, never
-        // across the body.
-        const sh = bone(`arm${side}1`);
-        const shX = sh ? x + dir * (sh[0] + (doc.meta?.views?.move?.front?.[`arm${side}1`]?.[0] ?? 0)) * s : footX;
-        const handX = Math.round(footX + (shX - footX) * 0.7);
-        this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [handX, Math.round(seatY + fore * 0.9)], duration: 0.5 });
-        // Elbows out, away from the body (the near arm bends the other way from the front).
-        if (side === "F") this.set(actor, "ik.handF.bend", -1, at + 0.1);
-      }
     }
   }
 
@@ -2007,8 +1996,6 @@ class BlockScene {
     if (l.kind === "sit" && l.front && this.hasControl(actor, "seat")) this.push({ at: this.t(at + 0.15), actor, action: "pose", control: "seat", value: "none", duration: 0 });
     if (l.kind === "sit" && l.front) for (const side of ["F", "B"]) if (this.hasPart(actor, `lap${side}`) || this.hasControl(actor, "seat")) {
       if (!this.hasControl(actor, "seat")) this.set(actor, `parts.lap${side}.variant`, "off", at + 0.15);
-      if (this.hasChain(actor, `hand${side}`)) this.push({ at: this.t(at), actor, action: "reach", chain: `hand${side}`, target: null, duration: 0.4 });
-      if (side === "F" && this.hasChain(actor, "handF")) this.set(actor, "ik.handF.bend", 1, at + 0.4);
     }
     if (l.kind === "sit") for (const c of ["footF", "footB"]) if (this.hasChain(actor, c)) this.push({ at: this.t(at), actor, action: "reach", chain: c, target: null, duration: 0.45 });
     if (l.front) for (const b of ["legF1", "legF2", "legB1", "legB2"]) this.set(actor, `bones.${b}.squash`, 0, at, 0.45, "easeOut");
