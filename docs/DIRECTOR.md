@@ -8,7 +8,8 @@ nothing in it knows a particular series.
 ```ts
 import { check, describeKit, direct } from "@animestudio/director";
 
-const issues = check(staging, lines, kit);              // validation + continuity checklist
+const issues = check(staging, lines, kit);              // validation + continuity + picture/motion checks
+const strict = check(staging, lines, kit, { strict: true }); // the motion checks every frame (before a render)
 const { sequence, scenes, overlays } = direct(staging, lines, kit);
 const catalogue = describeKit(kit);                      // what a staging may use (for prompts; cast[id].wear lists the wardrobe)
 ```
@@ -237,6 +238,24 @@ the `head` control picks the drawn angle nearest to looking their way, at most 7
 mirrored to look the other way; a new `view` lets the head follow the body again), spacing by head extents, `profile` as the initial view, the gaze cleared in front
 views, vehicles hidden outside their drive, the dribble synchronised with the hand, replays with
 muted speech, contiguous shots.
+
+### What the director will not stage
+
+Some things in a staging cannot be drawn as asked; the director stages the nearest coherent thing
+and says so (warnings), and `check` lists what still shows wrong in the picture:
+
+- **Walking**: one walks facing where one goes, looking ahead (a head turned to a speaker comes back);
+  a `face` the other way while walking waits for the walk to end; a second walk while still walking
+  starts when the first arrives.
+- **Coming in and going out**: `enter` starts beyond the set's `bounds` (past what any camera on it
+  shows), or at a door (a mark with `door: "left" | "right"`); `exit` goes beyond them; the camera
+  never frames someone not there yet.
+- **Arms on 2.5D rigs**: every move of an arm is a 3D reach of the hand along an arc in front of the
+  body (never an angle blend that swings it round); one move at a time (a later one takes over while
+  it lasts); limb angles go the short way round; a held object stays in the same hand when its holder
+  turns round (and on the same ear), changing hands only by a beat.
+- **Talking**: a speaker sitting on a 2.5D rig gestures with the near hand (the arm a clip cannot
+  move there), unless that arm is busy with a beat.
 
 ### Cuts
 

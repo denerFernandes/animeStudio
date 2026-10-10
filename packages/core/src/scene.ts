@@ -1033,6 +1033,8 @@ function targetsBox(scene: CompiledScene, ids: string[], t: number, faces = fals
   };
   for (const id of ids) {
     const actor = scene.actors.find((a) => a.id === id);
+    // Not there yet (invisible: waiting to come in) or gone: not framed.
+    if (actor && actorPlacementState(actor, t).opacity <= 0.01) continue;
     if (actor && faces) {
       // A face: the posed face (or head) anchor, with room for the whole head around it.
       const name = actor.rig.anchors.face ? "face" : actor.rig.anchors.head ? "head" : undefined;
@@ -1447,7 +1449,9 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
     }
     const v = viewPoint(f2.dir, yaw, pitch);
     const len = Math.hypot(v[0], v[1]) / (Math.hypot(...f2.dir) || 1);
-    shortened = [scale[0] * Math.max(0.2, len), scale[1]];
+    // Foreshortened along the prop's own axis (from its first point to its second).
+    const alongX = Math.abs(f2.point[0] - f1.point[0]) >= Math.abs(f2.point[1] - f1.point[1]);
+    shortened = alongX ? [scale[0] * Math.max(0.2, len), scale[1]] : [scale[0], scale[1] * Math.max(0.2, len)];
     const dir = Math.atan2(v[1], v[0]) + (mirrored ? -boneTurn : boneTurn);
     const world = mirrored ? Math.PI - dir : dir;
     rot = world - Math.atan2((f2.point[1] - f1.point[1]) * shortened[1], (f2.point[0] - f1.point[0]) * shortened[0]);

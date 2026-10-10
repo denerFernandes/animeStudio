@@ -138,6 +138,10 @@ export interface Block {
 export interface Cut {
   line: number;
   word?: string;
+  /** Seconds after (or before) that moment, as in a beat. */
+  offset?: number;
+  /** At the end of the line instead of its start. */
+  end?: boolean;
   /** Show a window of an earlier block (muted speech) instead of the live action. */
   replay?: { block: string; line: number; word?: string };
   /**
@@ -190,6 +194,8 @@ export interface Mark {
   seat?: number;
   /** One can also lie on it (bed, sofa, grass bank): its surface is `seat` px high. */
   lie?: boolean;
+  /** A door: who `enter`s from this side (`left` / `right`) comes in through it (appears in the doorway). */
+  door?: "left" | "right";
 }
 
 export interface SetLayer {

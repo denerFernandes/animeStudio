@@ -504,6 +504,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
           ...(bd.seamless ? { seamless: true } : {}),
           shapes: bd.shapes.map((sh): SolidShape => {
             if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box) };
+            if (sh.ellipsoid) return { kind: "ellipsoid", at: pt(sh.from), radii: sh.ellipsoid };
             const r = sh.r ?? 0;
             return { kind: "cone", from: pt(sh.from), to: pt(sh.to ?? sh.from), r: typeof r === "number" ? [r, r] : r };
           }),

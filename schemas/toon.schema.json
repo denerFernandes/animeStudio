@@ -1010,6 +1010,27 @@
                             "minItems": 3,
                             "maxItems": 3
                           },
+                          "ellipsoid": {
+                            "description": "An ellipsoid of these radii [x, y, z] centred on `from`, turned with its bone",
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              },
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              },
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 3,
+                            "maxItems": 3
+                          },
                           "round": {
                             "description": "Rounding of a box's edges",
                             "type": "number",
@@ -2029,6 +2050,15 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "tip": {
+                "description": "Ranked by the depth of the last bone's tip (a hand), not the bones' middles",
+                "type": "boolean"
+              },
+              "margin": {
+                "description": "How much nearer or farther than the body to move (default 25)",
+                "type": "number",
+                "minimum": 0
               }
             },
             "required": [

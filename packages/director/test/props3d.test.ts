@@ -90,3 +90,19 @@ describe("graphics, rewinds and inserts", () => {
     expect(shots.some((x) => (x.speed ?? 1) < 0 && x.overlay === "vhs")).toBe(true);
   });
 });
+
+describe("strict pictures", () => {
+  it("refuses walking backwards and queues a walk given while walking; enters from beyond the set", () => {
+    const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 1.6, e: 6, text: "b", speaker: "n" }];
+    const k3 = { ...kit, sets: { s: { ...(kit.sets as Record<string, unknown>).s as object, bounds: [-400, 0, 2320, 1080] } } } as unknown as Kit;
+    const d = direct({ blocks: [{ id: "x", set: "s", from: 0, to: 2, cast: [{ id: "kid", at: "a", enter: { line: 0, from: "left" } }],
+      beats: [{ line: 1, do: "walk", who: "kid", to: { mark: "a", dx: 500 } }, { line: 1, offset: 0.3, do: "face", who: "kid", direction: "left" }, { line: 1, offset: 0.5, do: "walk", who: "kid", to: { mark: "a", dx: 800 } }] }] } as unknown as Staging, ls, k3);
+    const msgs = d.issues.map((i) => i.message).join("\n");
+    expect(msgs).toMatch(/walking backwards/);
+    expect(msgs).toMatch(/while still walking/);
+    const walks = (d.scenes.x.script as { action: string; x?: number }[]).filter((a) => a.action === "walkTo");
+    expect(walks[0].x).toBeGreaterThan(0);
+    const firstX = (d.scenes.x.actors as { id: string; x: number }[]).find((a) => a.id === "kid")!.x;
+    expect(firstX).toBeLessThan(-400);
+  });
+});

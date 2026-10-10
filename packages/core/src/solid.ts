@@ -23,7 +23,8 @@ export interface SolidPoint {
 
 export type SolidShape =
   | { kind: "cone"; from: SolidPoint; to: SolidPoint; r: [number, number] }
-  | { kind: "box"; at: SolidPoint; size: V3; round: number };
+  | { kind: "box"; at: SolidPoint; size: V3; round: number }
+  | { kind: "ellipsoid"; at: SolidPoint; radii: V3 };
 
 export interface SolidBody {
   /** Resolved colours; no fill: an occluder. */
@@ -41,7 +42,8 @@ export interface SolidBody {
 /** A shape in view space (screen x, screen y, depth towards the camera). */
 type ViewShape =
   | { kind: "cone"; a: V3; b: V3; ra: number; rb: number }
-  | { kind: "box"; c: V3; m: number[]; h: V3; round: number };
+  | { kind: "box"; c: V3; m: number[]; h: V3; round: number }
+  | { kind: "ellipsoid"; c: V3; m: number[]; h: V3 };
 
 /** Light from the upper left, in front (view space, y down, z towards the camera). */
 const LIGHT: V3 = (() => {
@@ -64,6 +66,15 @@ function shapeSdf(s: ViewShape): (x: number, y: number, z: number) => number {
       const px = x - a[0], py = y - a[1], pz = z - a[2];
       const h = Math.max(0, Math.min(1, (px * bx + py * by + pz * bz) / ll));
       return Math.hypot(px - bx * h, py - by * h, pz - bz * h) - (ra + (rb - ra) * h);
+    };
+  }
+  if (s.kind === "ellipsoid") {
+    const { c, m, h } = s;
+    return (x, y, z) => {
+      const px = x - c[0], py = y - c[1], pz = z - c[2];
+      const lx = (m[0] * px + m[1] * py + m[2] * pz) / h[0], ly = (m[3] * px + m[4] * py + m[5] * pz) / h[1], lz = (m[6] * px + m[7] * py + m[8] * pz) / h[2];
+      const k0 = Math.sqrt(lx * lx + ly * ly + lz * lz), k1 = Math.sqrt((lx / h[0]) ** 2 + (ly / h[1]) ** 2 + (lz / h[2]) ** 2);
+      return k1 === 0 ? -Math.min(...h) : (k0 * (k0 - 1)) / k1;
     };
   }
   const { c, m, h, round } = s;
@@ -100,7 +111,7 @@ function shapeBounds(s: ViewShape): [number, number, number, number, number, num
     const r = Math.max(s.ra, s.rb);
     return [Math.min(s.a[0], s.b[0]) - r, Math.min(s.a[1], s.b[1]) - r, Math.max(s.a[0], s.b[0]) + r, Math.max(s.a[1], s.b[1]) + r, Math.min(s.a[2], s.b[2]) - r, Math.max(s.a[2], s.b[2]) + r];
   }
-  const e = Math.hypot(...s.h);
+  const e = s.kind === "ellipsoid" ? Math.max(...s.h) : Math.hypot(...s.h);
   return [s.c[0] - e, s.c[1] - e, s.c[0] + e, s.c[1] + e, s.c[2] - e, s.c[2] + e];
 }
 
@@ -130,6 +141,7 @@ function poseShapes(body: SolidBody, r3: CompiledRig3d, f: Rig3dFrame): ViewShap
     const R = f.rot[r3.byIndex.get(s.at.bone)!];
     const VR = [0, 1, 2].flatMap((row) => [0, 1, 2].map((col) => V[row * 3] * R[col] + V[row * 3 + 1] * R[3 + col] + V[row * 3 + 2] * R[6 + col]));
     const m = [VR[0], VR[3], VR[6], VR[1], VR[4], VR[7], VR[2], VR[5], VR[8]];
+    if (s.kind === "ellipsoid") return { kind: "ellipsoid", c: place(s.at), m, h: s.radii };
     return { kind: "box", c: place(s.at), m, h: s.size, round: s.round };
   });
 }
@@ -150,7 +162,7 @@ const CACHE_SIZE = 256;
  */
 export function drawSolid(bodies: SolidBody[], step: number, r3: CompiledRig3d, frame: Rig3dFrame): SolidPath[] {
   const posed = bodies.map((b) => poseShapes(b, r3, frame));
-  const key = step + "|" + posed.map((ss, i) => i + ":" + ss.map((s) => (s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m.map((v) => v * 100), ...s.h, s.round]).map((v) => Math.round(v * 2)).join(",")).join(";")).join("/");
+  const key = step + "|" + posed.map((ss, i) => i + ":" + ss.map((s) => (s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m.map((v) => v * 100), ...s.h, s.kind === "box" ? s.round : -1]).map((v) => Math.round(v * 2)).join(",")).join(";")).join("/");
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);

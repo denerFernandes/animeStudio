@@ -146,6 +146,7 @@ export const SolidShapeSchema = z
     to: SolidPointSchema.optional().describe("The other end of a cone (none: a sphere)"),
     r: z.union([z.number().min(0), z.tuple([z.number().min(0), z.number().min(0)])]).optional().describe("Radius, or [at from, at to]"),
     box: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("A box of these half sizes [x, y, z] centred on `from`, turned with its bone"),
+    ellipsoid: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("An ellipsoid of these radii [x, y, z] centred on `from`, turned with its bone"),
     round: z.number().min(0).optional().describe("Rounding of a box's edges"),
   })
   .describe("A cone between two points of the skeleton (a sphere without `to`), or a rounded box");
@@ -332,7 +333,7 @@ export const ToonSchema = z.strictObject({
       views: z.record(z.string(), z.number()).describe("Each view of the `view` control → the yaw (degrees) its drawings were made at"),
       pitch: z.number().optional().describe("How far above the drawings are seen from (degrees, default 0)"),
       chains: z
-        .array(z.strictObject({ bones: z.array(z.string()), parts: z.array(z.string()) }))
+        .array(z.strictObject({ bones: z.array(z.string()), parts: z.array(z.string()), tip: z.boolean().optional().describe("Ranked by the depth of the last bone's tip (a hand), not the bones' middles"), margin: z.number().min(0).optional().describe("How much nearer or farther than the body to move (default 25)") }))
         .optional()
         .describe("Limbs drawn in front of or behind the body by their depth"),
       front: z.string().optional().describe("Part before which a limb nearer than the body is drawn"),

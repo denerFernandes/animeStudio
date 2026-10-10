@@ -394,7 +394,7 @@ See [DIRECTOR.md](DIRECTOR.md).
 | Export | Description |
 |---|---|
 | `direct(staging, lines, kit)` | `{ sequence, scenes, overlays, issues }`: one continuous scene per block, cuts/replays, texts |
-| `check(staging, lines, kit)` | Issues from directing, the continuity checklist and scene/sequence validation |
+| `check(staging, lines, kit, { strict? })`, `CheckOptions` | Issues from directing, the continuity checklist and scene/sequence validation, and the picture and motion checks sampled over every block (`strict`: every frame — run it before a render): someone appearing inside the frame, walking backwards or with the head turned, a speaker standing still for more than 2 s, a limb going round (faster than ~2500°/s), a held object jumping in the hands, a hand over the face outside a face gesture, someone standing across the set's edge, a face covered by scenery |
 | `describeKit(kit)` | Catalogue of cast (clips, emotions, views, `canFly`, wardrobe `wear: { control: [poses] }`), sets (marks, depth, fixture values, `seats`, set `furniture`), props, vehicles, `rides` (rideable vehicles and their wardrobe), `furniture` (sit / lie), fx, cameras, actions, light moods |
 | `lineCues(line)` | Mouth cues from a line's word timings |
 | `Timeline` | Line/word → seconds |

@@ -24,13 +24,13 @@ export interface CompiledRig3d {
   byIndex: Map<number, number>;
   views: Record<string, number>;
   pitch: number;
-  chains: { bones: number[]; parts: number[] }[];
+  chains: { bones: number[]; parts: number[]; tip?: boolean; margin?: number }[];
   front?: number;
   back?: number;
   body: number[];
 }
 
-export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[] }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
+export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
   const listed = new Set(Object.keys(def.bones));
   const bones: CompiledRig3d["bones"] = [];
   const byIndex = new Map<number, number>();
@@ -47,7 +47,7 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     byIndex,
     views: def.views,
     pitch: def.pitch ?? 0,
-    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined) })),
+    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined), ...(c.tip ? { tip: true } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}) })),
     front: def.front ? rig.partIndex.get(def.front) : undefined,
     back: def.back ? rig.partIndex.get(def.back) : undefined,
     body: (def.body ?? ["body", "neck"]).map(bi).filter((x): x is number => x !== undefined),
@@ -91,8 +91,9 @@ export function viewPoint(p: V3, yaw: number, pitch: number): V3 {
 // ------------------------------------------------------------------ the projection stage
 
 export interface Rig3dFrame {
-  /** Depth (view space) of each 3D bone's joint and tip. */
+  /** Depth (view space) of each 3D bone: the middle of it, and its tip. */
   depth: Map<number, number>;
+  tipDepth: Map<number, number>;
   /** Posed 3D bones (in `CompiledRig3d.bones` order): joint position and rotation (row-major 3×3), body space. */
   pos: V3[];
   rot: number[][];
@@ -162,7 +163,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
   const anchor: Vec2 = [world[first.index][4], world[first.index][5]];
   const p0 = viewPoint(pos[0], yaw, pitch);
   const off: Vec2 = [anchor[0] - p0[0], anchor[1] - p0[1]];
-  const depth = new Map<number, number>();
+  const depth = new Map<number, number>(), tipDepth = new Map<number, number>();
   const limbs = new Set(r3.chains.flatMap((c) => c.bones));
   // Desired world (unsquashed basis + squash) of each 3D bone, set into the 2D state in rig order.
   const basis = new Map<number, Mat>(), full = new Map<number, Mat>();
@@ -173,6 +174,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     // Depth for the draw order: towards the camera horizontally (the pitch would rank by height).
     const hz = (q: V3) => -q[0] * Math.sin(yaw) + q[2] * Math.cos(yaw);
     depth.set(B.index, (hz(pos[i]) + hz(tip)) / 2);
+    tipDepth.set(B.index, hz(tip));
     const o: Vec2 = [a[0] + off[0], a[1] + off[1]];
     const dx = t[0] - a[0], dy = t[1] - a[1];
     const len = Math.hypot(dx, dy);
@@ -201,7 +203,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     basis.set(B.index, bm);
     full.set(B.index, [c * sq, sn * sq, -sn / sq, c / sq, o[0], o[1]]);
   }
-  return { depth, pos, rot, yaw, pitch, off };
+  return { depth, tipDepth, pos, rot, yaw, pitch, off };
 }
 
 /**
@@ -219,10 +221,11 @@ export function rig3dDrawOrder(rig: Rig, r3: CompiledRig3d, frame: Rig3dFrame): 
   // Chains moving to a slot, the farthest drawn first.
   const moves: { parts: number[]; slot: number; depth: number }[] = [];
   for (const [ci, ch] of r3.chains.entries()) {
-    const ds = ch.bones.map((b) => frame.depth.get(b)).filter((d): d is number => d !== undefined);
+    // (A hand goes by where it is: the tip of its forearm.)
+    const ds = ch.bones.map((b) => (ch.tip ? frame.tipDepth : frame.depth).get(b)).filter((d): d is number => d !== undefined);
     if (!ds.length) continue;
     const d = Math.max(...ds) - bd;
-    const margin = 25;
+    const margin = ch.margin ?? 25;
     // In front of the body: in the chains' order (legs, then the arms resting on them).
     if (d > margin && frontKey !== undefined) moves.push({ parts: ch.parts, slot: frontKey, depth: 1e6 + ci });
     else if (d < -margin && backKey !== undefined) moves.push({ parts: ch.parts, slot: backKey, depth: d });

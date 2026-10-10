@@ -1109,6 +1109,30 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
  * (a room camera's pitch, `viewAt`): every drawing is made at that angle.
  */
 /**
+ * The torso as an occluder of a solid: the same ellipsoids as its drawing (`model`), a hair smaller,
+ * its hips ending at the drawing's cut — so a limb behind it is hidden right to the drawing's edge.
+ */
+function torsoOccluder(m: Model, look: CartoonLook): Record<string, unknown> {
+  const { b } = m;
+  const heavy = look.heavy ?? 0;
+  const T = b.T, L = b.L, k = 0.98;
+  const W = b.W * (look.female ? 0.86 : 1) + heavy * b.W * 0.35, H = b.H * (look.female ? 1.04 : 1) + heavy * b.H * 0.2;
+  const sh = look.top === "blouse" ? b.arm[0] * 1.05 : b.arm[0] * 0.75;
+  const at = (y: number, z = 0) => ({ bone: "body", at: [0, r(y + L), r(z)] });
+  const ell = (y: number, z: number, rad: V3) => ({ from: at(y, z), ellipsoid: rad.map((v) => r(v * k)) });
+  const hipR = T * 0.2;
+  return {
+    blend: r(T * 0.12),
+    shapes: [
+      ell(-L - T * 0.68, 0, [b.S, T * 0.36, b.D]),
+      ell(-L - T * 0.32, heavy * b.D * 0.55, [W, T * 0.38, b.D * (1 + heavy * 0.6)]),
+      ell(-L + 5 - hipR, 0, [Math.max(W * 0.98, H * 0.95), hipR, b.D * 0.92]),
+      { from: { bone: "body", at: [r(-b.S + sh * 0.6), r(m.y.shoulder + L), 0] }, to: { bone: "body", at: [r(b.S - sh * 0.6), r(m.y.shoulder + L), 0] }, r: r(sh * k) },
+    ],
+  };
+}
+
+/**
  * The legs, the hips and the skirt as a solid on the 3D skeleton: each leg a thigh and a shin cone
  * (a round knee between them), shorts or socks over them, the hips between the hip joints, a skirt
  * draped over the lap. The torso is an occluder (the torso's drawing is under the solid).
@@ -1126,11 +1150,8 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
   const pt = (bone: string, t = 0, at?: V3) => ({ bone, ...(t ? { t } : {}), ...(at ? { at: at.map(r) } : {}) });
   const paint = (key: string) => ({ fill: `palette(${key})`, shade: `palette(${key}Shade)`, stroke: `palette(${key}Line)`, strokeWidth: SW });
   const bodies: Record<string, unknown>[] = [];
-  // The torso hides what is behind it (a box a little inside its drawing, cut at the hip joints).
-  const T = b.T, L = b.L, D = b.D * (1 + heavy * 0.6);
-  const halfW = Math.min(b.S, b.W, Math.max(b.W * 0.98, b.H * 0.95)) * (look.female ? 0.86 : 1) * 0.92;
-  const top = -L - T * 0.92, bottom = -L + 3;
-  bodies.push({ shapes: [{ from: pt("body", 0, [0, (top + bottom) / 2 + L, heavy * b.D * 0.3]), box: [r(halfW), r((bottom - top) / 2), r(D * 0.85)], round: r(D * 0.5) }] });
+  const T = b.T, D = b.D * (1 + heavy * 0.6);
+  bodies.push(torsoOccluder(m, look));
   // The hips: between the hip joints, a little back (the seat).
   const hipsKey = look.top === "dress" ? "top" : bare && !shorts && !skirted ? "skin" : "bottom";
   // (Under a skirt the cloth is the hips; otherwise no line where they come out of the torso.)
@@ -1224,11 +1245,14 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   const armLen = b.T * 0.9 + b.L * 0.34;
   const shY = m.y.shoulder + 4;
   const belly = (look.heavy ?? 0) * b.W * 0.35;
+  const waistX = b.W * (look.female ? 0.86 : 1) + (look.heavy ?? 0) * b.W * 0.35 - belly;
+  const hipX = Math.max(waistX * 0.98, (b.H * (look.female ? 1.04 : 1) + (look.heavy ?? 0) * b.H * 0.2) * 0.95) - belly;
   const ankle = 12 * b.shoe;
   const j = {
     // Arms at rest hang relaxed: the elbow a little bent, the hand a little forward, out past a belly.
-    shoulderF: joint("shoulderF", -sx, shY), elbowF: joint("elbowF", -sx - 3 - belly * 0.5, shY + armLen * 0.5, -2), handF: joint("handF", -sx - 4 - belly, shY + armLen * 0.98, 16),
-    shoulderB: joint("shoulderB", sx, shY), elbowB: joint("elbowB", sx + 3 + belly * 0.5, shY + armLen * 0.5, -2), handB: joint("handB", sx + 4 + belly, shY + armLen * 0.98, 16),
+    // (Outside the torso's sides — waist and hips — so a hanging arm is beside the body from any angle.)
+    shoulderF: joint("shoulderF", -sx, shY), elbowF: joint("elbowF", -Math.max(sx + 3, waistX + b.arm[0] * 0.55) - belly * 0.5, shY + armLen * 0.5, -2), handF: joint("handF", -Math.max(sx + 4, hipX + b.arm[1] * 0.6) - belly, shY + armLen * 0.98, 16),
+    shoulderB: joint("shoulderB", sx, shY), elbowB: joint("elbowB", Math.max(sx + 3, waistX + b.arm[0] * 0.55) + belly * 0.5, shY + armLen * 0.5, -2), handB: joint("handB", Math.max(sx + 4, hipX + b.arm[1] * 0.6) + belly, shY + armLen * 0.98, 16),
     hipF: joint("hipF", -hx, m.y.hip), kneeF: joint("kneeF", -hx, m.y.hip / 2, 6), footF: joint("footF", -hx, -ankle),
     hipB: joint("hipB", hx, m.y.hip), kneeB: joint("kneeB", hx, m.y.hip / 2, 6), footB: joint("footB", hx, -ankle),
   };
@@ -1237,7 +1261,6 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   const views = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, { head: headView(m, vh(v)), body: bodyView(m, look, vw(v)), face: faceView(m, look, vh(v)) }])) as Record<ViewKey, { head: HeadView; body: ReturnType<typeof bodyView>; face: ReturnType<typeof faceView> }>;
 
   const longSleeves = ["jacket", "cardigan", "blazer"].includes(look.top);
-  const sleeveColor = longSleeves ? "palette(top2)" : "palette(top)";
   const shortSleeves = !longSleeves && !["tank", "overalls", "dress"].includes(look.top) || look.top === "overalls";
   const bareLegs = look.bottom !== "pants";
   const shorts = look.bottom === "shorts" || look.bottom === "bermuda";
@@ -1251,12 +1274,14 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     return [v, {
       // The ear canal: on the near ear, between the height of the eyes and of the nose.
       ear: project([-u * 0.97, m.y.head + u * 0.22, -u * 0.02], th),
+      // The other ear (the far hand's, when someone turned round keeps holding the phone).
+      earB: project([u * 0.97, m.y.head + u * 0.22, -u * 0.02], th),
       // (Where the face's rules put the mouth in this angle.)
       mouth: views[v].face.mouthAt,
       eye: sp.point(0, m.y.eye, u * 0.04),
       top: [0, m.y.top] as P2,
     }];
-  })) as Record<ViewKey, Record<"ear" | "mouth" | "eye" | "top", P2>>;
+  })) as Record<ViewKey, Record<"ear" | "earB" | "mouth" | "eye" | "top", P2>>;
   const art: Record<string, string> = {
     ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.2, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
     ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.16, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
@@ -1294,16 +1319,29 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   art.pupils = F.pupils;
   art.lids = F.lids;
 
-  // Sleeves, socks and a watch wrap the limb: hulls over points of its bone, so they follow it from
-  // any angle (foreshortened towards the camera or not).
-  const wrap = (id: string, bone: string, a: P, e: P, from: number, to: number, r0: number, r1: number, fill: string, extra: Record<string, unknown> = {}) => ({
-    id, type: "hull", fill, stroke: LINE(fill), strokeWidth: 2.6, attrs: { "stroke-linejoin": "round" }, ...extra,
-    points: [
-      { bone, at: [r(a[0] + (e[0] - a[0]) * from), r(a[1] + (e[1] - a[1]) * from)], r: r(r0) },
-      { bone, at: [r(a[0] + (e[0] - a[0]) * to), r(a[1] + (e[1] - a[1]) * to)], r: r(r1) },
-    ],
-  });
-  const sleeve = (id: string, bone: string, a: P, e: P, fill: string) => wrap(id, bone, a, e, 0.02, 0.4, b.arm[0] * 0.5 + 5, b.arm[0] * 0.5 + 7, fill);
+  // The arms as solids on the 3D skeleton: the upper arm, the forearm (a round elbow between them),
+  // a short sleeve over the upper arm, a watch — each drawn where it is nearest (a forearm bent
+  // towards the camera in front of the upper arm, from any angle), cel shaded like the legs.
+  const armBodies = (side: "F" | "B"): Record<string, unknown>[] => {
+    const pt = (bone: string, t = 0) => ({ bone, ...(t ? { t } : {}) });
+    const key = (k: string) => ({ fill: `palette(${k})`, shade: `palette(${k}Shade)`, stroke: `palette(${k}Line)`, strokeWidth: SW });
+    const elbow = r((b.arm[0] + b.arm[1]) * 0.25), up = `arm${side}1`, lo = `arm${side}2`;
+    const bodies: Record<string, unknown>[] = [
+      { ...key(longSleeves ? "top2" : "skin"), blend: 3, shapes: [
+        { from: pt(up), to: pt(up, 1), r: [r(b.arm[0] * 0.5), elbow] },
+        { from: pt(lo), to: pt(lo, 0.96), r: [elbow, r(b.arm[1] * 0.5)] },
+      ] },
+    ];
+    if (shortSleeves) bodies.push({ ...key(look.top === "overalls" ? "top" : "top"), shapes: [{ from: pt(up, -0.04), to: pt(up, 0.42), r: [r(b.arm[0] * 0.5 + 5), r(b.arm[0] * 0.5 + 6)] }] });
+    if (look.watch && side === "F") bodies.push({ ...key("watch"), strokeWidth: 2.2, shapes: [{ from: pt(lo, 0.8), to: pt(lo, 0.88), r: r(b.arm[1] * 0.5 + 2.5) }] });
+    return bodies;
+  };
+  // Both arms in one solid, the torso an occluder: each bit of an arm shows only where it is nearest
+  // (a forearm in front of the chest hidden from behind, one arm over the other).
+  const headOccluder = { shapes: [{ from: { bone: "head", at: [0, r(m.y.head - m.y.neckTop), r(-u * 0.05)] }, r: r(u * 0.92) }] };
+  // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
+  const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map((x) => ({ shapes: x.shapes, ...(x.blend ? { blend: x.blend } : {}) }));
+  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
   const tail = m.tail ? [project(m.tail.pivot, Q), project(m.tail.end, Q)] : undefined;
   const parts: Record<string, unknown>[] = [
     // Which side of the body faces the camera (set by the `side` control): shows the watch's wrist.
@@ -1311,10 +1349,6 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "shadow", type: "rigid", bone: "ground", art: `<ellipse cx="4" cy="2" rx="${r(b.H * 1.6 + 20)}" ry="${r(8 + b.H * 0.08)}" fill="#000" opacity="0.18"/>` },
     ...(tail ? [{ id: "tailBack", type: "rigid", bone: "tail", art: "tailBack" }] : []),
     { id: "hairBack", type: "rigid", bone: "hair", art: "hairBack" },
-    { id: "armB", type: "hose", bones: ["armB1", "armB2"], width: b.arm, fill: longSleeves ? "palette(top2Shade)" : "palette(skinShade)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
-    ...(look.watch ? [wrap("watchB", "armB2", j.elbowB, j.handB, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "l" } })] : []),
-    { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
-    ...(shortSleeves ? [sleeve("sleeveB", "armB1", j.shoulderB, j.elbowB, "palette(topShade)")] : []),
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
     { id: "torso", type: "rigid", bone: "body", art: "torso" },
     // The legs, the hips and a skirt: volumes on the 3D skeleton, drawn from the view every frame
@@ -1337,11 +1371,9 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     // The nose, a moustache, glasses: over the mouth and over the hair at the sides of the face.
     { id: "over", type: "rigid", bone: "head", art: "over" },
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
-    { id: "armF", type: "hose", bones: ["armF1", "armF2"], width: b.arm, fill: longSleeves ? "palette(top2)" : "palette(skin)", stroke: longSleeves ? "palette(top2Line)" : "palette(skinLine)", strokeWidth: SW },
-    // A wristwatch on the body's left wrist: the near arm facing right, the far arm facing left.
-    ...(look.watch ? [wrap("watch", "armF2", j.elbowF, j.handF, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "r" } })] : []),
+    armsSolid,
+    { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
     { id: "handF", type: "switch", bone: "handF", variants: { open: "handF_open", fist: "handF_fist", point: "handF_point", grip: "handF_grip" }, default: "fist" },
-    ...(shortSleeves ? [sleeve("sleeveF", "armF1", j.shoulderF, j.elbowF, look.top === "overalls" ? "palette(top)" : sleeveColor)] : []),
   ];
 
   // Secondary motion, as in hand-drawn animation: the body jiggles, forearms and the head drag a
@@ -1421,14 +1453,14 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       { id: "hair", parent: "head", from: [0, r(m.y.head)], to: [0, r(m.y.top - u * 0.2)], mass: 0.6 },
       ...(tail ? [{ id: "tail", parent: "head", from: [r(tail[0][0]), r(tail[0][1])], to: [r(tail[1][0]), r(tail[1][1])], mass: 0.4 }] : []),
       { id: "pupils", parent: "head", from: [r(eyeMid[0]), r(m.y.eye)] },
-      ...(["ear", "mouth", "eye", "top"] as const).map((k) => ({ id: `${k}Pt`, parent: "head", from: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] })),
+      ...(["ear", "earB", "mouth", "eye", "top"] as const).map((k) => ({ id: `${k}Pt`, parent: "head", from: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] })),
       ...limbBones({ ...j, toeF: 30 * b.shoe, toeB: 30 * b.shoe }),
     ],
     parts,
     anchors: {
       head: { bone: "head", at: [r(eyeMid[0] * 0.5), r(m.y.eye - u * 0.1)] },
       // Where props fit on the head, in every view (the points move with the drawing).
-      ...Object.fromEntries((["ear", "mouth", "eye", "top"] as const).map((k) => [k, { bone: `${k}Pt`, at: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] }])),
+      ...Object.fromEntries((["ear", "earB", "mouth", "eye", "top"] as const).map((k) => [k, { bone: `${k}Pt`, at: [r(headPoints.profile[k][0]), r(headPoints.profile[k][1])] }])),
       face: { bone: "head", at: [r(eyeMid[0]), r(m.y.eye + u * 0.2)] },
       // Held props turn with the hand (a phone at the ear, a bottle tipped to the mouth).
       hand: { bone: "handF", at: j.handF, turn: 1 },
@@ -1455,17 +1487,19 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       views: Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, r((VIEWS[v] * 180) / Math.PI)])),
       pitch: opts.pitch ?? 0,
       chains: [
-        { bones: ["armF1", "armF2"], parts: ["armF", "watch", "handF", "sleeveF"] },
-        { bones: ["armB1", "armB2"], parts: ["armB", "watchB", "handB", "sleeveB"] },
+        // The hands (drawings) by the depth of their forearm.
+        { bones: ["armF2"], parts: ["handF"], tip: true, margin: 6 },
+        { bones: ["armB2"], parts: ["handB"], tip: true, margin: 6 },
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
-      front: "armF",
-      back: "hairBack",
+      front: "handB",
+      back: "shadow",
       // Where the director's 3D reaches go: the mouth, the near ear, in front of the chest (a held
       // thing, a little to the near side).
       points: {
         mouth: { bone: "head", at: [0, r(m.y.mouth - m.y.neckTop), r(u * 0.92)] },
         eye: { bone: "head", at: [0, r(m.y.eye - m.y.neckTop), r(u * 0.88)] },
         ear: { bone: "head", at: [r(-u * 0.97), r(m.y.ear - m.y.neckTop), 0] },
+        earB: { bone: "head", at: [r(u * 0.97), r(m.y.ear - m.y.neckTop), 0] },
         chest: { bone: "body", at: [r(-b.S * 0.3), r(-b.T * 0.42), r(b.D * (1 + (look.heavy ?? 0) * 0.6) + b.T * 0.32)] },
       },
     },
@@ -1549,11 +1583,35 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
       const keys = g[side];
       if (!keys) continue;
       const sd = side === "F" ? -1 : 1;
+      const pole = g.pole?.(sd) ?? [sd * 0.5, 1, -0.3];
+      const restHand = (doc.rig3d.bones[`arm${side}2`].to as V3);
       const ch: Record<string, [number, number, string?][]> = {};
-      for (const [f, target] of keys) {
-        const v = target ? reach3d(doc as never, `arm${side}1`, `arm${side}2`, target, {}, g.pole?.(sd) ?? [sd * 0.5, 1, -0.3]) : { [`arm${side}1`]: { rotation: 0, spread: 0, turn: 0 }, [`arm${side}2`]: { rotation: 0, turn: 0, spread: 0 } };
-        for (const [b, vals] of Object.entries(v)) for (const [k, x] of Object.entries(vals)) (ch[`bones.${b}.${k}`] ??= []).push([r(f * clip.duration), r(x!), "sineInOut"]);
-      }
+      const last: Record<string, number> = {};
+      const put = (f: number, v: Record<string, Record<string, number>>, ease = "linear") => {
+        for (const [b, vals] of Object.entries(v)) for (const [k, x0] of Object.entries(vals)) {
+          const key = `bones.${b}.${k}`;
+          // The short way round from the previous key.
+          const x = last[key] === undefined ? x0 : x0 + 360 * Math.round((last[key] - x0) / 360);
+          last[key] = x;
+          (ch[key] ??= []).push([r(f * clip.duration), r(x), ease]);
+        }
+      };
+      const solve = (p: V3) => reach3d(doc as never, `arm${side}1`, `arm${side}2`, p, {}, pole);
+      const zero = { [`arm${side}1`]: { rotation: 0, spread: 0, turn: 0 }, [`arm${side}2`]: { rotation: 0, turn: 0, spread: 0 } };
+      // The hand travels between the keys along an arc in front of the body (the arm swings round
+      // the front, never through the chest), every in-between solved again.
+      keys.forEach(([f, target], i) => {
+        if (i > 0) {
+          const [f0, t0] = keys[i - 1];
+          const a = t0 ?? restHand, b = target ?? restHand;
+          const dist = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+          if (dist > 8) for (const u of [0.25, 0.5, 0.75]) {
+            const bulge = Math.sin(u * Math.PI) * dist * 0.25;
+            put(f0 + (f - f0) * u, solve([a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u + bulge]));
+          }
+        }
+        put(f, target ? solve(target) : zero, "sineInOut");
+      });
       Object.assign(tracks, ch);
     }
     doc.clips[name] = { ...clip, tracks };
@@ -1587,7 +1645,7 @@ export function withTones(palette: Record<string, string>): Record<string, strin
  * move to where each angle puts them, the face parts of each angle follow the same emotions,
  * blinks and lip sync.
  */
-function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face: ReturnType<typeof faceView> }>, sx: number, hx: number, tail: boolean, headPoints: Record<ViewKey, Record<"ear" | "mouth" | "eye" | "top", P2>>): ToonDoc {
+function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face: ReturnType<typeof faceView> }>, sx: number, hx: number, tail: boolean, headPoints: Record<ViewKey, Record<"ear" | "earB" | "mouth" | "eye" | "top", P2>>): ToonDoc {
   const { stroke: LIPS, strokeWidth: LIPS_W } = doc.parts.find((p: { id: string }) => p.id === "mouth");
   const cq = Math.cos(Q);
   const others = (Object.keys(VIEWS) as ViewKey[]).filter((v) => v !== "profile");
@@ -1595,45 +1653,45 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     const s = SUFFIX[v];
     const before = (id: string, part: Record<string, unknown>) => ({ before: id, part });
     const list = [
-      ...(tail ? [before("armB", { id: `tailBack${s}`, type: "rigid", bone: "tail", art: `tailBack${s}` })] : []),
-      before("armB", { id: `hairBack${s}`, type: "rigid", bone: "hair", art: `hairBack${s}` }),
+      ...(tail ? [before("neck", { id: `tailBack${s}`, type: "rigid", bone: "tail", art: `tailBack${s}` })] : []),
+      before("neck", { id: `hairBack${s}`, type: "rigid", bone: "hair", art: `hairBack${s}` }),
       // The torso under the legs' solid (it is drawn over the torso where the legs are nearer).
       before("legs", { id: `neck${s}`, type: "rigid", bone: "neck", art: `neck${s}` }),
       before("legs", { id: `torso${s}`, type: "rigid", bone: "body", art: `torso${s}` }),
-      before("armF", { id: `earsBack${s}`, type: "rigid", bone: "head", art: `earsBack${s}` }),
-      before("armF", { id: `head${s}`, type: "rigid", bone: "head", art: `head${s}` }),
-      before("armF", { id: `nose${s}`, type: "rigid", bone: "head", art: `nose${s}` }),
+      before("arms", { id: `earsBack${s}`, type: "rigid", bone: "head", art: `earsBack${s}` }),
+      before("arms", { id: `head${s}`, type: "rigid", bone: "head", art: `head${s}` }),
+      before("arms", { id: `nose${s}`, type: "rigid", bone: "head", art: `nose${s}` }),
     ];
     const F = views[v].face;
     if (F.visible) {
       for (const [k, art] of Object.entries(F.eyeVariants)) {
         doc.art[`eye${s}_${k}`] = art;
-        list.push(before("armF", { id: `eye${s}_${k}`, type: "rigid", bone: "head", art: `eye${s}_${k}` }));
+        list.push(before("arms", { id: `eye${s}_${k}`, type: "rigid", bone: "head", art: `eye${s}_${k}` }));
       }
       doc.art[`pupils${s}`] = F.pupils;
       doc.art[`lids${s}`] = F.lids;
       list.push(
-        before("armF", { id: `pupils${s}`, type: "rigid", bone: "pupils", art: `pupils${s}` }),
-        before("armF", { id: `lids${s}`, type: "rigid", bone: "head", art: `lids${s}` }),
-        before("armF", { id: `mouth${s}`, type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes }),
-        before("armF", { id: `tongue${s}`, type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes, clip: `mouth${s}` }),
-        before("armF", { id: `teeth${s}`, type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes, clip: `mouth${s}` }),
+        before("arms", { id: `pupils${s}`, type: "rigid", bone: "pupils", art: `pupils${s}` }),
+        before("arms", { id: `lids${s}`, type: "rigid", bone: "head", art: `lids${s}` }),
+        before("arms", { id: `mouth${s}`, type: "morph", bone: "head", fill: "palette(mouth)", stroke: LIPS, strokeWidth: LIPS_W, attrs: { "stroke-linejoin": "round" }, base: F.mouth.base, shapes: F.mouth.shapes }),
+        before("arms", { id: `tongue${s}`, type: "morph", bone: "head", fill: "palette(tongue)", base: F.tongue.base, shapes: F.tongue.shapes, clip: `mouth${s}` }),
+        before("arms", { id: `teeth${s}`, type: "morph", bone: "head", fill: "#ffffff", base: F.teeth.base, shapes: F.teeth.shapes, clip: `mouth${s}` }),
       );
     }
     list.push(
-      before("armF", { id: `hairFront${s}`, type: "rigid", bone: "hair", art: `hairFront${s}` }),
-      ...(tail ? [before("armF", { id: `tailFront${s}`, type: "rigid", bone: "tail", art: `tailFront${s}` })] : []),
-      before("armF", { id: `earsFront${s}`, type: "rigid", bone: "head", art: `earsFront${s}` }),
-      before("armF", { id: `over${s}`, type: "rigid", bone: "head", art: `over${s}` }),
+      before("arms", { id: `hairFront${s}`, type: "rigid", bone: "hair", art: `hairFront${s}` }),
+      ...(tail ? [before("arms", { id: `tailFront${s}`, type: "rigid", bone: "tail", art: `tailFront${s}` })] : []),
+      before("arms", { id: `earsFront${s}`, type: "rigid", bone: "head", art: `earsFront${s}` }),
+      before("arms", { id: `over${s}`, type: "rigid", bone: "head", art: `over${s}` }),
     );
-    if (F.visible) list.push(before("armF", { id: `brows${s}`, type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes }));
+    if (F.visible) list.push(before("arms", { id: `brows${s}`, type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes }));
     return list;
   };
   const face = ["eyes", "pupils", "lids", "mouth", "teeth", "tongue", "brows"];
   // Where an angle puts the shoulders and hips (relative to the three-quarter skeleton).
   const move = (theta: number, v: ViewKey) => {
     const c = Math.cos(theta);
-    const pts = Object.fromEntries((["ear", "mouth", "eye", "top"] as const).map((k) => [`${k}Pt`, [r(headPoints[v][k][0] - headPoints.profile[k][0]), r(headPoints[v][k][1] - headPoints.profile[k][1])] as P]));
+    const pts = Object.fromEntries((["ear", "earB", "mouth", "eye", "top"] as const).map((k) => [`${k}Pt`, [r(headPoints[v][k][0] - headPoints.profile[k][0]), r(headPoints[v][k][1] - headPoints.profile[k][1])] as P]));
     return { armF1: [r(sx * (cq - c)), 0] as P, armB1: [r(sx * (c - cq)), 0] as P, legF1: [r(hx * (cq - c)), 0] as P, legB1: [r(hx * (c - cq)), 0] as P, ...pts };
   };
   const spec: ViewSpec = {
@@ -1762,7 +1820,7 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
   // The head's points (where props fit: the mouth, an ear…) go with the head's drawing, not the
   // body's view: the head control sets them (override) for its angle, mirrored ones flipped about the
   // head's middle.
-  const pts = (["ear", "mouth", "eye", "top"] as const).filter((k) => out.skeleton.some((b: { id: string }) => b.id === `${k}Pt`));
+  const pts = (["ear", "earB", "mouth", "eye", "top"] as const).filter((k) => out.skeleton.some((b: { id: string }) => b.id === `${k}Pt`));
   const fromX = (k: string) => (out.skeleton.find((b: { id: string; from?: number[] }) => b.id === `${k}Pt`)?.from?.[0] ?? 0) as number;
   const ptPose = (v: string): Record<string, number> => {
     const mirror = v.startsWith("~"), base = mirror ? v.slice(1) : v;
