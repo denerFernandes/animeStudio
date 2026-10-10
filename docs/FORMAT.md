@@ -437,7 +437,7 @@ blend modes), so it works in browsers and Remotion and stays deterministic.
 | Element | Effect |
 |---|---|
 | `ambient` | Multiply layer over the frame; **point lights cut through it** (radial falloff) |
-| `lights[]` (`point`) | Additive radial glow (`glow` × `intensity`, `screen` blend) at `x`, `y` with `radius`; `parallax` like layers |
+| `lights[]` (`point`) | Additive radial glow (`glow` × `intensity`, `screen` blend) at `x`, `y` with `radius`; `parallax` like layers; `flicker: { amount, speed? }` makes it flicker by itself (a TV on, a candle, a fire: up to `amount` of its intensity lost, `speed` changes per second, default 6; deterministic by time) |
 | `lights[]` (`directional`) | `angle` = direction the light travels (degrees, 90 = from above). No glow; used as a key light |
 | `shading` | **Automatic cel shading on actors**: a shadow crescent on the side away from the key light (`color`, `opacity`) and a rim light on the lit side (`rim` uses the light color, `rimOpacity`). `offset` is the crescent size; `inset` keeps it inside the outline so line art stays crisp. Follows poses and motion. Point lights fade the shading with distance |
 | `grade` | Full-frame color grading (`blend`: `multiply`, `screen`, `overlay`, `soft-light`, …) |
@@ -467,7 +467,14 @@ All three share placement fields: `x`, `y`, `rotation`, `scale` (number or `[sx,
 |---|---|
 | Layer | `id`, `art` |
 | Actor | `id`, `character`, `flip` (face left), `palette` overrides, `seed`, `shading` (receive cel shading, default true), `ground?` (3.6) |
-| Prop | `id`, `art`, `body?`, `ground?` (3.6) |
+| Prop | `id`, `art`, `body?`, `ground?` (3.6), `cord?` |
+
+`cord`: a cord or string drawn every frame from the prop (`point`, its art's coordinates) to `to` —
+a scene point `[x, y]`, `{ actor, anchor }`, `{ prop, point? }` or `"up"` (straight up out of the
+picture: a prop hanging on a string). `length` is its rest length: shorter than the distance, it
+stretches (the coils open up); longer, it sags. `coils` (0: a plain string) and `radius` make a coiled
+cord (a phone's); `width` (3), `color`; `cut` (seconds): it snaps — the far part springs back to its end
+and is gone; `z` (default just behind the prop or whoever holds it).
 
 `body`: `type` (`dynamic` / `static` / `kinematic`), `shape` (`{ "circle": r }` or
 `{ "box": [w, h] }`), `restitution` (0.3), `friction` (0.5), `density` (1),
@@ -508,7 +515,7 @@ Actions are compiled into clip instances and tracks before rendering.
 | `camera` | `x?`, `y?`, `zoom?`, `rotation?`, `duration` (1), `ease` (`sineInOut`) | Camera move |
 | `camera` (rigs, paths, effects) | `follow`, `frame`, `path`, `punch`, `handheld`, `dolly`, `focus`, `blur`, `motionBlur`, … | See 3.5 |
 | `transition` | `type` (`fade` \| `iris` \| `wipe` \| `flash`), `duration`, `mode` (`outIn` default, `out`, `in`), `color`, `direction` (wipe), `target` (iris center: actor/prop id or scene point) | Screen transition inside a scene (e.g. an iris closing on a character at the end) |
-| `fx` | `type`, `actor?`, `anchor?` (`head` default, `origin` = feet), `offset?`, `x?`/`y?` (scene point), `duration?`, `scale` (1), `color?`, `fill?` | Cartoon effect (see 3.4) |
+| `fx` | `type`, `actor?`, `anchor?` (`head` default, `origin` = feet), `offset?`, `prop?` (at a prop, following it), `x?`/`y?` (scene point), `duration?`, `scale` (1), `color?`, `fill?` | Cartoon effect (see 3.4) |
 | `shake` | `duration` (0.5), `amount` (px, 10), `frequency` (Hz, 12) | Seeded camera shake |
 | `sound` | `audio`, `volume` (1) | Plays a sound effect |
 | `light` | `channel` (lighting channel), `value`, `duration` (0), `ease` (`sineInOut`) | Animates lighting (sunrise, lamp switching on, flash) |

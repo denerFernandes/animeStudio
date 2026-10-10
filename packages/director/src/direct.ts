@@ -139,7 +139,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack", "snap", "dropOn"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -529,6 +529,95 @@ class BlockScene {
     this.propKinds.set(id, kind);
     this.propStates.set(id, { id, radius: def.radius, x: [], y: [], scale: [], rotation: [], heldBy: [] });
   }
+  /** Scene y of a prop at a moment (its last key, else where it was put). */
+  private propY(id: string, abs: number): number {
+    const st = this.propStates.get(id);
+    const k = st ? [...st.y].reverse().find((k) => k[0] <= this.t(abs)) : undefined;
+    return (k?.[1] as number) ?? ((this.props.find((p) => p.id === id)?.y as number) ?? 300);
+  }
+  /**
+   * A prop flying along a path of places (`[x, y]` scene points, marks, `offLeft` / `offRight`) from
+   * `at` to `until` (else at its own speed), bobbing up and down (`bob` px) and swaying (`sway`
+   * degrees); `hang`: hanging on a string that goes up out of the picture (a cheap flying saucer).
+   */
+  flyProp(prop: string, path: (Place | [number, number])[], at: number, until: number | undefined, o: { bob?: number; sway?: number; hang?: boolean }) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"${closest(prop, [...this.propStates.keys()])}`);
+    const W = this.kit.width ?? 1920;
+    let prev: [number, number] = [this.propX(prop, at), this.propY(prop, at)];
+    const pts: [number, number][] = [prev];
+    for (const p of path) {
+      let q: [number, number];
+      if (Array.isArray(p)) q = [p[0], p[1]];
+      else if (p === "offLeft" || p === "offRight") q = [p === "offLeft" ? -300 : W + 300, prev[1]];
+      else {
+        const mk = typeof p === "string" ? this.setDef.marks[p] : undefined;
+        q = [this.placeX(p as Place, at), mk?.y ?? prev[1]];
+      }
+      pts.push(q);
+      prev = q;
+    }
+    const lens = pts.slice(1).map((q, i) => Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]));
+    const total = lens.reduce((a, b) => a + b, 0) || 1;
+    const dur = until !== undefined ? until - at : total / 420;
+    const bob = o.bob ?? 0, sway = o.sway ?? 0, base = (this.props.find((p) => p.id === prop)?.rotation as number | undefined) ?? 0;
+    const keys: [number, number, number, number, number?][] = [];
+    const steps = Math.max(2, Math.ceil(dur / 0.1));
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps, tt = at + dur * u;
+      let d = u * total, k = 0;
+      while (k < lens.length - 1 && d > lens[k]) d -= lens[k++];
+      const f = lens[k] ? d / lens[k] : 0;
+      const x = pts[k][0] + (pts[k + 1][0] - pts[k][0]) * f, y = pts[k][1] + (pts[k + 1][1] - pts[k][1]) * f;
+      keys.push([tt, x, y + Math.sin(tt * 4.2) * bob, 1, base + Math.sin(tt * 3.1) * sway]);
+    }
+    this.propKeys(prop, keys, "linear");
+    if (o.hang) {
+      const def = this.props.find((p) => p.id === prop)!;
+      const kind = this.kit.props[this.propKinds.get(prop) ?? ""];
+      def.cord = { to: "up", point: kind?.points?.hang ?? [0, -(kind?.radius ?? 20)], coils: 0, width: kind?.cord?.width ?? 2, color: kind?.cord?.color ?? "#e8e2d4" };
+    }
+  }
+  /** A prop's cord or string snaps (it springs back and is gone). */
+  snap(prop: string, at: number) {
+    const def = this.props.find((p) => p.id === prop) as { cord?: Record<string, unknown> } | undefined;
+    if (!def) return this.issue("error", `unknown prop "${prop}"`);
+    if (!def.cord) return this.issue("error", `"${prop}" has no cord or string to snap (a prop entry's \`cord\`, or fly … hang)`);
+    def.cord.cut = this.t(at);
+    this.sfx("snap", at);
+  }
+  /**
+   * A prop falls onto someone's head and stays there (on the `top` anchor, following the head): a
+   * bonk — stars, a jolt of the camera.
+   */
+  dropOn(prop: string, who: string, at: number) {
+    const st = this.propStates.get(prop);
+    if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    const x0 = this.propX(prop, at), y0 = this.propY(prop, at);
+    const s = this.scaleOf(who), height = (this.member(who)?.rig.height ?? 300) * s;
+    // The top of the head: above the hips seated, else above the ground.
+    const rest = this.restAt(who, at);
+    const top = rest?.kind === "sit" && rest.hipY !== undefined ? rest.hipY - (height - Math.abs(this.hipOf(who)[1]) * s) : this.groundY(who, at) - height;
+    const fall = Math.sqrt(Math.max(1, top - y0) / 1000);
+    const land = at + fall;
+    this.propKeys(prop, [[at, x0, y0, 1], [land, this.xAt(who, land), top, 1]], "easeIn");
+    const kind = this.kit.props[this.propKinds.get(prop) ?? ""];
+    st.heldBy.push({ actor: who, t0: land, t1: Infinity });
+    this.push({ at: this.t(land), action: "grab", actor: who, prop, anchor: "top", fit: [{ point: kind?.points?.bottom ?? [0, (kind?.radius ?? 20) * 0.5], anchor: "top" }] });
+    this.push({ at: this.t(land), action: "fx", type: "stars", actor: who, duration: 1.4 });
+    this.push({ at: this.t(land), action: "shake", duration: 0.35, amount: 7, frequency: 22 });
+    this.sfx("bonk", land);
+  }
+  /** A prop tied by a cord to a mark or a scene point (drawn every frame by the scene). */
+  private tie(id: string, c: { from: string | [number, number]; point?: string }) {
+    const kind = this.kit.props[this.propKinds.get(id) ?? ""];
+    const mk = typeof c.from === "string" ? this.setDef.marks[c.from] : undefined;
+    if (typeof c.from === "string" && !mk) return this.issue("error", `cord of "${id}": unknown mark "${c.from}"${closest(c.from, Object.keys(this.setDef.marks))}`);
+    const to: [number, number] = mk ? [mk.x, mk.y ?? this.setDef.ground.near] : (c.from as [number, number]);
+    const point = kind?.points?.[c.point ?? "cord"];
+    const def = this.props.find((p) => p.id === id)!;
+    def.cord = { to, ...(point ? { point } : {}), ...(kind?.cord ?? {}) };
+  }
   propX(id: string, abs: number): number {
     const st = this.propStates.get(id);
     if (!st) return (this.kit.width ?? 1920) / 2;
@@ -836,7 +925,14 @@ class BlockScene {
         for (const w of who) this.getUp(w, at);
         break;
       case "fly":
-        for (const w of who) this.fly(w, b.to as Place | "offLeft" | "offRight" | "up", at, until);
+        if (b.prop) this.flyProp(b.prop as string, (b.path ?? [b.to]) as (Place | [number, number])[], at, until, { bob: b.bob as number | undefined, sway: b.sway as number | undefined, hang: !!b.hang });
+        else for (const w of who) this.fly(w, b.to as Place | "offLeft" | "offRight" | "up", at, until);
+        break;
+      case "snap":
+        this.snap(b.prop as string, at);
+        break;
+      case "dropOn":
+        if (one) this.dropOn(b.prop as string, one, at);
         break;
       case "wear": {
         // { wear: { control: pose } } or the shorthand { control, value }.
@@ -903,7 +999,10 @@ class BlockScene {
         break;
       }
       case "fx":
+        // At someone, at a prop (following it), at a scene point [x, y], or at a mark.
         if (one) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, actor: one, ...(b.type === "dust" ? { anchor: "origin" } : {}) });
+        else if (b.prop) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, prop: b.prop, scale: (b.scale as number | undefined) ?? 1.2 });
+        else if (Array.isArray(b.at)) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: (b.at as number[])[0], y: (b.at as number[])[1], scale: (b.scale as number | undefined) ?? 1.4 });
         else this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: this.placeX((b.at as Place) ?? "center", at), y: 380, scale: 1.4 });
         break;
       case "view":
@@ -959,7 +1058,7 @@ class BlockScene {
         break;
       }
       case "camera":
-        this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string }, at);
+        this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string, to: b.to as string | undefined, duration: until !== undefined ? until - at : (b.duration as number | undefined), amount: b.amount as number | undefined }, at);
         break;
       case "light": {
         const d = r3(until ? until - at : 2);
@@ -2434,7 +2533,7 @@ class BlockScene {
   }
 
   // -------------------------------------------------- camera
-  camera(c: { type: string; who?: string | string[]; mark?: string }, at: number) {
+  camera(c: { type: string; who?: string | string[]; mark?: string; to?: string; duration?: number; amount?: number }, at: number) {
     const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w));
     const abs = this.t(at);
     switch (c.type) {
@@ -2499,6 +2598,22 @@ class BlockScene {
         this.push({ at: abs, action: "camera", frame: cast, padding: 140, minZoom: 1, maxZoom: 2.4, blend: 1.2, ...(Number.isFinite(top) ? { band: [Math.round(top - pad), Math.round(bottom + pad)] } : {}) });
         break;
       }
+      // A slow move in (from where the camera is to a tighter shot of `who`) or out (from a close-up
+      // to a wide shot): the framing blends over `duration` (or `until`).
+      case "push-in":
+      case "pull-out": {
+        const dur = c.duration ?? 4;
+        const to = c.to ?? (c.type === "push-in" ? "medium" : "wide");
+        if (c.type === "pull-out") this.camera({ type: c.to === "wide" || !c.to ? "close" : "medium", who: c.who }, at);
+        const n = this.script.length;
+        this.camera({ type: to, who: c.type === "pull-out" && to === "wide" ? undefined : c.who }, c.type === "pull-out" ? at + 0.05 : at);
+        for (const a of this.script.slice(n)) if ((a as { action: string }).action === "camera") Object.assign(a, { blend: r3(dur), lag: r3(dur * 0.35) });
+        break;
+      }
+      // A jolt (an impact, a scream).
+      case "shake":
+        this.push({ at: abs, action: "shake", duration: r3(c.duration ?? 0.4), amount: c.amount ?? 8, frequency: 20 });
+        break;
       case "group":
       case "wide":
       default:
@@ -2684,6 +2799,7 @@ class BlockScene {
       const def = this.kit.props[p.kind];
       const markY = typeof p.at === "string" ? this.setDef.marks[p.at]?.y : undefined;
       this.addProp(p.id, p.kind, p.color, x, (markY ?? this.setDef.ground.near) - (def?.radius ?? 20), holder ? 4 : 3);
+      if (p.cord) this.tie(p.id, p.cord);
       if (holder) this.grab(holder, p.id, this.t0);
     }
     this.camera(this.block.camera ?? { type: "wide" }, this.t0);

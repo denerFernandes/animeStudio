@@ -48,7 +48,7 @@ Zod schemas are exported for every document part, each with a matching inferred 
 |---|---|
 | Documents | `ToonSchema` (`ToonDoc`), `SceneSchema` (`SceneDoc`), `SequenceSchema` (`SequenceDoc`), `LipsyncSchema` (`LipsyncDoc`), `MouthCueSchema` (`MouthCue`) |
 | Character | `BoneSchema`, `PartSchema` (`RigidPartSchema`, `SwitchPartSchema`, `SkinnedPartSchema`, `HosePartSchema`, `MorphPartSchema`), `AnchorSchema`, `IkSchema`, `PhysicsSchema` (`SpringPhysicsSchema`, `JigglePhysicsSchema`), `ColliderSchema`, `ControlSchema` (`VisemeControlSchema`, `AimControlSchema`, `PoseControlSchema`), `BehaviorSchema`, `ClipSchema` |
-| Scene | `ActorSchema`, `PropSchema`, `BodySchema`, `LayerSchema`, `ActionSchema`, `LightingSchema`, `LightSchema`, `SurfaceSchema` (`SurfaceDef`) |
+| Scene | `ActorSchema`, `PropSchema`, `CordSchema` (a prop's cord or string), `BodySchema`, `LayerSchema`, `ActionSchema`, `LightingSchema`, `LightSchema`, `SurfaceSchema` (`SurfaceDef`) |
 | Sequence | `ShotTransitionSchema` (`ShotTransitionDef`) |
 | Values | `ValueSchema` (`Value`), `Vec2Schema`, `KeyframeSchema` (`Keyframe`), `TracksSchema` (`Tracks`), `EaseSchema` |
 

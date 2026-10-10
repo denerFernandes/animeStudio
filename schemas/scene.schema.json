@@ -247,6 +247,27 @@
               },
               "parallax": {
                 "type": "number"
+              },
+              "flicker": {
+                "description": "A light that flickers by itself (a TV on, a candle, a fire): deterministic, by time",
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "How much of the intensity it loses at most"
+                  },
+                  "speed": {
+                    "description": "Changes per second (default 6)",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "amount"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -642,6 +663,131 @@
             ],
             "additionalProperties": false,
             "description": "Stand on a surface: y follows the ground at the current x"
+          },
+          "cord": {
+            "type": "object",
+            "properties": {
+              "point": {
+                "description": "Where it is tied on this prop (its art's coordinates, default the origin)",
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false,
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "to": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "A scene point (a phone box)"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "actor": {
+                        "type": "string"
+                      },
+                      "anchor": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "actor",
+                      "anchor"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "prop": {
+                        "type": "string"
+                      },
+                      "point": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "[x, y]"
+                      }
+                    },
+                    "required": [
+                      "prop"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "string",
+                    "const": "up",
+                    "description": "Straight up out of the picture (a prop hanging on a string)"
+                  }
+                ],
+                "description": "The other end"
+              },
+              "length": {
+                "description": "Rest length (scene px): shorter than the distance it stretches (coils open up), longer it sags",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "coils": {
+                "description": "Loops of a coiled cord (a phone's); 0 = a plain string (default)",
+                "type": "number",
+                "minimum": 0
+              },
+              "radius": {
+                "description": "Coil radius (default 7)",
+                "type": "number",
+                "minimum": 0
+              },
+              "width": {
+                "description": "Line width (default 3)",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "color": {
+                "type": "string"
+              },
+              "cut": {
+                "description": "Time (s) it snaps: the far part springs back to `to`, the prop is let go",
+                "type": "number",
+                "minimum": 0
+              },
+              "z": {
+                "description": "Depth (default just behind the prop, or behind whoever holds it)",
+                "type": "number"
+              }
+            },
+            "required": [
+              "to"
+            ],
+            "additionalProperties": false,
+            "description": "A cord or string from the prop to a point, an actor's anchor, another prop or up out of the picture, drawn every frame"
           },
           "x": {
             "type": "number"
@@ -2258,6 +2404,10 @@
                 "items": false,
                 "minItems": 2,
                 "maxItems": 2
+              },
+              "prop": {
+                "description": "At this prop (follows it as it moves)",
+                "type": "string"
               },
               "x": {
                 "description": "Scene x when not attached to an actor",

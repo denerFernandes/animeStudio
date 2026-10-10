@@ -1,6 +1,6 @@
 import type { LightDef, LightingDef, Value } from "./format/schema";
 import { type Track, sampleTrack } from "./keyframes";
-import { type Mat, type Vec2, apply, formatNumber as f } from "./math";
+import { type Mat, type Vec2, apply, formatNumber as f, noise1 } from "./math";
 import { namespaceIds } from "./rig";
 
 /**
@@ -26,6 +26,7 @@ export interface LightState {
   radius: number;
   glow: number;
   parallax: number;
+  flicker?: { amount: number; speed: number };
 }
 
 export interface LightingState {
@@ -56,6 +57,7 @@ function lightDefaults(l: LightDef): LightState {
     radius: l.radius ?? 600,
     glow: l.glow ?? (l.type === "point" ? 0.6 : 0),
     parallax: l.parallax ?? 1,
+    ...(l.flicker ? { flicker: { amount: l.flicker.amount, speed: l.flicker.speed ?? 6 } } : {}),
   };
 }
 
@@ -112,6 +114,13 @@ export function lightingAt(def: LightingDef, tracks: Record<string, Track>, t: n
       const l = s.lights.find((x) => x.id === seg[1]);
       if (l) (l as unknown as Record<string, Value>)[seg[2]] = v;
     } else (s as unknown as Record<string, Record<string, Value>>)[seg[1]][seg[2]] = v;
+  }
+  // Lights that flicker by themselves (smooth noise by time, the same at every render).
+  for (const l of s.lights) {
+    if (!l.flicker) continue;
+    const seed = [...l.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7);
+    const n = 0.5 + 0.5 * (noise1(seed, t * l.flicker.speed) * 0.7 + noise1(seed + 13, t * l.flicker.speed * 2.7) * 0.3);
+    l.intensity *= 1 - l.flicker.amount * Math.max(0, Math.min(1, n));
   }
   return s;
 }

@@ -40,3 +40,29 @@ describe("props on a 2.5D rig", () => {
     expect(msgs).toMatch(/cannot put "c" back/);
   });
 });
+
+describe("props in the air", () => {
+  const k2 = { ...kit, props: { ...kit.props, saucer: { art: () => `<ellipse rx="60" ry="14"/>`, radius: 20, points: { hang: [0, -14] } }, phone: { art: () => `<rect width="20" height="80"/>`, radius: 40, points: { grip: [0, 0], cord: [0, 40] }, cord: { coils: 12, length: 400 } } } } as unknown as Kit;
+  it("a saucer flies in on a string, the string snaps, it drops on a head; a phone has a coiled cord", () => {
+    const s = { blocks: [{ id: "x", set: "s", from: 0, to: 1, cast: [{ id: "kid", at: "a" }],
+      props: [{ id: "u", kind: "saucer" }, { id: "p", kind: "phone", cord: { from: [1500, 500] } }],
+      beats: [
+        { line: 0, do: "fly", prop: "u", path: [[960, 380]], until: { line: 1 }, bob: 8, hang: true },
+        { line: 1, do: "snap", prop: "u" }, { line: 1, do: "dropOn", prop: "u", who: "kid" },
+        { line: 1, do: "camera", type: "push-in", who: "kid", until: { line: 1, end: true } },
+        { line: 1, offset: 0.5, do: "camera", type: "shake", amount: 6 },
+        { line: 1, offset: 0.2, do: "fx", type: "sparkle", prop: "u" },
+      ] }] } as unknown as Staging;
+    const d = direct(s, lines, k2);
+    expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const props = d.scenes.x.props as { id: string; cord?: { to: unknown; cut?: number; coils?: number } }[];
+    expect(props.find((p) => p.id === "u")!.cord).toMatchObject({ to: "up" });
+    expect(props.find((p) => p.id === "u")!.cord!.cut).toBeGreaterThan(0);
+    expect(props.find((p) => p.id === "p")!.cord).toMatchObject({ to: [1500, 500], coils: 12 });
+    const script = d.scenes.x.script as { action: string; anchor?: string; blend?: number; prop?: string }[];
+    expect(script.some((a) => a.action === "grab" && a.anchor === "top")).toBe(true);
+    expect(script.filter((a) => a.action === "shake").length).toBeGreaterThanOrEqual(2);
+    expect(script.some((a) => a.action === "camera" && (a.blend ?? 0) > 1)).toBe(true);
+    expect(script.some((a) => a.action === "fx" && a.prop === "u")).toBe(true);
+  });
+});

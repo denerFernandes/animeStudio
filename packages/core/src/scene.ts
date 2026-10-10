@@ -148,6 +148,7 @@ export interface CompiledFx {
   duration: number;
   actor?: string;
   anchor?: string;
+  prop?: string;
   offset: Vec2;
   x: number;
   y: number;
@@ -826,6 +827,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
           duration: a.duration ?? FX_DURATIONS[a.type],
           actor: a.actor,
           anchor: a.anchor,
+          ...(a.prop ? { prop: a.prop } : {}),
           offset: a.offset ?? [0, 0],
           x: a.x ?? 0,
           y: a.y ?? 0,
@@ -1478,6 +1480,56 @@ export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: numbe
   return base;
 }
 
+/**
+ * A prop's cord as a screen path: from its tie point to the other end, sagging when slack and, coiled,
+ * its loops opening up as it stretches. Cut, the far part springs back to its end for 0.35 s.
+ */
+function cordPath(scene: CompiledScene, c: NonNullable<PropDef["cord"]>, propM: Mat, view: Mat, t: number, poses: Map<string, EvaluatedPose>): string | undefined {
+  const a = apply(propM, (c.point as Vec2 | undefined) ?? [0, 0]);
+  let b: Vec2;
+  if (c.to === "up") b = [a[0], a[1] - 4000];
+  else if (Array.isArray(c.to)) b = c.to as Vec2;
+  else if ("actor" in c.to) b = anchorPosition(scene, c.to.actor, c.to.anchor, t, poses.get(c.to.actor));
+  else {
+    const to = c.to as { prop: string; point?: Vec2 };
+    const other = scene.props.find((q) => q.id === to.prop);
+    if (!other) return undefined;
+    b = apply(placementMatrix(propPlacement(scene, other, t, poses)), to.point ?? [0, 0]);
+  }
+  let from: Vec2 = a;
+  if (c.cut !== undefined && t >= c.cut) {
+    // Snapped: the far part springs back (to its end) and is gone.
+    const u = (t - c.cut) / 0.35;
+    if (u >= 1) return undefined;
+    from = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+  }
+  const dx = b[0] - from[0], dy = b[1] - from[1];
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return undefined;
+  const len = c.length ?? dist;
+  const ux = dx / dist, uy = dy / dist, nx = -uy, ny = ux;
+  const slack = Math.max(0, len - dist), coils = c.coils ?? 0;
+  // Coils open up as it stretches.
+  const rad = (c.radius ?? 7) * Math.max(0.25, Math.min(1, len / dist));
+  const n = Math.max(12, Math.ceil(coils * 14), Math.ceil(dist / 12));
+  const pts: string[] = [];
+  for (let i = 0; i <= n; i++) {
+    const u = i / n;
+    // Slack hangs down (a parabola), more in the middle.
+    const sag = slack * 0.5 * 4 * u * (1 - u);
+    let x = from[0] + dx * u, y = from[1] + dy * u + sag;
+    if (coils > 0) {
+      const th = u * coils * Math.PI * 2;
+      const along = rad * 0.6 * Math.cos(th), across = rad * Math.sin(th);
+      x += ux * along + nx * across;
+      y += uy * along + ny * across;
+    }
+    const q = apply(view, [x, y]);
+    pts.push(`${Math.round(q[0] * 10) / 10} ${Math.round(q[1] * 10) / 10}`);
+  }
+  return `M${pts.join(" L")}`;
+}
+
 /** Screen position of an actor (head anchor), prop or scene point at time t. */
 export function screenPoint(scene: CompiledScene, target: string | Vec2, t: number): Vec2 {
   const cam = cameraAt(scene, t);
@@ -1596,6 +1648,18 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const holderZ = holder ? scene.actors.find((a) => a.id === holder.actor)?.def.z : undefined;
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), placementMatrix(propPlacement(scene, prop, t - dtPrev))) : null;
+    if (prop.def.cord) {
+      const vm = viewMatrix(scene, cam, depth);
+      const d = cordPath(scene, prop.def.cord, placementMatrix(p), vm, t, poses);
+      if (d) {
+        const c = prop.def.cord;
+        items.push({
+          z: c.z ?? (holder ? (holderZ ?? 0) - 1e-3 : (prop.def.z ?? 0) - 1e-3),
+          order: order++,
+          node: { kind: "path", key: `cord-${prop.id}`, d, attrs: { fill: "none", stroke: c.color ?? "#2a2a2a", "stroke-width": Math.round((c.width ?? 3) * Math.hypot(vm[0], vm[1]) * 100) / 100, "stroke-linecap": "round", "stroke-linejoin": "round" } },
+        });
+      }
+    }
     items.push({
       // Held: just above its holder (under the holding hand, above the rest of the body).
       z: holder ? (holderZ ?? 0) + 1e-3 : prop.def.z ?? 0,
@@ -1643,7 +1707,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       z = (actor.def.z ?? 0) + (BEHIND_FX.includes(e.type) ? -0.01 : 0.5);
     } else {
       const v = viewMatrix(scene, cam, 1);
-      const p = apply(v, [e.x, e.y]);
+      const pr = e.prop ? scene.props.find((q) => q.id === e.prop) : undefined;
+      const at: Vec2 = pr ? (() => { const pl = propPlacement(scene, pr, t, poses); return [pl.x + e.offset[0], pl.y + e.offset[1]] as Vec2; })() : [e.x, e.y];
+      const p = apply(v, at);
       const s = Math.hypot(v[0], v[1]) * e.scale;
       m = [s, 0, 0, s, p[0], p[1]];
     }

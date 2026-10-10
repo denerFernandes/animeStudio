@@ -6,6 +6,7 @@ import {
   bakePhysics,
   compileRig,
   drawSolid,
+  lightingAt,
   makeTrack,
   nodeToString,
   renderCharacter,
@@ -469,3 +470,19 @@ describe("solids", () => {
 function renderCharacterNodes(rig: ReturnType<typeof compileRig>, p: ReturnType<typeof evaluatePose>) {
   return renderCharacter(rig, p).map(nodeToString).join("");
 }
+
+describe("cords and flickering lights", () => {
+  it("draws a prop's coiled cord to a scene point, and a light flickers by itself", () => {
+    const doc = {
+      format: "toon-scene", version: 1, width: 800, height: 600, fps: 30, duration: 2, characters: {},
+      lighting: { lights: [{ id: "tv", type: "point", x: 400, y: 300, intensity: 1, flicker: { amount: 0.6 } }] },
+      props: [{ id: "p", art: "<rect width='10' height='10'/>", x: 200, y: 300, cord: { to: [600, 300], coils: 8, length: 300 } }],
+    } as unknown as SceneDoc;
+    const scene = compileScene(doc, { characters: {} });
+    const svg = frameToSVG(evaluateScene(scene, 0.5));
+    expect(svg).toMatch(/stroke="#2a2a2a"/);
+    const i = lightingAt(doc.lighting as never, {}, 0.1).lights[0].intensity, j = lightingAt(doc.lighting as never, {}, 0.9).lights[0].intensity;
+    expect(i).toBeLessThanOrEqual(1);
+    expect(i).not.toBeCloseTo(j, 3);
+  });
+});

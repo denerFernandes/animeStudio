@@ -407,6 +407,10 @@ export const LightSchema = z
     radius: z.number().positive().optional().describe("point: reach of the light in px"),
     glow: z.number().min(0).optional().describe("point: strength of the visible additive glow (0 = invisible light)"),
     parallax: z.number().optional(),
+    flicker: z
+      .strictObject({ amount: z.number().min(0).max(1).describe("How much of the intensity it loses at most"), speed: z.number().positive().optional().describe("Changes per second (default 6)") })
+      .optional()
+      .describe("A light that flickers by itself (a TV on, a candle, a fire): deterministic, by time"),
   })
   .describe("A light. Point lights glow and open the ambient darkness; the key light shades characters");
 
@@ -459,11 +463,33 @@ export const ActorSchema = z.strictObject({
   ...Placement,
 });
 
+export const CordSchema = z
+  .strictObject({
+    point: Vec2Schema.optional().describe("Where it is tied on this prop (its art's coordinates, default the origin)"),
+    to: z
+      .union([
+        Vec2Schema.describe("A scene point (a phone box)"),
+        z.strictObject({ actor: z.string(), anchor: z.string() }),
+        z.strictObject({ prop: z.string(), point: Vec2Schema.optional() }),
+        z.literal("up").describe("Straight up out of the picture (a prop hanging on a string)"),
+      ])
+      .describe("The other end"),
+    length: z.number().positive().optional().describe("Rest length (scene px): shorter than the distance it stretches (coils open up), longer it sags"),
+    coils: z.number().min(0).optional().describe("Loops of a coiled cord (a phone's); 0 = a plain string (default)"),
+    radius: z.number().min(0).optional().describe("Coil radius (default 7)"),
+    width: z.number().positive().optional().describe("Line width (default 3)"),
+    color: z.string().optional(),
+    cut: z.number().min(0).optional().describe("Time (s) it snaps: the far part springs back to `to`, the prop is let go"),
+    z: z.number().optional().describe("Depth (default just behind the prop, or behind whoever holds it)"),
+  })
+  .describe("A cord or string from the prop to a point, an actor's anchor, another prop or up out of the picture, drawn every frame");
+
 export const PropSchema = z.strictObject({
   id: z.string(),
   art: z.string(),
   body: BodySchema.optional(),
   ground: GroundRef.optional(),
+  cord: CordSchema.optional(),
   ...Placement,
 });
 
@@ -661,6 +687,7 @@ export const ActionSchema = z.discriminatedUnion("action", [
     actor: z.string().optional().describe("Attach to this actor (follows it, flips and scales with it)"),
     anchor: z.string().optional().describe('Actor anchor (default "head" if present); "origin" = between the feet'),
     offset: Vec2Schema.optional().describe("Offset from the anchor in the character's setup space"),
+    prop: z.string().optional().describe("At this prop (follows it as it moves)"),
     x: z.number().optional().describe("Scene x when not attached to an actor"),
     y: z.number().optional().describe("Scene y when not attached to an actor"),
     duration: z.number().positive().optional(),

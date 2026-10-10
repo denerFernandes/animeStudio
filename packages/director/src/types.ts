@@ -77,7 +77,12 @@ export interface PropEntry {
   color?: string;
   heldBy?: string;
   at?: Place;
+  /** Tied by a cord (a phone's to its box): from a set mark or a scene point to the prop's `point` (a point of the kind, default `cord`). */
+  cord?: { from: string | [number, number]; point?: string };
 }
+
+/** How a prop kind's cord looks: rest length, coils (0: a plain string), coil radius, width, colour. */
+export interface PropCord { length?: number; coils?: number; radius?: number; width?: number; color?: string }
 
 export type Beat = When & { do: string; until?: When; [k: string]: unknown };
 
@@ -220,7 +225,7 @@ export interface Kit {
    * holder's forearm comes from at the grip, degrees in the holder's frame (0 = forward, 90 = from
    * below; default 70, down and a little forward): the elbow goes there.
    */
-  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number }>;
+  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number; cord?: PropCord }>;
   /**
    * Vehicles by kind. `scale` is for a cast member of scale 1 (a ridden vehicle is multiplied by its
    * rider's scale). A vehicle whose rig has a `seat` anchor can be ridden (see DIRECTOR.md, Riding).
