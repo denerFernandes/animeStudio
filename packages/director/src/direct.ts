@@ -2250,6 +2250,10 @@ class BlockScene {
       this.resolveGestures(doc);
       (doc as { script: unknown[] }).script = [...this.script].sort((a, b) => a.at - b.at);
     }
+    // Every sound the script plays is declared in the scene's audio (its src is its id: a file or
+    // a logical id the pipeline resolves).
+    const sounds = [...new Set(this.script.filter((a) => a.action === "sound").map((a) => a.audio as string))];
+    if (sounds.length) (doc as { audio?: Record<string, string> }).audio = Object.fromEntries(sounds.map((s) => [s, s]));
     return doc;
   }
 }

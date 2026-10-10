@@ -282,6 +282,9 @@ describe("director", () => {
     const sounds = (out.scenes.x.script as { action: string; audio?: string; volume?: number }[]).filter((x) => x.action === "sound");
     expect(sounds.map((x) => x.audio)).toEqual(["whoosh.mp3", "pop.mp3"]);
     expect(sounds[1].volume).toBe(0.5);
+    // Declared in the scene's audio, so the scene validates.
+    expect((out.scenes.x as { audio?: Record<string, string> }).audio).toEqual({ "whoosh.mp3": "whoosh.mp3", "pop.mp3": "pop.mp3" });
+    expect(check(s, lines, k).filter((i) => /unknown audio/.test(i.message))).toEqual([]);
     const m = out.music[0];
     expect(volumeAt(m.volume, (lines[1].s + lines[1].e) / 2)).toBeCloseTo(0.2);
     expect(volumeAt(m.volume, m.start + 0.5)).toBeGreaterThan(0);
