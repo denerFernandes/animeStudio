@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type ToonDoc, compileRig, evaluatePose, validateToon } from "@animestudio/core";
-import { blinkAndBreathe, characterClips, emotions, handShapes, limbBones, limbIk, rigInfo, withProportions } from "../src";
+import { blinkAndBreathe, characterClips, emotions, handShapes, humanCharacter, limbBones, limbIk, rigInfo, withProportions } from "../src";
 
 /** A minimal kit character (stick figure with the kit bone layout). */
 const doc = {
@@ -62,5 +62,17 @@ describe("kit", () => {
     expect(clips.turn.tracks["bones.root.scaleX"]).toBeDefined();
     const plain = characterClips({ walk: { a: 10, lift: 8, dur: 0.6, bob: 2, lean: 1, armSwing: 10 }, run: { a: 20, lift: 14, dur: 0.4, bob: 4, lean: 3, armSwing: 30 }, jump: 40 }) as Record<string, { tracks: Record<string, unknown> }>;
     expect(plain.point.tracks["parts.handF.variant"]).toBeUndefined();
+  });
+  it("builds a complete human character from a short description", () => {
+    const doc = humanCharacter({ name: "ana", skin: "#f2c7a5", hair: "ponytail", hairColor: "#6b3e26", iris: "#3f8f4e", outfit: "tee", top: "#2ec4b6", pants: "#3b4a6b", shoes: "#ff6fa3" });
+    expect(validateToon(doc).ok).toBe(true);
+    const d = doc as unknown as { controls: Record<string, { poses?: Record<string, unknown> }>; clips: Record<string, unknown>; anchors: Record<string, unknown>; parts: { id: string }[] };
+    expect(Object.keys(d.controls.view.poses ?? {})).toEqual(expect.arrayContaining(["profile", "front"]));
+    expect(Object.keys(d.controls.emotion.poses ?? {})).toEqual(expect.arrayContaining(["excited", "dead"]));
+    expect(Object.keys(d.clips)).toEqual(expect.arrayContaining(["walk", "wave", "punch", "turn"]));
+    expect(d.anchors.face).toBeDefined();
+    expect(d.parts.some((p) => p.id === "eyeF_open")).toBe(true);
+    const rig = compileRig(doc);
+    expect(() => evaluatePose(rig, { time: 0.5 })).not.toThrow();
   });
 });

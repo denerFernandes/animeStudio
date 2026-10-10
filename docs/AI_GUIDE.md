@@ -135,6 +135,11 @@ Lessons from converting a 66-shot storyboard into an episode:
 
 ## Writing characters
 
+- **Humans: start from `humanCharacter(look)`** (kit). A dozen fields — skin, hair style and
+  colour, eyes, outfit and colours, glasses, headband, scarf, cape — give a complete character
+  with a front view, hand shapes, every gesture and walk, the fighting set and the emotions. Draw
+  a character by hand only for animals or a look the builder cannot make.
+
 - Declare bones in **setup form** (`from` / `to` in setup space, ground at `y = 0`, facing
   right). Parents first.
 - Draw art in setup space (where it sits in the rest pose) and reference it from parts.
