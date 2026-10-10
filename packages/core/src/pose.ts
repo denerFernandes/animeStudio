@@ -20,7 +20,8 @@ import {
   dist,
   hashString,
 } from "./math";
-import { type ChannelRef, type Rig, type RigTrack, boneLocalMatrix, composeWorld, visemeVariant } from "./rig";
+import { type ChannelRef, type Rig, type RigPart, type RigTrack, boneLocalMatrix, composeWorld, visemeVariant } from "./rig";
+import { type Rig3dFrame, applyRig3d, rig3dDrawOrder } from "./pose3d";
 
 /** Mutable per-frame state of all character channels. */
 export interface PoseState {
@@ -32,6 +33,9 @@ export interface PoseState {
   bsq: Float64Array;
   /** Multiplier of each bone's rotation offset and aim (1 = normal, 0 = held straight). */
   brotMix: Float64Array;
+  /** 3D rigs only: turn around the vertical axis and spread sideways (degrees), see `rig3d`. */
+  bturn: Float64Array;
+  bspread: Float64Array;
   variant: (string | undefined)[];
   opacity: Float64Array;
   morph: Record<string, number>[];
@@ -56,6 +60,8 @@ export function createPoseState(rig: Rig): PoseState {
     bsy: new Float64Array(nb).fill(1),
     bsq: new Float64Array(nb),
     brotMix: new Float64Array(nb).fill(1),
+    bturn: new Float64Array(nb),
+    bspread: new Float64Array(nb),
     variant: new Array(np).fill(undefined),
     opacity: new Float64Array(np).fill(1),
     morph: Array.from({ length: np }, () => ({})),
@@ -105,6 +111,12 @@ export function applyChannel(state: PoseState, ref: ChannelRef, value: Value | u
           break;
         case "rotationMix":
           state.brotMix[i] = blendNumber(state.brotMix[i], value, w, mode, false);
+          break;
+        case "turn":
+          state.bturn[i] = blendNumber(state.bturn[i], value, w, mode, false);
+          break;
+        case "spread":
+          state.bspread[i] = blendNumber(state.bspread[i], value, w, mode, false);
           break;
       }
       return;
@@ -358,6 +370,8 @@ export interface CharacterInput {
 export interface EvaluatedPose {
   state: PoseState;
   world: Mat[];
+  /** This frame's draw order when it differs from the rig's (2.5D rigs: limbs in front of the body). */
+  drawOrder?: RigPart[];
 }
 
 /**
@@ -457,6 +471,12 @@ export function evaluatePose(
     if (b.limits) s.brot[b.index] = clamp(s.brot[b.index], b.limits[0], b.limits[1]);
   }
   const world = computeWorld(rig, s);
+  // 6b. A 2.5D rig: its bones posed in 3D and projected for the current view.
+  let frame3d: Rig3dFrame | undefined;
+  if (rig.rig3d) {
+    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget);
+    computeWorld(rig, s, world);
+  }
 
   // 7. IK.
   rig.ik.forEach((k, i) => {
@@ -522,7 +542,7 @@ export function evaluatePose(
     }
   }
 
-  return { state: s, world };
+  return { state: s, world, ...(frame3d ? { drawOrder: rig3dDrawOrder(rig, rig.rig3d!, frame3d) } : {}) };
 }
 
 // ---------------------------------------------------------------------------

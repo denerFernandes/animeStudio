@@ -80,6 +80,20 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
       const widths = part.widths.map((w) => w * scale);
       return { kind: "path", key, opacity: op, d: hoseOutline(joints, widths, part.cap, part.smooth), attrs: styleAttrs(part.style) };
     }
+    case "hull": {
+      // The convex hull of circles around the posed points, as a smooth closed path.
+      const pts: Vec2[] = [];
+      for (const q of part.points) {
+        const m = multiply(world[q.bone], rig.bones[q.bone].setupWorldInv);
+        const c = apply(m, q.at);
+        const k = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
+        for (let i = 0; i < 20; i++) {
+          const a = (i / 20) * Math.PI * 2;
+          pts.push([c[0] + Math.cos(a) * q.r * k, c[1] + Math.sin(a) * q.r * k]);
+        }
+      }
+      return { kind: "path", key, opacity: op, d: hullPath(pts), attrs: styleAttrs(part.style) };
+    }
     case "morph": {
       const weights = s.morph[part.index];
       const basePts = pathPoints(part.base);
@@ -100,10 +114,37 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
   }
 }
 
+/** Smooth closed path around the convex hull of points (monotone chain, corners rounded). */
+function hullPath(pts: Vec2[]): string {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o: Vec2, a: Vec2, b: Vec2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Vec2[] = [], upper: Vec2[] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  const h = [...lower.slice(0, -1), ...upper.slice(0, -1)];
+  if (h.length < 3) return "";
+  const f = (n: number) => Math.round(n * 100) / 100;
+  const mid = (a: Vec2, b: Vec2): Vec2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const m0 = mid(h[h.length - 1], h[0]);
+  let d = `M${f(m0[0])} ${f(m0[1])}`;
+  for (let i = 0; i < h.length; i++) {
+    const m = mid(h[i], h[(i + 1) % h.length]);
+    d += ` Q${f(h[i][0])} ${f(h[i][1])} ${f(m[0])} ${f(m[1])}`;
+  }
+  return d + " Z";
+}
+
 /** Renders a posed character into render nodes (character space). */
 export function renderCharacter(rig: Rig, pose: EvaluatedPose, keyPrefix = "", only?: (partId: string) => boolean): RenderNode[] {
   const out: RenderNode[] = [];
-  for (const part of rig.drawOrder) {
+  for (const part of pose.drawOrder ?? rig.drawOrder) {
     if (only && !only(part.id)) continue;
     const node = renderPart(rig, pose, part, keyPrefix);
     if (node) out.push(node);

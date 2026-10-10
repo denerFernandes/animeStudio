@@ -131,6 +131,7 @@ Visual elements bound to bones. **Draw order = array order** (later parts are on
 | `switch` | Swappable variants (mouths, eyes, hands, views) | `bone`, `variants: {name → art}`, `default`, `space` |
 | `skinned` | Path whose points are deformed by several bones (bending limbs) | `path`, `bones`, `weights?`, `falloff`, style |
 | `hose` | Procedural "rubber hose" limb through a bone chain | `bones`, `width`, `cap`, `smooth`, style |
+| `hull` | A soft shape stretched over points of the skeleton: the rounded convex hull of circles (a skirt over the waist and the knees, a cape) | `points: [{ bone, at, r }]` (setup space), style |
 | `morph` | Blend shapes on a path (expressions, squish) | `bone`, `base`, `shapes: {name → path}`, `space`, style |
 
 Style fields (for path-based parts): `fill`, `stroke`, `strokeWidth`, `attrs` (extra SVG
@@ -175,6 +176,30 @@ the shoulder (the elbow points at the camera).
 `turn` (0..1, optional) makes a prop held at the anchor turn with the bone: 1 turns it as much as
 the hand turns from its rest pose (a phone at the ear, a bottle tipped to the mouth), 0 keeps it
 upright. Draw held props the way they look in the hand at rest (arm hanging).
+
+### 2.6b `rig3d` (2.5D rigs)
+
+A rig whose bones are posed in 3D and drawn from any angle:
+
+```json
+"rig3d": {
+  "bones": { "legF1": { "from": [-20, -250, 0], "to": [-20, -125, 6] }, "...": {} },
+  "views": { "front": 0, "profile": 36, "side": 90, "back": 180 },
+  "pitch": 18,
+  "chains": [{ "bones": ["legF1", "legF2"], "parts": ["legF", "shoeF"] }],
+  "front": "armF", "back": "hairBack"
+}
+```
+
+`bones` gives each 3D bone's rest joint and tip in body space (the front view: x right, y down,
+z towards the viewer). Every frame, before IK, the bones are posed in 3D — a bone's `rotation` turns
+it about the body's sideways axis (the plane of a side view: what a clip authored in profile means),
+`turn` about the vertical axis, `spread` about the forward axis — and projected with the yaw of the
+current `view` (`views`, degrees: 0 faces the camera) and `pitch`; the 2D bones are set to match
+(place, direction, foreshortening as a squash). Leg IK (feet planted while walking) is solved in the
+side plane first, so walks foreshorten from the front. Limbs (`chains`) clearly nearer than the body
+are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
+clearly farther ones just after the `back` part.
 
 ### 2.7 `ik`
 
@@ -289,6 +314,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 | `bones.<id>.x`, `bones.<id>.y` | px offset in parent space |
 | `bones.<id>.scaleX`, `bones.<id>.scaleY` | multiplier (1 = rest) |
 | `bones.<id>.rotationMix` | multiplier of the bone's rotation offset and aim (rest 1; e.g. `-0.85` in a pose keeps a head nearly straight) |
+| `bones.<id>.turn`, `bones.<id>.spread` | 2.5D rigs (`rig3d`) only: degrees about the vertical axis (+ turns the front towards +x) and about the forward axis (+ swings a hanging limb towards +x); `rotation` is about the body's sideways axis |
 | `bones.<id>.squash` | volume-preserving, relative to the bone: `> 0` stretches along the bone (`×(1+v)`) and thins it (`÷(1+v)`), `< 0` squashes. **Local:** it deforms the bone's own art and moves where children attach, but never scales or shears children |
 | `parts.<id>.variant` | variant name (switch) |
 | `parts.<id>.opacity` | 0..1 multiplier; pose values multiply and never go below 0 (`-1` or `0` hides, and two controls hiding the same part keep it hidden) |

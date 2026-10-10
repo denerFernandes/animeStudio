@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileRig, evaluatePose, validateToon } from "@animestudio/core";
+import { compileRig, evaluatePose, makeTrack, resolveChannel, validateToon } from "@animestudio/core";
 import { type CartoonLook, cast, ellipsoid, fieldPath, fluid, gridFor, mouthInside, onSurface, cartoonCharacter, cartoonInfo, sphere } from "../src";
 
 const kid: CartoonLook = {
@@ -38,9 +38,13 @@ describe("sitcom characters", () => {
     const v = validateToon(doc);
     expect(v.ok).toBe(true);
     const meta = doc.meta as { views: { order: string[] } };
-    expect(meta.views.order).toEqual(["front", "half", "profile", "side", "away", "back"]);
+    expect(meta.views.order).toEqual(["front", "half", "q24", "profile", "q50", "q64", "q77", "side", "q112", "away", "q158", "back"]);
     const poses = (doc.controls as Record<string, { poses: Record<string, unknown> }>).view.poses;
-    expect(Object.keys(poses).sort()).toEqual(["away", "back", "front", "half", "profile", "side"]);
+    expect(Object.keys(poses).length).toBe(12);
+    // A 2.5D rig: every view's yaw, the limbs posed in 3D.
+    const r3 = doc.rig3d as { views: Record<string, number>; bones: Record<string, unknown> };
+    expect(r3.views.side).toBe(90);
+    expect(Object.keys(r3.bones)).toContain("legF2");
     // A ponytail on a spring, follow-through on the forearms.
     const physics = doc.physics as { type: string; bones?: string[] }[];
     expect(physics.some((p) => p.bones?.includes("tail"))).toBe(true);
@@ -53,18 +57,28 @@ describe("sitcom characters", () => {
     expect(info.height).toBeGreaterThan(380);
     expect(info.legLength!.F).toBeGreaterThan(150);
   });
-  it("can sit facing the camera, its skirt follows the thighs, held props turn with the hand", () => {
-    const lady = cartoonCharacter({ ...kid, name: "lady", bottom: "skirt" });
-    const parts = lady.parts as { id: string; type: string; bones?: string[]; variants?: Record<string, string> }[];
-    // Seated facing the camera: a drawing of the hips, thighs and knees (open or crossed), the knees
-    // in the rig's meta for the director.
-    expect(Object.keys(parts.find((p) => p.id === "seatLegs")!.variants!)).toEqual(["off", "open", "crossed", "openHalf", "crossedHalf"]);
-    const sitFront = (lady.meta as { sitFront: { knees: { F: number[]; B: number[] } } }).sitFront;
-    expect(sitFront.knees.F[0]).toBeLessThan(0);
-    expect(Object.keys((lady.controls as Record<string, { poses: Record<string, unknown> }>).seat.poses)).toEqual(["none", "front", "crossed", "half", "halfCrossed"]);
-    const skirt = parts.filter((p) => p.id.startsWith("skirt_"));
-    expect(skirt.length).toBeGreaterThan(1);
-    expect(skirt.every((p) => p.type === "skinned" && p.bones!.includes("legF1"))).toBe(true);
+  it("poses in 3D: a seated pose reads from every angle, the skirt drapes over the knees", () => {
+    const lady = cartoonCharacter({ ...kid, name: "lady", bottom: "skirt" }, { pitch: 18 });
+    const rig = compileRig(lady);
+    const seated = (view: string) => {
+      const tr = (ch: string, v: unknown) => ({ channel: ch, ref: resolveChannel(rig, ch), track: makeTrack([{ t: 0, v: v as never }]) });
+      return evaluatePose(rig, { time: 0, tracks: [tr("controls.view", view), tr("bones.legF1.rotation", -90), tr("bones.legF2.rotation", 90), tr("ik.footF.mix", 0)] } as never);
+    };
+    const knee = (view: string) => {
+      const p = seated(view), w = p.world[rig.boneIndex.get("legF2")!];
+      return [w[4], w[5]];
+    };
+    // In profile the thigh is level (the knee forward of the hip, at its height); from the front it
+    // points at the camera: the knee is right below the hip, a short way down.
+    const hip = (view: string) => { const w = seated(view).world[rig.boneIndex.get("legF1")!]; return [w[4], w[5]]; };
+    expect(knee("side")[0] - hip("side")[0]).toBeGreaterThan(60);
+    expect(Math.abs(knee("front")[0] - hip("front")[0])).toBeLessThan(15);
+    expect(knee("front")[1] - hip("front")[1]).toBeLessThan(60);
+    // The thigh comes in front of the body when it points at the camera.
+    const order = seated("front").drawOrder!.map((p) => p.id);
+    expect(order.indexOf("thighF")).toBeGreaterThan(order.indexOf("torsoF"));
+    const skirt = (lady.parts as { id: string; type: string }[]).find((p) => p.id === "skirt")!;
+    expect(skirt.type).toBe("hull");
     expect((lady.anchors as Record<string, { turn?: number }>).hand.turn).toBe(1);
     // Shoes point at the camera from the front.
     const front = (lady.controls as Record<string, { poses: Record<string, Record<string, unknown>> }>).view.poses.front;

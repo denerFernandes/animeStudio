@@ -121,6 +121,15 @@ export const HosePartSchema = z.strictObject({
   smooth: z.number().min(0).max(1).optional(),
 });
 
+export const HullPartSchema = z.strictObject({
+  ...PartBase,
+  ...PathStyle,
+  type: z.literal("hull"),
+  points: z
+    .array(z.strictObject({ bone: z.string(), at: Vec2Schema.describe("Setup space"), r: z.number().min(0).describe("Radius around the point") }))
+    .min(2),
+}).describe("A soft shape stretched over points of the skeleton (the rounded convex hull of circles): a skirt over the waist and the knees, a cape, a belly");
+
 export const MorphPartSchema = z.strictObject({
   ...PartBase,
   ...PathStyle,
@@ -136,6 +145,7 @@ export const PartSchema = z.discriminatedUnion("type", [
   SwitchPartSchema,
   SkinnedPartSchema,
   HosePartSchema,
+  HullPartSchema,
   MorphPartSchema,
 ]);
 
@@ -272,6 +282,23 @@ export const ToonSchema = z.strictObject({
   controls: z.record(z.string(), ControlSchema).optional(),
   behaviors: z.array(BehaviorSchema).optional(),
   clips: z.record(z.string(), ClipSchema).optional(),
+  rig3d: z
+    .strictObject({
+      bones: z
+        .record(z.string(), z.strictObject({ from: z.tuple([z.number(), z.number(), z.number()]), to: z.tuple([z.number(), z.number(), z.number()]) }))
+        .describe("Bones posed in 3D: rest joint and tip in body space (the front view: x right, y down, z towards the viewer)"),
+      views: z.record(z.string(), z.number()).describe("Each view of the `view` control → the yaw (degrees) its drawings were made at"),
+      pitch: z.number().optional().describe("How far above the drawings are seen from (degrees, default 0)"),
+      chains: z
+        .array(z.strictObject({ bones: z.array(z.string()), parts: z.array(z.string()) }))
+        .optional()
+        .describe("Limbs drawn in front of or behind the body by their depth"),
+      front: z.string().optional().describe("Part before which a limb nearer than the body is drawn"),
+      back: z.string().optional().describe("Part after which a limb farther than the body is drawn"),
+      body: z.array(z.string()).optional().describe("Bones whose depth is the body's (default body, neck)"),
+    })
+    .optional()
+    .describe("A 2.5D rig: its bones posed in 3D (rotations about the body's sideways axis, plus `turn` and `spread`) and projected for the current view each frame"),
 });
 
 // ---------------------------------------------------------------------------

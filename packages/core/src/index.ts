@@ -6,6 +6,7 @@ export * from "./keyframes";
 export * from "./paths";
 export * from "./rig";
 export * from "./pose";
+export * from "./pose3d";
 export * from "./physics";
 export * from "./render";
 export * from "./lipsync";

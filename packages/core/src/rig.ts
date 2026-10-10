@@ -1,3 +1,4 @@
+import { type CompiledRig3d, compileRig3d } from "./pose3d";
 import type {
   BehaviorDef,
   ControlDef,
@@ -85,6 +86,7 @@ export type RigPart =
       style: PathStyle;
     })
   | (RigPartBase & { type: "hose"; bones: number[]; widths: number[]; cap: "round" | "butt"; smooth: number; style: PathStyle })
+  | (RigPartBase & { type: "hull"; points: { bone: number; at: Vec2; r: number }[]; style: PathStyle })
   | (RigPartBase & {
       type: "morph";
       bone: number;
@@ -94,7 +96,7 @@ export type RigPart =
       style: PathStyle;
     });
 
-export type BoneProp = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "squash" | "rotationMix";
+export type BoneProp = "x" | "y" | "rotation" | "scaleX" | "scaleY" | "squash" | "rotationMix" | "turn" | "spread";
 
 export type ChannelRef =
   | { kind: "bone"; index: number; prop: BoneProp }
@@ -163,6 +165,8 @@ export interface Rig {
   partIndex: Map<string, number>;
   /** Parts in draw order. */
   drawOrder: RigPart[];
+  /** A 2.5D rig (`rig3d`): bones posed in 3D, projected per view. */
+  rig3d?: CompiledRig3d;
   anchors: Record<string, { bone: number; at: Vec2; turn?: number }>;
   ik: RigIk[];
   physics: RigPhysics[];
@@ -231,7 +235,7 @@ export function composeWorld(b: RigBone, parentWorld: Mat | undefined, local: Ma
 // Channels
 // ---------------------------------------------------------------------------
 
-const BONE_PROPS: BoneProp[] = ["x", "y", "rotation", "scaleX", "scaleY", "squash", "rotationMix"];
+const BONE_PROPS: BoneProp[] = ["x", "y", "rotation", "scaleX", "scaleY", "squash", "rotationMix", "turn", "spread"];
 
 const known = (what: string, keys: Iterable<string>) => {
   const list = [...keys];
@@ -477,6 +481,8 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
         }
         return { ...base, type: "skinned", path: cubic, influences, weights, style: style(def) };
       }
+      case "hull":
+        return { ...base, type: "hull", points: def.points.map((q) => ({ bone: boneRef(q.bone, path), at: q.at as Vec2, r: q.r })), style: style(def) };
       case "hose": {
         const hb = def.bones.map((b) => boneRef(b, path));
         return {
@@ -667,6 +673,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
     parts,
     partIndex,
     drawOrder,
+    ...(doc.rig3d ? { rig3d: compileRig3d({ bones, boneIndex, partIndex }, doc.rig3d as never) } : {}),
     anchors,
     ik,
     physics,
