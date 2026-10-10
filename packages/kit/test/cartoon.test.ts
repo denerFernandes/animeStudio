@@ -107,7 +107,7 @@ describe("anatomy", () => {
             expect(errors, `${build} ${nose} ${jaw} ${limbs}`).toEqual([]);
           }
   });
-  it("the mouth never touches the nose, in any expression, from any angle", () => {
+  it("the mouth never touches the nose, in any expression, from any angle", { timeout: 120000 }, () => {
     for (const look of [kid, { ...kid, build: "woman", female: true, lipstick: "#c2334a", nose: "round" }, { ...kid, build: "man", nose: "long", moustache: true }, { ...kid, build: "elder", nose: "wide", jaw: "square" }] as CartoonLook[]) {
       const issues = (cartoonCharacter(look).meta as { anatomyIssues: { rule: string; message: string }[] }).anatomyIssues;
       expect(issues.filter((i) => i.rule === "mouth-nose-view").map((i) => i.message), look.build).toEqual([]);

@@ -185,7 +185,7 @@ Lessons from converting a 66-shot storyboard into an episode:
 - Hands read better with shapes than as plain circles: give the hands a switch part with
   `handShapes` (open, fist, point, grip) and build the clips with `hands: true` — a pointing
   gesture then shows a finger, a punch a fist, a wave an open hand.
-- 2.5D rigs (`rig3d`): limbs that can point at the camera (a seated lap, crossed legs, feet) read
+- 2.5D rigs (`rig3d`): limbs that can point at the camera (a seated lap, feet) read
   only as volumes. Flat hoses and hulls turned towards the camera become shapeless blobs, however
   they are tuned: make them a `solid` part (cones on the 3D bones, cel shaded, composited by depth)
   and put it after a flat torso drawing with an occluder a little inside it. Keep torsos and heads

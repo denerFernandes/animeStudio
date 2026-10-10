@@ -135,6 +135,9 @@ describe("director", () => {
     const k2: Kit = { ...k, characters: { ...k.characters, a: stick, sofa: sofa as never }, furniture: { ...k.furniture, sofa: { character: "sofa", scale: 1 } }, sets: { ...k.sets, room: { ...k.sets.room, furniture: [{ id: "couch", kind: "sofa", at: "door" }] } } };
     const front = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }, { id: "b" }], beats: [{ line: 0, do: "sit", who: ["a", "b"], on: "couch", view: "front" }] }] }, lines, k2);
     expect(front.issues.filter((i) => i.severity === "error")).toEqual([]);
+    // Crossed legs are not something the engine draws: a warning, and a plain sit.
+    const crossed = direct({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a" }], beats: [{ line: 0, do: "sit", who: "a", on: "couch", legs: "crossed" } as never] }] }, lines, k2);
+    expect(crossed.issues.some((i) => i.severity === "warning" && /crossed legs are not supported/.test(i.message))).toBe(true);
     const fs = front.scenes.x.script as { action: string; actor?: string; anchor?: string; value?: string; control?: string }[];
     expect(fs.filter((x) => x.action === "mount").map((x) => x.anchor)).toEqual(["seat", "seat2"]);
     expect(describeKit(k2).sets.room.furniture).toEqual({ couch: "sofa" });

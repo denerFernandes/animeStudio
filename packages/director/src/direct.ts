@@ -163,11 +163,10 @@ interface SitFront {
   thigh?: number;
   spread?: number;
   hands?: "knees";
-  /** Drawn knees (setup space), open and crossed: the shins hang from them. */
+  /** Drawn knees (setup space): the shins hang from them. */
   knees?: { F: [number, number]; B: [number, number] };
-  crossedKnees?: { F: [number, number]; B: [number, number] };
   /** The same seated in three-quarter (the half view). */
-  half?: { knees?: { F: [number, number]; B: [number, number] }; crossedKnees?: { F: [number, number]; B: [number, number] } };
+  half?: { knees?: { F: [number, number]; B: [number, number] } };
   /** How far the body sinks into the cushion (setup px). */
   sink?: number;
 }
@@ -700,7 +699,7 @@ class BlockScene {
         for (const w of who) this.fallDown(w, at, (b.side ?? b.dir) === "front" ? "front" : "back");
         break;
       case "sit":
-        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at, b.view as string | undefined, { legs: b.legs as "crossed" | undefined, hands: b.hands as "knees" | "lap" | undefined });
+        for (const w of who) this.sit(w, (b.on as string | undefined) ?? null, at, b.view as string | undefined, { legs: b.legs as string | undefined, hands: b.hands as "knees" | "lap" | undefined });
         break;
       case "lie":
         for (const w of who) this.lie(w, (b.on as string | undefined) ?? null, at);
@@ -1860,7 +1859,12 @@ class BlockScene {
     return void this.issue("error", `${actor} cannot ${kind} on "${on}": not furniture of the block nor a seat of set "${this.block.set}"${closest(on, [...this.furnitureOf.keys(), ...seats])}`);
   }
   /** Sits on furniture (`seat` anchor), a set seat (mark with `seat`) or the ground: hips down, knees up, feet on the floor. */
-  sit(actor: string, on: string | null, at: number, view?: string, how: { legs?: "crossed"; hands?: "knees" | "lap" } = {}) {
+  sit(actor: string, on: string | null, at: number, view?: string, how: { legs?: string; hands?: "knees" | "lap" } = {}) {
+    // Crossed legs are not something the engine can draw: they sit with the legs apart.
+    if ((how.legs as string | undefined) === "crossed") {
+      this.issue("warning", `${actor}: crossed legs are not supported by the engine — sitting with the legs apart`);
+      how = { ...how, legs: undefined };
+    }
     if (this.ridingAt(actor, at)) return this.issue("error", `${actor} cannot sit: riding then (dismount first)`);
     const rest = this.restAt(actor, at);
     if (rest?.kind === "sit" && rest.on === on) return;
@@ -1937,8 +1941,8 @@ class BlockScene {
   }
   /**
    * Sitting in 3D (a 2.5D rig): thighs forward (knees up when the seat is low), shins down to the
-   * floor, the body a little back; hands on the knees or in the lap; `legs: "crossed"` crosses the
-   * far leg over the near knee. The same pose reads from any angle the rig is drawn at.
+   * floor, the body a little back; hands on the knees or in the lap. The same pose reads from any
+   * angle the rig is drawn at.
    */
   private sit3d(actor: string, seatH: number, at: number, how: { legs?: string; hands?: "knees" | "lap" }, ground = false) {
     if (ground) return this.sitFloor3d(actor, at, how.legs ?? "straight");
@@ -1955,32 +1959,19 @@ class BlockScene {
       set(`bones.leg${side}2.rotation`, 90 + up - slope);
       if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 0, at, 0.3);
     }
-    if (how.legs === "crossed") {
-      // The far thigh laid over the near one (rising over its knee, crossing to its side), its shin
-      // hanging in front of the other one, the foot off the floor.
-      set("bones.legB1.rotation", -90 - up - 8);
-      set("bones.legB1.turn", -20);
-      // The lower knee a little out (turned: a thigh pointing forward does not spread), so the two
-      // shins do not cross into an X.
-      set("bones.legF1.turn", -10);
-      set("bones.legB2.rotation", 90 + up + 8 - slope * 0.5);
-    }
     set("bones.body.rotation", 4);
-    // Hands on the knees or in the lap (on the top knee with crossed legs): reached in 3D, so they
+    // Hands on the knees or in the lap: reached in 3D, so they
     // land there whatever the build (a belly, wide shoulders) and the seat.
-    const lap = how.hands === "lap" || how.legs === "crossed";
+    const lap = how.hands === "lap";
     const v: Rig3dValues = { body: { rotation: 4 } };
     for (const side of ["F", "B"]) v[`leg${side}1`] = { rotation: -90 - up }, v[`leg${side}2`] = { rotation: 90 + up - slope };
-    if (how.legs === "crossed") v.legB1 = { rotation: -90 - up - 8, turn: -20 }, v.legF1 = { ...v.legF1, turn: -10 };
     this.handsOnLegs(actor, at, v, (P, side) => {
-      if (how.legs === "crossed") return P.on("legB1", 0.9, side === "F" ? -0.35 : 0.35);
       return lap ? P.on(`leg${side}1`, 0.55, side === "F" ? 0.45 : -0.45) : P.on(`leg${side}1`, 0.85, 0);
     });
   }
   /**
    * Sitting on the floor in 3D: `straight` — legs out in front, leaning back on the hands behind;
-   * `crossed` — cross-legged, the knees out to the sides, hands on the knees; `hug` — knees up to the
-   * chest, arms around them.
+   * `hug` — knees up to the chest, arms around them.
    */
   private sitFloor3d(actor: string, at: number, legs: string) {
     const set = (ch: string, v: number) => this.set(actor, ch, v, at, 0.5, "easeOut");
@@ -1988,10 +1979,7 @@ class BlockScene {
     const out = (side: string) => (side === "F" ? -1 : 1);
     const v: Rig3dValues = { body: { rotation: legs === "straight" ? 16 : legs === "hug" ? -8 : 0 } };
     for (const side of ["F", "B"]) {
-      if (legs === "crossed") {
-        v[`leg${side}1`] = { rotation: -78, turn: out(side) * 52 };
-        v[`leg${side}2`] = { rotation: 150, turn: -out(side) * 40 };
-      } else if (legs === "hug") {
+      if (legs === "hug") {
         v[`leg${side}1`] = { rotation: -138, spread: out(side) * 4 };
         v[`leg${side}2`] = { rotation: 128 };
       } else {
@@ -2003,10 +1991,9 @@ class BlockScene {
     }
     for (const [b, val] of Object.entries(v)) if (b.startsWith("leg")) for (const [k, x] of Object.entries(val)) set(`bones.${b}.${k}`, x!);
     set("bones.body.rotation", v.body.rotation!);
-    // Straight: leaning back on the hands, flat on the floor behind the hips; crossed: hands on the
-    // knees; hug: hands clasped in front of the shins, elbows out.
+    // Straight: leaning back on the hands, flat on the floor behind the hips; hug: hands clasped in
+    // front of the shins, elbows out.
     this.handsOnLegs(actor, at, v, (P, side) => {
-      if (legs === "crossed") return P.on(`leg${side}1`, 0.9, 0);
       if (legs === "hug") return P.around(side);
       return P.behind(side);
     }, legs === "hug" ? (side) => [out(side), 0.1, 0.25] : undefined);
@@ -2069,7 +2056,7 @@ class BlockScene {
   private sitFrontOf(actor: string) {
     return (this.kit.characters[this.characterOf(actor)]?.meta as { sitFront?: SitFront } | undefined)?.sitFront;
   }
-  private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number, how: { legs?: "crossed"; hands?: "knees" | "lap" } = {}, view: "front" | "half" = "front") {
+  private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number, how: { legs?: string; hands?: "knees" | "lap" } = {}, view: "front" | "half" = "front") {
     void how; void view;
     const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: SitFront } };
     const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
