@@ -1815,6 +1815,9 @@ class BlockScene {
       this.shadow(actor, at, { drop }, 0.5);
       [sitX, seatY] = [x, floor - (h > 0 ? h : hipY * 0.1)];
     }
+    // A seat much higher than the knee (a sofa drawn too tall for the cast): seated, they look like
+    // they are standing in front of it.
+    if (legs && floor - seatY > hipY * 0.7 && floor - seatY <= legs * 1.05) this.issue("warning", `${actor}'s seat on "${on}" is too high (${Math.round(floor - seatY)} px, ${Math.round(((floor - seatY) / hipY) * 100)}% of the hip height): a seat sits at about knee height (50–60%), or seated they look like standing — lower the seat or scale the furniture`);
     if (legs && floor - seatY > legs * 1.05) this.issue("warning", `${actor}'s feet do not reach the floor from "${on}" (seat ${Math.round(floor - seatY)} px high, legs ${Math.round(legs)} px): they dangle`);
     if (front) this.frontLegs(actor, sitX, seatY, floor, dir, at);
     // Feet on the floor ahead, or (seat too high) dangling: knees bent, shins hanging.
@@ -1826,7 +1829,7 @@ class BlockScene {
    * the shins hang straight down to the floor under the knees; on the ground both are foreshortened.
    */
   private frontLegs(actor: string, x: number, seatY: number, floor: number, dir: number, at: number) {
-    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: { thigh?: number; spread?: number } } };
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; meta?: { views?: { move?: { front?: Record<string, [number, number]> } }; sitFront?: { thigh?: number; spread?: number; hands?: "knees" } } };
     const bone = (id: string) => doc.skeleton.find((b) => b.id === id)?.from;
     const s = this.scaleOf(actor);
     const drop = floor - seatY;
@@ -1851,6 +1854,14 @@ class BlockScene {
       if (this.hasControl(actor, "seat")) {
         if (side === "F") this.push({ at: this.t(at + 0.25), actor, action: "pose", control: "seat", value: "front", duration: 0 });
       } else if (this.hasPart(actor, `lap${side}`)) this.set(actor, `parts.lap${side}.variant`, "on", at + 0.25);
+      // Hands on the knees (`sitFront.hands: "knees"`): the forearm comes towards the camera, so it
+      // is foreshortened, and the elbow folds outwards, close to the body.
+      if (doc.meta?.sitFront?.hands === "knees" && this.hasChain(actor, `hand${side}`)) {
+        const kneeY = Math.round(seatY + fore * 0.85);
+        this.set(actor, `bones.arm${side}2.squash`, -0.25, at + 0.1, 0.5, "easeOut");
+        this.push({ at: this.t(at + 0.1), actor, action: "reach", chain: `hand${side}`, target: [footX, kneeY], duration: 0.5 });
+        if (side === "F") this.set(actor, "ik.handF.bend", -1, at + 0.1);
+      }
       const footY = Math.min(floor + (drop < fore + shin * 0.5 ? 8 * s : 0), seatY + fore + shin * (1 + shinSq));
       this.push({ at: this.t(at), actor, action: "reach", chain: `foot${side}`, target: [footX, Math.round(footY)], duration: 0.5 });
     }
@@ -1994,6 +2005,13 @@ class BlockScene {
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
     }
     if (l.kind === "sit" && l.front && this.hasControl(actor, "seat")) this.push({ at: this.t(at + 0.15), actor, action: "pose", control: "seat", value: "none", duration: 0 });
+    if (l.kind === "sit" && l.front && this.hasChain(actor, "handF") && (this.kit.characters[this.characterOf(actor)]?.meta as { sitFront?: { hands?: string } } | undefined)?.sitFront?.hands === "knees") {
+      for (const side of ["F", "B"]) {
+        this.push({ at: this.t(at), actor, action: "reach", chain: `hand${side}`, target: null, duration: 0.4 });
+        this.set(actor, `bones.arm${side}2.squash`, 0, at, 0.4);
+      }
+      this.set(actor, "ik.handF.bend", 1, at + 0.4);
+    }
     if (l.kind === "sit" && l.front) for (const side of ["F", "B"]) if (this.hasPart(actor, `lap${side}`) || this.hasControl(actor, "seat")) {
       if (!this.hasControl(actor, "seat")) this.set(actor, `parts.lap${side}.variant`, "off", at + 0.15);
     }

@@ -1004,9 +1004,11 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   // widened by 1/0.6 across: at the knee it is a little wider than the shin.
   const skirted = look.bottom === "skirt" || look.bottom === "longSkirt";
   // As thin as the leg (a thin-limbed cartoon keeps thin thighs), a little rounder at the knee.
-  const lapW = (b.leg[0] * 0.52 * 0.5) * (1 + (look.heavy ?? 0) * 0.35) * (skirted ? 1.5 : 1);
+  // Seated facing the camera the thighs are short (40% of their length shows) and wide (twice the
+  // shin): the lap reads wider than tall, like a drawn sofa shot.
+  const lapW = (b.leg[0] * 1.0 * 0.4) * (1 + (look.heavy ?? 0) * 0.35) * (skirted ? 1.2 : 1);
   // A skirt over the lap falls past the knees: a drape on each shin (they overlap: one hem).
-  const kneeHalf = lapW / 0.5;
+  const kneeHalf = lapW / 0.4;
   /**
    * A skirt seen from the front on a seated body: one piece from the waist over both knees (knees
    * together), falling past them; a soft fold between the knees.
@@ -1014,7 +1016,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
   const seatedSkirt = () => {
     const thighLen = Math.hypot(j.kneeF[0] - j.hipF[0], j.kneeF[1] - j.hipF[1]);
     const shinLen = Math.hypot(j.footF[0] - j.kneeF[0], j.footF[1] - j.kneeF[1]);
-    const top = -b.L - b.T * 0.1, knee = -b.L + thighLen * 0.5;
+    const top = -b.L - b.T * 0.1, knee = -b.L + thighLen * 0.4;
     const hem = knee + shinLen * (look.bottom === "longSkirt" ? 0.75 : 0.32);
     const w0 = Math.max(b.W, b.H) * 1.08, w1 = b.H * 0.9 + kneeHalf * 1.4;
     const fill = look.top === "dress" ? "palette(top)" : "palette(bottom)";
@@ -1077,7 +1079,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
       const hip = side === "F" ? j.hipF : j.hipB, knee = side === "F" ? j.kneeF : j.kneeB;
       const covered = look.bottom === "pants" || shorts || look.bottom === "skirt" || look.bottom === "longSkirt";
       const fill = covered ? (look.bottom === "skirt" || look.bottom === "longSkirt" ? (look.top === "dress" ? "palette(top)" : "palette(bottom)") : "palette(bottom)") : "palette(skin)";
-      return { id: `lap${side}`, type: "switch", bone: `leg${side}1`, default: "off", variants: { off: "", on: thigh([hip[0], hip[1] - (knee[1] - hip[1]) * 0.25], knee, lapW * 0.92, lapW, side === "B" ? fill.replace(")", "Shade)") : fill) } };
+      return { id: `lap${side}`, type: "switch", bone: `leg${side}1`, default: "off", variants: { off: "", on: thigh([hip[0], hip[1] - (knee[1] - hip[1]) * 0.15], knee, lapW * 0.8, lapW, side === "B" ? fill.replace(")", "Shade)") : fill) } };
     }),
     ...(skirted ? [{ id: "skirtSeat", type: "switch", bone: "hips", default: "off", variants: { off: "", on: seatedSkirt() } }] : []),
     ...(skirted ? (["B", "F"] as const).map((side) => ({ id: `drape${side}`, type: "switch", bone: `leg${side}2`, default: "off", variants: { off: "", on: drape(side === "F" ? j.kneeF : j.kneeB, side === "F" ? j.footF : j.footB) } })) : []),
@@ -1121,7 +1123,7 @@ export function cartoonCharacter(look: CartoonLook): ToonDoc {
     version: 1,
     name: look.name,
     // Seated facing the camera: half the thigh shows; skirts sit with the knees together.
-    meta: { sitFront: { thigh: 0.5, spread: look.bottom === "skirt" || look.bottom === "longSkirt" ? 0.9 : 1.5 }, description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)` },
+    meta: { sitFront: { thigh: 0.4, spread: look.bottom === "skirt" || look.bottom === "longSkirt" ? 0.9 : 1.3, hands: "knees" }, description: `${look.name}: TV-cartoon human (three-quarter view facing right; front, half, side, away and back views)` },
     palette: {
       ink: INK,
       skin: look.skin,
