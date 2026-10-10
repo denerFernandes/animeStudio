@@ -582,19 +582,21 @@ class BlockScene {
     until ??= at + 2;
     const pdef = this.kit.props[this.propKinds.get(prop) ?? ""];
     const points = pdef?.points ?? {};
-    const t0 = this.t(at), t1 = this.t(until);
+    // A 2.5D rig brings the near hand up in 3D (no 2D swing of the arm, which in 3D goes round the
+    // front): near the first anchor, below it and a little forward; the prop fits when the hand gets
+    // there, and the 2D reach then only corrects.
+    const first = Object.values(fit).find((a): a is string => typeof a === "string");
+    const p0 = first ? this.point3d(actor, first) : undefined;
+    const fitAt = p0 ? at + 0.3 : at;
+    const t0 = this.t(fitAt), t1 = this.t(until);
     this.hung.delete(prop);
     this.push({ at: t0, action: "release", actor, prop });
     this.push({ at: t0, action: "grab", actor, prop, anchor: "hand", fit: list });
-    // A 2.5D rig brings the near hand up in 3D (no 2D swing of the arm, which in 3D goes round the
-    // front): near the first anchor, below it and a little forward; the 2D reach then only corrects.
-    const first = Object.values(fit).find((a): a is string => typeof a === "string");
-    const p0 = first ? this.point3d(actor, first) : undefined;
     if (p0) {
       const ear = this.point3d(actor, "ear"), mouth = this.point3d(actor, "mouth");
       const d = ear && mouth ? Math.hypot(ear[0] - mouth[0], ear[1] - mouth[1], ear[2] - mouth[2]) : 40;
       const target: [number, number, number] = first === "ear" && mouth ? [p0[0] + (mouth[0] - p0[0]) * 0.45, p0[1] + d * 0.3, p0[2] + (mouth[2] - p0[2]) * 0.45] : [p0[0], p0[1] + d * 0.3, p0[2] + d * 0.35];
-      this.arm3d(actor, target, at + 0.3, 0.4);
+      this.arm3d(actor, target, fitAt, 0.4);
       this.armRest(actor, until, 0.45);
     }
     if (this.hasChain(actor, "handF")) {
