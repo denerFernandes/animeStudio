@@ -3150,10 +3150,20 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
 
   // Timeline: live blocks, with replay cuts spliced in.
   type Seg = { t0: number; t1: number; scene: string; from: number; mute?: boolean; transition?: string; speed?: number; overlay?: "vhs" };
-  const segs: Seg[] = live.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < live.length ? starts[live[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 && live[i - 1].set !== b.set ? "fade" : undefined }));
+  // Between live blocks: a straight cut, unless the block asks for a transition.
+  const segs: Seg[] = live.map((b, i) => ({ t0: starts[b.id], t1: i + 1 < live.length ? starts[live[i + 1].id] : time.end, scene: b.id, from: 0, transition: i > 0 ? b.transition : undefined }));
+  // A cut at the first line of a block starts with the block (its lead before that line), and one
+  // ending just before a block or the end runs to it: no sliver of a shot either side.
+  const snap = (t: number) => {
+    for (const b of live) if (Math.abs(starts[b.id] + LEAD - t) < 0.3 || Math.abs(starts[b.id] - t) < 0.3) return starts[b.id];
+    if (Math.abs(time.end - t) < 0.7) return time.end;
+    return t;
+  };
   for (const c of [...(staging.cuts ?? [])].sort((a, b) => a.line - b.line)) {
-    const t0 = time.at(c);
-    const t1 = c.until ? time.at(c.until) : time.at({ line: c.line, end: true });
+    const t0 = snap(time.at(c));
+    const t1 = snap(c.until ? time.at(c.until) : time.at({ line: c.line, end: true }));
+    // Back to the live action: a straight cut unless the cut says how (`transitionOut`).
+    const back = c.transitionOut;
     if (c.rewind) {
       // The tape rewinds: what was shown from the target up to the cut plays backwards, fast.
       const gT = time.at(c.rewind as When);
@@ -3162,13 +3172,13 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
         continue;
       }
       const spd = (t0 - gT) / Math.max(0.1, t1 - t0);
-      const back: Seg[] = [];
+      const rewound: Seg[] = [];
       let cursor = t0;
       for (const s of [...segs].sort((a, b) => b.t0 - a.t0)) {
         const a = Math.max(s.t0, gT), b = Math.min(s.t1, t0);
         if (b <= a) continue;
         const dur = (b - a) / spd;
-        back.push({ t0: cursor, t1: cursor + dur, scene: s.scene, from: s.from + (b - s.t0), mute: true, speed: -spd, overlay: "vhs" });
+        rewound.push({ t0: cursor, t1: cursor + dur, scene: s.scene, from: s.from + (b - s.t0), mute: true, speed: -spd, overlay: "vhs" });
         cursor += dur;
       }
       const out: Seg[] = [];
@@ -3176,10 +3186,11 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
         if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
         else {
           if (s.t0 < t0) out.push({ ...s, t1: t0 });
-          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: "flash", mute: s.mute });
+          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: back, mute: s.mute });
         }
       }
-      segs.splice(0, segs.length, ...[...out, ...back].sort((a, b) => a.t0 - b.t0));
+      if (rewound[0] && c.transition) rewound[0].transition = c.transition;
+      segs.splice(0, segs.length, ...[...out, ...rewound].sort((a, b) => a.t0 - b.t0));
       continue;
     }
     if (c.insert) {
@@ -3189,13 +3200,15 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
         issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `"${c.insert}" is not an insert block (a block with insert: true)${closest(c.insert, blocks.filter((b) => b.insert).map((b) => b.id))}` });
         continue;
       }
-      const cut: Seg = { t0, t1, scene: ins.id, from: Math.max(0, t0 - starts[ins.id]), transition: c.transition ?? "cut" };
+      // (Cut in at the insert's first line: from its very start, its lead included.)
+      const into = t0 - starts[ins.id];
+      const cut: Seg = { t0, t1, scene: ins.id, from: into <= LEAD + 0.01 ? 0 : into, transition: c.transition ?? "cut" };
       const out: Seg[] = [];
       for (const s of segs) {
         if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
         else {
           if (s.t0 < t0) out.push({ ...s, t1: t0 });
-          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: c.transition ?? "cut", mute: s.mute });
+          if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: back, mute: s.mute });
         }
       }
       segs.splice(0, segs.length, ...[...out, cut].sort((a, b) => a.t0 - b.t0));
@@ -3218,7 +3231,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
       if (s.t1 <= t0 || s.t0 >= t1) out.push(s);
       else {
         if (s.t0 < t0) out.push({ ...s, t1: t0 });
-        if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: "flash", mute: s.mute });
+        if (s.t1 > t1) out.push({ ...s, t0: t1, from: s.from + (t1 - s.t0), transition: back ?? "flash", mute: s.mute });
       }
     }
     out.push(cut);
@@ -3229,6 +3242,19 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   if (segs.length) segs[0].t0 = 0;
   for (let i = 1; i < segs.length; i++) if (segs[i].t0 > segs[i - 1].t1) segs[i - 1].t1 = segs[i].t0;
   if (segs.length) segs[segs.length - 1].t1 = Math.max(segs[segs.length - 1].t1, time.end);
+  // No slivers: a shot under 0.4 s (not a rewind's) goes into the one before it (or after it).
+  for (let i = 0; i < segs.length; i++) {
+    const g = segs[i];
+    if (g.t1 - g.t0 >= 0.4 || g.speed !== undefined || segs.length < 2) continue;
+    if (i > 0 && segs[i - 1].speed === undefined) segs[i - 1].t1 = g.t1;
+    else if (i + 1 < segs.length && segs[i + 1].speed === undefined) {
+      const n = segs[i + 1];
+      n.from = Math.max(0, n.from - (n.t0 - g.t0));
+      n.t0 = g.t0;
+      n.transition = g.transition;
+    } else continue;
+    segs.splice(i--, 1);
+  }
   const shots = segs
     .filter((s) => s.t1 - s.t0 > 0.02)
     .map((s) => ({
@@ -3238,7 +3264,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
       ...(s.mute ? { muteSpeech: true } : {}),
       ...(s.speed !== undefined ? { speed: r3(s.speed) } : {}),
       ...(s.overlay ? { overlay: s.overlay } : {}),
-      ...(s.transition && s.transition !== "cut" ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, color: "#ffffff" } } : {}),
+      ...(s.transition && s.transition !== "cut" ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, ...(s.transition === "flash" ? { color: "#ffffff" } : {}) } } : {}),
     }));
   const sequence = {
     format: "toon-sequence",
@@ -3334,6 +3360,20 @@ export function check(staging: Staging, lines: Line[], kit: Kit, opts: CheckOpti
   }
   const sv = validateSequence(out.sequence);
   for (const i of sv.issues) issues.push({ severity: "error", where: `sequence ${i.path}`, message: i.message });
+  // Shots that read as a blink, and white flashes too close together.
+  {
+    let t = 0, lastFlash = -Infinity;
+    for (const sh of out.sequence.shots as { scene: string; duration?: number; speed?: number; transition?: { type: string; color?: string } }[]) {
+      const d = sh.duration ?? 0;
+      if (d < 0.4 && (sh.speed ?? 1) === 1) issues.push({ severity: "error", where: `sequence at ${t.toFixed(2)} s`, message: `a shot of "${sh.scene}" lasts ${d.toFixed(2)} s: it reads as a blink` });
+      const white = sh.transition && (sh.transition.type === "flash" || ((sh.transition.color ?? "").toLowerCase() === "#ffffff"));
+      if (white) {
+        if (t - lastFlash < 2) issues.push({ severity: "error", where: `sequence at ${t.toFixed(2)} s`, message: `a white flash ${(t - lastFlash).toFixed(2)} s after another: the screen blinks` });
+        lastFlash = t;
+      }
+      t += d;
+    }
+  }
   // Every speaking cast member is in the block where they speak.
   const time = new Timeline(lines);
   for (const l of lines) {

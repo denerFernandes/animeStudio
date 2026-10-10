@@ -123,6 +123,8 @@ export interface Block {
    * where a cut `insert`s it (a montage: icons, a logo, another place between the verses).
    */
   insert?: boolean;
+  /** How this block comes in after the previous one (default a straight cut): `fade`, `flash`, `crossfade`, `iris`, `wipe`. */
+  transition?: string;
   /** Motion graphics on the screen (a logo, stickers, an icon, flying letters): see `Graphic`. */
   graphics?: Graphic[];
   /** Vehicles standing in the block that the cast can ride (a bicycle, a scooter…). */
@@ -151,6 +153,8 @@ export interface Cut {
   rewind?: { line: number; word?: string; end?: boolean; offset?: number };
   /** Cut to an insert block (`insert: true`), in step with it (it is timed on the same lines). */
   insert?: string;
+  /** Back to the live action after it (default a straight cut; a replay flashes back). */
+  transitionOut?: string;
   /** Until this moment (default: the end of `line`). */
   until?: When;
   transition?: string;

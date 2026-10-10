@@ -106,3 +106,21 @@ describe("strict pictures", () => {
     expect(firstX).toBeLessThan(-400);
   });
 });
+
+describe("cuts", () => {
+  it("an insert at a block's first line starts with it, comes back with a straight cut; blocks cut straight", () => {
+    const ls: Line[] = [{ i: 0, s: 0.2, e: 2, text: "a", speaker: "n" }, { i: 1, s: 2.1, e: 4, text: "b", speaker: "n" }, { i: 2, s: 4.1, e: 6, text: "c", speaker: "n" }];
+    const s = { blocks: [
+      { id: "x", set: "s", from: 0, to: 1, cast: [{ id: "kid", at: "a" }] },
+      { id: "y", set: "s", from: 1, to: 3, cast: [{ id: "kid", at: "a" }] },
+      { id: "ins", set: "s", from: 0, to: 3, insert: true, cast: [] },
+    ], cuts: [{ line: 1, insert: "ins", until: { line: 1, end: true }, transition: "flash" }] } as unknown as Staging;
+    const d = direct(s, ls, kit);
+    const shots = d.sequence.shots as { scene: string; duration: number; from?: number; transition?: { type: string } }[];
+    expect(shots.every((x) => x.duration >= 0.4)).toBe(true);
+    const i = shots.findIndex((x) => x.scene === "ins");
+    expect(shots[i].transition?.type).toBe("flash");
+    expect(shots[i + 1].transition).toBeUndefined();
+    expect(shots.filter((x) => x.transition?.type === "fade")).toEqual([]);
+  });
+});
