@@ -1730,6 +1730,53 @@
                         "angle"
                       ],
                       "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "point": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "description": "[x, y]"
+                        },
+                        "dir": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 3,
+                          "maxItems": 3,
+                          "description": "Second point only (2.5D rigs): the direction from the first point to this one in body space (x right, y down, z towards the viewer seen from the front), projected for the view every frame — the prop turns and foreshortens (along its x axis) as the body or head turns"
+                        },
+                        "view": {
+                          "description": "The pose control whose view the direction is seen in (default `view`; `head` for something on a head turned on its own)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "point",
+                        "dir"
+                      ],
+                      "additionalProperties": false
                     }
                   ]
                 }

@@ -27,6 +27,7 @@ import {
   sampleFrame,
 } from "./camera";
 import { type Surface, compileSurface, surfaceY } from "./surface";
+import { viewPoint } from "./pose3d";
 import { type TransitionMode, type TransitionType, type WipeDirection, transitionCoverage, transitionMarkup } from "./transitions";
 import {
   type Mat,
@@ -110,7 +111,7 @@ export interface Grab {
   actor: string;
   anchor: string;
   /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
-  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean })[];
+  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })[];
   start: number;
   end: number;
   releaseVelocity?: Vec2;
@@ -1415,8 +1416,8 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
  * A prop fitted to the body: its first point on the first anchor, turned so its second point points
  * at the second anchor (or, with one point, turning with that anchor's bone).
  */
-function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number } {
-  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean })?];
+function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number; scale?: [number, number] } {
+  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })?];
   const a1 = anchorPosition(scene, grab.actor, f1.anchor, t, pose);
   // The first anchor's bone: how it turns from rest (scene space) and whether the actor is mirrored.
   const actor = scene.actors.find((a) => a.id === grab.actor)!;
@@ -1426,9 +1427,28 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
   const mirrored = m[0] * m[3] - m[1] * m[2] < 0;
   const boneTurn = mirrored ? -Math.atan2(m[1], -m[0]) : Math.atan2(m[1], m[0]);
   let rot: number;
+  let shortened: [number, number] | undefined;
   if (f2 && "anchor" in f2) {
     const a2 = anchorPosition(scene, grab.actor, f2.anchor, t, pose);
     rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
+  } else if (f2 && "dir" in f2) {
+    // A 3D direction seen from the current view (of the body, or of a head turned on its own): it
+    // turns and foreshortens as the view turns, then turns with the bone like an angle.
+    const r3 = actor.rig.rig3d;
+    let yaw = p.frame3d?.yaw ?? 0;
+    const pitch = p.frame3d?.pitch ?? ((r3?.pitch ?? 0) * Math.PI) / 180;
+    const cv = p.state.controls[f2.view ?? "view"] as unknown;
+    const name = typeof cv === "string" ? cv : cv && typeof cv === "object" ? Object.entries(cv as Record<string, number>).sort((a, b) => b[1] - a[1])[0]?.[0] : undefined;
+    if (name && r3) {
+      const mirror = name.startsWith("~"), deg = r3.views[mirror ? name.slice(1) : name];
+      if (deg !== undefined) yaw = ((mirror ? -deg : deg) * Math.PI) / 180;
+    }
+    const v = viewPoint(f2.dir, yaw, pitch);
+    const len = Math.hypot(v[0], v[1]) / (Math.hypot(...f2.dir) || 1);
+    shortened = [scale[0] * Math.max(0.2, len), scale[1]];
+    const dir = Math.atan2(v[1], v[0]) + (mirrored ? -boneTurn : boneTurn);
+    const world = mirrored ? Math.PI - dir : dir;
+    rot = world - Math.atan2((f2.point[1] - f1.point[1]) * shortened[1], (f2.point[0] - f1.point[0]) * shortened[0]);
   } else if (f2) {
     // A direction in the actor's frame (mirrored when it faces left), turning with the bone.
     const dir = (f2.angle * Math.PI) / 180 + (f2.fixed ? 0 : mirrored ? -boneTurn : boneTurn);
@@ -1436,9 +1456,10 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
     rot = world - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
   } else rot = boneTurn;
   const c = Math.cos(rot), s = Math.sin(rot);
-  const px = f1.point[0] * scale[0], py = f1.point[1] * scale[1];
+  const sc = shortened ?? scale;
+  const px = f1.point[0] * sc[0], py = f1.point[1] * sc[1];
   void prop;
-  return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI };
+  return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI, ...(shortened ? { scale: shortened } : {}) };
 }
 
 export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {

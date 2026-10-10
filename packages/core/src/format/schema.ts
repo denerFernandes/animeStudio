@@ -584,6 +584,11 @@ export const ActionSchema = z.discriminatedUnion("action", [
             angle: z.number().describe("Second point only: the direction from the first point to this one, in degrees in the actor's frame (0 = forward, -90 = up), turning with the first anchor's bone"),
             fixed: z.boolean().optional().describe("Keep the direction in the actor's frame, not turning with the bone (a cigarette held upright between the fingers)"),
           }),
+          z.strictObject({
+            point: Vec2Schema,
+            dir: z.tuple([z.number(), z.number(), z.number()]).describe("Second point only (2.5D rigs): the direction from the first point to this one in body space (x right, y down, z towards the viewer seen from the front), projected for the view every frame — the prop turns and foreshortens (along its x axis) as the body or head turns"),
+            view: z.string().optional().describe("The pose control whose view the direction is seen in (default `view`; `head` for something on a head turned on its own)"),
+          }),
         ]),
       )
       .min(1)

@@ -561,7 +561,17 @@ class BlockScene {
       if (typeof an === "number" && k === 0) return void this.issue("error", `${what}: the first contact point of "${prop}" goes on an anchor, not an angle`);
       if (typeof an === "string" && !anchors[an]) return void this.issue("error", `${actor} has no anchor "${an}"${closest(an, Object.keys(anchors))}`);
     }
-    return list.map(([pt, an]) => (typeof an === "number" ? { point: points[pt], angle: an } : { point: points[pt], anchor: an }));
+    // On a 2.5D rig, a direction from a point of the head (a cigarette on the lips, a phone at the ear)
+    // is a 3D direction (the angle: down from straight ahead), seen from the head's angle every
+    // frame — it turns and foreshortens with the head.
+    const first = list.find(([, an]) => typeof an === "string")?.[1] as string | undefined;
+    const onHead = !!first && !!this.point3d(actor, first);
+    return list.map(([pt, an]) => {
+      if (typeof an !== "number") return { point: points[pt], anchor: an };
+      if (!onHead) return { point: points[pt], angle: an };
+      const a = (an * Math.PI) / 180;
+      return { point: points[pt], dir: [0, Math.round(Math.sin(a) * 1000) / 1000, Math.round(Math.cos(a) * 1000) / 1000] as [number, number, number], view: "head" };
+    });
   }
   /**
    * Fits a held prop to the body (a phone at the ear, a cigarette at the mouth): its contact points

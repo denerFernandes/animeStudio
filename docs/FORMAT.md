@@ -197,7 +197,11 @@ above the prop: the fingers wrap around it. A `grab` action may `fit` the prop t
 prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
 second anchor, every frame; with one point it turns with that anchor's bone. The second entry may be a
 direction instead, `{ point, angle }` (degrees in the actor's frame: 0 forward, -90 up), turning with
-the first anchor's bone — or, with `fixed: true`, not (a cigarette held upright between the fingers). A `reach` target can be a
+the first anchor's bone — or, with `fixed: true`, not (a cigarette held upright between the fingers).
+On a 2.5D rig it may be a 3D direction, `{ point, dir: [x, y, z], view? }` (body space: z towards the
+viewer seen from the front), projected every frame for the view named by the control `view` (default
+`"view"`; `"head"` for a head turned on its own): the prop turns and foreshortens (along its x axis)
+as the head turns — a cigarette on the lips points at the camera from the front, sideways in profile. A `reach` target can be a
 prop's point (`{ prop, point, from? }`), even on a prop fitted to the reaching actor's own body (a hand
 holding the phone at its ear); `from` (degrees in the actor's frame: 0 forward, 90 from below) is where
 the forearm comes from — the elbow goes there, the upper arm foreshortened when the hand is close to
