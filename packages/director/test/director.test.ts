@@ -258,6 +258,11 @@ describe("director", () => {
     const msgs = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door" }, { id: "b", at: "door", offset: 4 }], beats: [{ line: 2, do: "walk", who: "b", to: { mark: "door", dx: 900 } }] }] }, lines, k).map((i) => i.message).join("\n");
     expect(msgs).toContain("tbl is drawn over a's face");
     expect(msgs).toContain("b goes past the edge of set");
+    // Walking past behind it is fine: a narrow post in the middle of the room, crossed quickly.
+    const post = { format: "toon", version: 1, name: "p", skeleton: [{ id: "root" }], parts: [{ id: "p", type: "rigid", bone: "root", art: "<rect x='-15' y='-400' width='30' height='400'/>" }] };
+    const k2: Kit = { ...kit, characters: { a: withHead, b: withHead, p: post as never }, sets: { ...kit.sets, room: { ...kit.sets.room, marks: { ...kit.sets.room.marks, mid: { x: 900 }, far: { x: 1400 } }, fixtures: [{ id: "post", character: "p", mark: "mid", z: 5 }] } } };
+    const walk = check({ blocks: [{ id: "x", set: "room", from: 0, to: 4, cast: [{ id: "a", at: "door", offset: -9 }, { id: "b", at: "far" }], beats: [{ line: 2, do: "walk", who: "a", to: "far", until: { line: 2, end: true } }] }] }, lines, k2).map((i) => i.message).join("\n");
+    expect(walk).not.toContain("drawn over");
   });
 
   it("plays the kit's sounds on actions and ducks the music under the dialogue", () => {

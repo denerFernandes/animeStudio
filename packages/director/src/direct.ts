@@ -2402,6 +2402,14 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
     for (const [k, val] of tr) if (k <= t) v = val;
     return v;
   };
+  // Covered faces count only when it matters: standing still behind something for more than half a
+  // second, or speaking while covered. Walking past behind a tree, a car or a post is fine.
+  const coveredFor = new Map<string, number>();
+  const speaking = (id: string, t: number) => {
+    const name = kit.cast[id]?.name;
+    return time.lines.some((l) => l.s <= t0 + t && l.e >= t0 + t && (norm(l.speaker) === norm(id) || (name !== undefined && norm(l.speaker) === norm(name))));
+  };
+  const moving = (actor: (typeof sc.actors)[number], t: number) => Math.abs(actorPlacement(actor, t)[4] - actorPlacement(actor, t - 0.2)[4]) > 6;
   for (let t = 0.25; t < sc.duration; t += 0.25) {
     for (const actor of sc.actors) {
       if (!cast.has(actor.id) || opacityAt(actor.id, t) <= 0.01) continue;
@@ -2420,16 +2428,24 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
       const [fx, fy] = anchorPosition(sc, actor.id, anchor, t);
       const z = actor.def.z ?? 0;
       for (const other of sc.actors) {
+        let covered = false;
         if (other === actor || cast.has(other.id) || covers.has(other.def.character) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
         const m = actorPlacement(other, t);
         for (const b of boxesOf(other.def.character)) {
           const c = [apply(m, [b[0], b[1]]), apply(m, [b[2], b[3]])];
           const [bx0, bx1] = [Math.min(c[0][0], c[1][0]), Math.max(c[0][0], c[1][0])], [by0, by1] = [Math.min(c[0][1], c[1][1]), Math.max(c[0][1], c[1][1])];
           if (fx > bx0 && fx < bx1 && fy > by0 && fy < by1) {
-            report(`cover:${actor.id}:${other.id}`, t, `${other.id} is drawn over ${actor.id}'s face: move it (or what is on it) away from the face`);
+            const key = `${actor.id}:${other.id}`;
+            const run = (coveredFor.get(key) ?? 0) + 0.25;
+            coveredFor.set(key, run);
+            const talking = speaking(actor.id, t);
+            if (talking || (run > 0.5 && !moving(actor, t)))
+              report(`cover:${key}`, t, `${other.id} is drawn over ${actor.id}'s face${talking ? " while they speak" : ""}: move it (or what is on it) away from the face`);
+            covered = true;
             break;
           }
         }
+        if (!covered) coveredFor.delete(`${actor.id}:${other.id}`);
       }
     }
   }

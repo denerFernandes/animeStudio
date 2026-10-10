@@ -255,4 +255,6 @@ It also checks **the picture**, sampling every staged scene every quarter second
 whose posed body goes past the edge of the set (`SetDef.bounds` — give it the extent of the drawn
 ground and background, not more), and a face covered by scenery drawn in front of it (fixtures,
 furniture, vehicles: each shape of their art is tested against the posed `face`/`head` anchor —
-a bottle on a table standing in front of someone is reported).
+a bottle on a table standing in front of someone is reported). Passing behind something is
+staging, not a mistake: a covered face is reported only when the character stays covered for
+more than half a second without moving, or speaks while covered (a bed's blanket never counts).
