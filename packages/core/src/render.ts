@@ -73,7 +73,10 @@ function renderPart(rig: Rig, pose: EvaluatedPose, part: RigPart, keyPrefix: str
       const joints: Vec2[] = part.bones.map((b) => [world[b][4], world[b][5]]);
       const last = part.bones[part.bones.length - 1];
       joints.push(apply(world[last], [rig.bones[last].length, 0]));
-      const scale = Math.hypot(world[part.bones[0]][0], world[part.bones[0]][1]) || 1;
+      // The bone's scale, not its squash (a squash is volume-preserving: a foreshortened thigh
+      // must not thin the whole leg).
+      const m0 = world[part.bones[0]];
+      const scale = Math.sqrt(Math.abs(m0[0] * m0[3] - m0[1] * m0[2])) || 1;
       const widths = part.widths.map((w) => w * scale);
       return { kind: "path", key, opacity: op, d: hoseOutline(joints, widths, part.cap, part.smooth), attrs: styleAttrs(part.style) };
     }

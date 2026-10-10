@@ -138,7 +138,7 @@ export function lineCues(l: Line): MouthCue[] {
 export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek"];
 /** Camera shot types. */
 /** Camera types. */
-export const CAMERAS = ["wide", "group", "two-shot", "close", "crash", "whip", "follow", "reveal"];
+export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
 /**
  * Gestures that read from the front as hand positions, not arm swings: where the near hand goes,
  * relative to the face centre (in face heights: +x towards the near side, +y down).
@@ -200,7 +200,7 @@ class BlockScene {
   /** Block furniture (id → kind, scale). */
   private furnitureOf = new Map<string, { kind: string; scale: number; y: number; cover?: string }>();
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
-  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean }[] = [];
+  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean; hipY?: number }[] = [];
   private propStates = new Map<string, PropState>();
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
@@ -1837,7 +1837,7 @@ class BlockScene {
     if (front) this.frontLegs(actor, sitX, seatY + ("furniture" in place ? (this.sitFrontOf(actor)?.sink ?? 0) * s : 0), floor, dir, at, how);
     // Feet on the floor ahead, or (seat too high) dangling: knees bent, shins hanging.
     else this.feetDown(actor, sitX + dir * thigh * (floor - seatY > hipY * 0.3 ? 0.95 : 1.3), dir, Math.min(floor, seatY + (legs ?? 0) * 0.6), at, 0.5);
-    this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: floor, front });
+    this.rests.push({ actor, kind: "sit", on, t0: at, t1: Infinity, y: floor, front, hipY: seatY + (front && "furniture" in place ? (this.sitFrontOf(actor)?.sink ?? 0) * s : 0) });
   }
   /**
    * Sitting seen from the front: the thighs point at the camera (foreshortened: shorter and rounder),
@@ -2174,6 +2174,23 @@ class BlockScene {
         const x = this.mark("crossing").x;
         this.push({ at: abs, action: "camera", x, y: 640, zoom: 1.25, duration: 3, ease: "sineInOut" });
         this.push({ at: r3(abs + 3), action: "camera", x, y: 600, zoom: 1.6, duration: 6, ease: "sineInOut" });
+        break;
+      }
+      case "medium": {
+        // A medium shot: from the top of the tallest head to just below the knees (seated) or the
+        // thighs (standing); the cast framed sideways.
+        const cast = (who.length ? who : this.present).filter((w) => this.kit.cast[w]);
+        let top = Infinity, bottom = -Infinity;
+        for (const w of cast) {
+          const rig = this.member(w)?.rig, s = this.scaleOf(w);
+          const hipH = Math.abs(this.hipOf(w)[1]) * s, height = (rig?.height ?? 300) * s;
+          const rest = this.restAt(w, at + 0.6);
+          const hip = rest?.kind === "sit" && rest.hipY !== undefined ? rest.hipY : this.groundY(w, at) - hipH;
+          top = Math.min(top, hip - (height - hipH));
+          bottom = Math.max(bottom, hip + hipH * (rest?.kind === "sit" ? 0.55 : 0.45));
+        }
+        const pad = (bottom - top) * 0.08;
+        this.push({ at: abs, action: "camera", frame: cast, padding: 140, minZoom: 1, maxZoom: 2.4, blend: 1.2, ...(Number.isFinite(top) ? { band: [Math.round(top - pad), Math.round(bottom + pad)] } : {}) });
         break;
       }
       case "group":

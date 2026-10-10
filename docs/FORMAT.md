@@ -147,7 +147,8 @@ one entry per bone.
 
 **`hose`** — the limb's centerline passes through each bone's joint and the last bone's tip,
 smoothed with Catmull-Rom (`smooth`, 0..1, default 1). `width` is a number, `[start, end]`,
-or one value per joint. `cap`: `"round"` (default) or `"butt"`.
+or one value per joint, scaled with the first bone's scale but not its squash (a squashed,
+foreshortened thigh does not thin the limb). `cap`: `"round"` (default) or `"butt"`.
 
 **`morph`** — every shape must describe the same figure; paths are normalized to cubic Béziers
 and resampled to matching segment counts. Result = `base + Σ weightᵢ · (shapeᵢ − base)`.
