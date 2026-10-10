@@ -493,7 +493,7 @@ and is gone; `z` (default just behind the prop or whoever holds it).
 | `actors.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute |
 | `actors.<id>.flip` | boolean (stepped) |
 | `actors.<id>.<character channel>` | e.g. `actors.pip.controls.emotion` |
-| `props.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute (non-dynamic props) |
+| `props.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute (non-dynamic props); a prop at opacity 0 is not drawn at all (its art is left out of the frame) |
 | `layers.<id>.x` / `.y` / `.opacity` | absolute |
 | `lights.<id>.<prop>`, `lighting.<section>.<prop>` | see Lighting |
 

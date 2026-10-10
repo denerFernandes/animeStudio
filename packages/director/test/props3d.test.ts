@@ -125,6 +125,8 @@ describe("cuts", () => {
   });
 });
 
+const pictures = (art: string) => [...art.matchAll(/data:image\/svg\+xml;base64,([^"]+)/g)].map((m) => Buffer.from(m[1], "base64").toString("utf8"));
+
 describe("albums", () => {
   it("photos of a block on the pages, pages turning, closing on the cover; the camera on a photo", () => {
     const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 1.6, e: 3, text: "b", speaker: "n" }, { i: 2, s: 3.1, e: 5, text: "c", speaker: "n" }];
@@ -138,8 +140,11 @@ describe("albums", () => {
     expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
     const props = d.scenes.x.props as { id: string; art: string }[];
     const r0 = props.find((p) => p.id === "alb-r0")!;
-    expect(r0.art).toContain("Praia, 1992");
-    expect(r0.art).toContain("<svg"); // the frozen frame
+    // The photo is a still picture (an SVG document as a data URI).
+    expect(r0.art).toContain('href="data:image/svg+xml;base64,');
+    const pic = pictures(r0.art).join("");
+    expect(pic).toContain("Praia, 1992");
+    expect(pic).toContain("<svg"); // the frozen frame
     const tracks = d.scenes.x.tracks as Record<string, unknown[]>;
     expect(tracks["props.alb-r0.scale"]).toBeDefined();
     expect(tracks["props.alb-cover.opacity"]).toBeDefined();
@@ -160,8 +165,9 @@ describe("albums", () => {
     // Without a place: one under the other, no overlap.
     expect(d.issues.some((i) => /overlap/.test(i.message))).toBe(false);
     const props = d.scenes.x.props as { id: string; art: string; opacity?: number }[];
-    const l1 = props.find((p) => p.id === "alb-l1")!.art;
-    expect(l1).toContain("clip-path=\"url(#alb-l1-page)\"");
+    const side = props.find((p) => p.id === "alb-l1")!.art;
+    expect(side).toContain("clip-path=\"url(#alb-l1-page)\"");
+    const l1 = side + pictures(side).join("");
     // The long caption on two lines, held to the picture's width; the note held to the page.
     const lens = [...l1.matchAll(/textLength="([\d.]+)"/g)].map((m) => +m[1]);
     expect(lens.length).toBeGreaterThan(0);

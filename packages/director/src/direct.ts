@@ -24,7 +24,7 @@ import {
   validateScene,
   validateSequence,
 } from "@animestudio/core";
-import { type Album, type AlbumSide, luminance, photoMarkup, sideMarkup } from "./album";
+import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
 import type { Beat, Block, CastMember, Graphic, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
@@ -607,6 +607,9 @@ class BlockScene {
           return "";
         }
         let { markup, size } = photoMarkup(frame, { ink, ...ph }, id);
+        // A still picture: decoded once by the browser, not rebuilt every frame (its shadow reaches a
+        // few px past the paper).
+        markup = pictureMarkup(markup, [size[0] + 8, size[1] + 8]);
         // Its footprint turned (a tilted photo takes more room).
         const rad = ((ph.rotation ?? 0) * Math.PI) / 180, c = Math.abs(Math.cos(rad)), sn = Math.abs(Math.sin(rad));
         const foot = (k: number): [number, number] => [(size[0] * c + size[1] * sn) * k, (size[0] * sn + size[1] * c) * k];

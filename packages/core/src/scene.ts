@@ -1654,6 +1654,8 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   for (const prop of scene.props) {
     const depth = prop.def.parallax ?? 1;
     const p = propPlacement(scene, prop, t, poses);
+    // (Not there: nothing drawn — a hidden prop's art can be large, e.g. an album's other pages.)
+    if (p.opacity <= 0.001) continue;
     const holder = prop.grabs.find((g) => t >= g.start && t < g.end);
     const holderZ = holder ? scene.actors.find((a) => a.id === holder.actor)?.def.z : undefined;
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));

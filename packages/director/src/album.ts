@@ -111,6 +111,18 @@ export function luminance(hex: string): number {
   return Number.isFinite(v[0]) ? 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2] : 0.5;
 }
 
+/**
+ * Markup as a standalone picture: an `<image>` holding it as an SVG document (a data URI). The
+ * browser decodes it once and reuses it frame after frame, where inline markup — a whole frozen
+ * scene — would be rebuilt every frame; its ids are its own.
+ */
+export function pictureMarkup(markup: string, size: [number, number], at: [number, number] = [0, 0]): string {
+  const [w, h] = size.map((v) => Math.ceil(v));
+  const doc = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="${r(at[0])} ${r(at[1])} ${w} ${h}">${markup}</svg>`;
+  const b64 = typeof Buffer !== "undefined" ? Buffer.from(doc, "utf8").toString("base64") : btoa(unescape(encodeURIComponent(doc)));
+  return `<image x="${r(at[0])}" y="${r(at[1])}" width="${w}" height="${h}" href="data:image/svg+xml;base64,${b64}"/>`;
+}
+
 /** A generous width for handwriting (wider faces than Caveat may stand in for it). */
 const textWidth = (t: string, fs: number) => t.length * fs * 0.52;
 /** The largest size at which every line fits `room`. */

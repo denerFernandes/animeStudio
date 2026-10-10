@@ -486,3 +486,18 @@ describe("cords and flickering lights", () => {
     expect(i).not.toBeCloseTo(j, 3);
   });
 });
+
+describe("hidden props", () => {
+  it("draws nothing for a prop at opacity 0 (its art is not in the frame)", () => {
+    const doc = {
+      format: "toon-scene", version: 1, width: 800, height: 600, fps: 30, duration: 2, characters: {},
+      props: [{ id: "shown", art: "<rect id='SHOWN'/>", x: 100, y: 100 }, { id: "gone", art: "<rect id='GONE'/>", x: 200, y: 100, opacity: 0 }],
+      tracks: { "props.gone.opacity": [[0, 0, "step"], [1, 1, "step"]] },
+    } as unknown as SceneDoc;
+    const scene = compileScene(doc, { characters: {} });
+    const a = frameToSVG(evaluateScene(scene, 0.5)), b = frameToSVG(evaluateScene(scene, 1.5));
+    expect(a).toContain("SHOWN");
+    expect(a).not.toContain("GONE");
+    expect(b).toContain("GONE");
+  });
+});

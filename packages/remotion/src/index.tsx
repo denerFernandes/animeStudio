@@ -8,6 +8,8 @@ import {
   compileSequence,
   evaluateScene,
   evaluateSequence,
+  frameToSVG,
+  type RenderFrame,
   sequenceAudio,
   sequenceDuration,
   withDebugOverlay,
@@ -15,10 +17,11 @@ import {
 import { ToonFrame } from "@animestudio/react";
 import { bakeRigidBodies, sceneHasBodies } from "@animestudio/rigid";
 import { Audio } from "@remotion/media";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AbsoluteFill,
   Sequence,
+  cancelRender,
   continueRender,
   delayRender,
   getRemotionEnvironment,
@@ -43,6 +46,14 @@ export type ToonCompositionProps = {
    * rendered with high concurrency may need more).
    */
   paintSettle?: { frames?: number; ms?: number };
+  /**
+   * While rendering, draw each frame into a canvas from its whole SVG document and capture only once
+   * the canvas holds the complete picture. Heavy frames rendered by several tabs at once (many solid
+   * parts, long markup) can otherwise be captured before Chrome has rasterized every layer — half
+   * painted frames. Slower per frame; SVG drawn as an image uses installed fonts only and embedded
+   * (data URI) pictures only. The Studio and the Player keep the live SVG.
+   */
+  raster?: boolean;
 };
 
 /**
@@ -50,7 +61,7 @@ export type ToonCompositionProps = {
  * Every frame is evaluated from scratch (`pose = f(scene, time)`), so parallel and
  * out-of-order rendering is safe. Rigid bodies are baked once per tab before rendering.
  */
-export function ToonComposition({ scene, assets, resolveAudio = staticFile, muted, debug, paintSettle }: ToonCompositionProps) {
+export function ToonComposition({ scene, assets, resolveAudio = staticFile, muted, debug, paintSettle, raster }: ToonCompositionProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const compiled = useMemo(() => compileScene(scene, assets), [scene, assets]);
@@ -65,7 +76,7 @@ export function ToonComposition({ scene, assets, resolveAudio = staticFile, mute
   if (!ready || !rendered) return null;
   return (
     <AbsoluteFill>
-      <ToonFrame key={frameKey(frame)} frame={rendered} width="100%" height="100%" />
+      {raster && getRemotionEnvironment().isRendering ? <RasterFrame frame={rendered} /> : <ToonFrame key={frameKey(frame)} frame={rendered} width="100%" height="100%" />}
       {muted
         ? null
         : ready.audio.map((a, i) => (
@@ -96,17 +107,66 @@ function usePaintSettled(frame: number, frames = 4, ms = 60) {
     let raf = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let left = frames;
+    let gone = false;
+    // (Text waits for its fonts.)
+    const fonts = typeof document !== "undefined" && document.fonts ? document.fonts.ready : Promise.resolve();
     const tick = () => {
       if (--left <= 0) timer = setTimeout(() => continueRender(handle), ms);
       else raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
+    fonts.then(() => {
+      if (!gone) raf = requestAnimationFrame(tick);
+    });
     return () => {
+      gone = true;
       cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
       continueRender(handle);
     };
   }, [frame, frames, ms]);
+}
+
+/**
+ * A frame drawn into a canvas: its SVG document decoded as an image and drawn in one go on a
+ * software canvas (pixels in memory, no GPU tiles), the capture held until it is there. Whatever
+ * Chrome's compositor is doing in the other tabs, the captured canvas is the whole picture.
+ */
+function RasterFrame({ frame }: { frame: RenderFrame }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { width, height } = useVideoConfig();
+  const svg = useMemo(() => frameToSVG(frame), [frame]);
+  useLayoutEffect(() => {
+    const handle = delayRender("Rasterizing the frame");
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      URL.revokeObjectURL(url);
+      continueRender(handle);
+    };
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    const img = new Image();
+    img.src = url;
+    img
+      .decode()
+      .then(() => {
+        const c = ref.current;
+        if (done || !c) return;
+        const k = window.devicePixelRatio || 1;
+        c.width = Math.round(width * k);
+        c.height = Math.round(height * k);
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        if (!ctx) throw new Error("no 2D canvas context");
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        finish();
+      })
+      .catch((e: unknown) => {
+        if (!done) cancelRender(new Error(`Could not rasterize the frame: ${e instanceof Error ? e.message : String(e)}`));
+      });
+    return finish;
+  }, [svg, width, height]);
+  return <canvas ref={ref} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />;
 }
 
 /** Bakes rigid bodies asynchronously, holding the render until done. */
@@ -150,13 +210,15 @@ export type ToonSequenceCompositionProps = {
   debug?: boolean;
   /** How long each frame waits for the paint before capture (see `ToonCompositionProps`). */
   paintSettle?: { frames?: number; ms?: number };
+  /** Draw each frame into a canvas before capture (see `ToonCompositionProps`). */
+  raster?: boolean;
 };
 
 /**
  * Renders a multi-shot sequence (cuts, crossfades, fades, irises, wipes, flashes) in Remotion.
  * Audio of each shot is cut at the shot boundary.
  */
-export function ToonSequenceComposition({ sequence, scenes, resolveAudio = staticFile, muted, debug, paintSettle }: ToonSequenceCompositionProps) {
+export function ToonSequenceComposition({ sequence, scenes, resolveAudio = staticFile, muted, debug, paintSettle, raster }: ToonSequenceCompositionProps) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const compiled = useMemo(() => compileSequence(sequence, { scenes }), [sequence, scenes]);
@@ -171,7 +233,7 @@ export function ToonSequenceComposition({ sequence, scenes, resolveAudio = stati
   if (!ready || !rendered) return null;
   return (
     <AbsoluteFill>
-      <ToonFrame key={frameKey(frame)} frame={rendered} width="100%" height="100%" />
+      {raster && getRemotionEnvironment().isRendering ? <RasterFrame frame={rendered} /> : <ToonFrame key={frameKey(frame)} frame={rendered} width="100%" height="100%" />}
       {muted
         ? null
         : audio.map((a, i) => (
