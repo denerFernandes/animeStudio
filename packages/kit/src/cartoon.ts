@@ -222,7 +222,7 @@ function model(look: CartoonLook, mirror = false): Model {
   const y = {
     hip, waist, shoulder, torsoTop, neckTop, head: hy, eye: ey, brow: ey - eye.ry - u * 0.13,
     // The mouth between the nose and the chin, with room for a chin below it.
-    nose: hy + u * 0.47, mouth: hy + u * 0.74, ear: hy + u * 0.3, top: hy - u * 1.14,
+    nose: hy + u * 0.42, mouth: hy + u * 0.62, ear: hy + u * 0.3, top: hy - u * 1.14,
   };
 
   // Head: a cranium and a face (jaw), blended.
@@ -1045,8 +1045,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   const art: Record<string, string> = {
     shoe: shoeArt(look, b.shoe),
     shoeFront: shoeFrontArt(look, b.shoe),
-    ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.45, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
-    ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.4, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
+    ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.2, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
+    ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.16, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
   };
   // Asymmetric details: a second drawing of the hair and the torso, mirrored on the body, shown when
   // the character faces left (`side` control).
@@ -1098,7 +1098,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     ...(tail ? [{ id: "tailBack", type: "rigid", bone: "tail", art: "tailBack" }] : []),
     { id: "hairBack", type: "rigid", bone: "hair", art: "hairBack" },
     // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
-    { id: "thighB", type: "hose", bones: ["legB1"], width: [r(b.leg[0] * 1.32), r(b.leg[0] * 1.12)], fill: bareLegs && !shorts ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
+    { id: "thighB", type: "hose", bones: ["legB1"], width: [r(b.leg[0] * 1.55), r(b.leg[0] * 1.22)], fill: bareLegs && !shorts ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     { id: "legB", type: "hose", bones: ["legB1", "legB2"], width: b.leg, fill: bareLegs ? "palette(skinShade)" : "palette(bottomShade)", stroke: bareLegs && !shorts ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     ...(look.socks ? [wrap("sockB", "legB2", j.kneeB, j.footB, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
     { id: "shoeB", type: "switch", bone: "footB", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
@@ -1106,8 +1106,11 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     ...(look.watch ? [wrap("watchB", "armB2", j.elbowB, j.handB, 0.8, 0.88, b.arm[1] * 0.5 + 2.5, b.arm[1] * 0.5 + 2.5, "palette(watch)", { visibleWhen: { part: "sideSwitch", variant: "l" } })] : []),
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
     ...(shortSleeves ? [sleeve("sleeveB", "armB1", j.shoulderB, j.elbowB, "palette(topShade)")] : []),
+    // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
+    { id: "thighF", type: "hose", bones: ["legF1"], width: [r(b.leg[0] * 1.55), r(b.leg[0] * 1.22)], fill: bareLegs && !shorts ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
+    { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     // The hips (the seat of the trousers): a hull over both hip joints and the tops of the thighs,
-    // so seated the lap starts from a pelvis as wide as the body, from any angle.
+    // drawn over the legs' tops, so seated the lap is one mass from the hips, from any angle.
     {
       id: "pelvis", type: "hull", strokeWidth: SW, attrs: { "stroke-linejoin": "round" },
       fill: look.top === "dress" ? "palette(top)" : bareLegs && !shorts && !skirted ? "palette(skin)" : "palette(bottom)",
@@ -1120,9 +1123,6 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
         ];
       }),
     },
-    // A thigh fuller than the shin (it shows as the lap when sitting facing the camera).
-    { id: "thighF", type: "hose", bones: ["legF1"], width: [r(b.leg[0] * 1.32), r(b.leg[0] * 1.12)], fill: bareLegs && !shorts ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
-    { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: b.leg, fill: bareLegs ? "palette(skin)" : "palette(bottom)", stroke: bareLegs ? "palette(skinLine)" : "palette(bottomLine)", strokeWidth: SW },
     ...(look.socks ? [wrap("sockF", "legF2", j.kneeF, j.footF, 0.82, 0.97, b.leg[1] * 0.5 + 1.5, b.leg[1] * 0.5 + 2, "palette(socks)")] : []),
     { id: "shoeF", type: "switch", bone: "footF", variants: { side: "shoe", front: "shoeFront" }, default: "side", space: "bone" },
     { id: "neck", type: "rigid", bone: "neck", art: "neck" },
@@ -1265,7 +1265,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       pitch: opts.pitch ?? 0,
       chains: [
         { bones: ["legB1", "legB2"], parts: ["thighB", "legB", "sockB", "shoeB"] },
-        { bones: ["legF1", "legF2"], parts: ["pelvis", "thighF", "legF", "sockF", "shoeF", "skirt"] },
+        { bones: ["legF1", "legF2"], parts: ["thighF", "legF", "pelvis", "sockF", "shoeF", "skirt"] },
         { bones: ["armF1", "armF2"], parts: ["armF", "watch", "handF", "sleeveF"] },
         { bones: ["armB1", "armB2"], parts: ["armB", "watchB", "handB", "sleeveB"] },
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),

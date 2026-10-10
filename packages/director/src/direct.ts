@@ -1954,8 +1954,8 @@ class BlockScene {
     // Hands on the knees (forearms forward along the thighs) or in the lap.
     const lap = how.hands === "lap" || how.legs === "crossed";
     for (const side of ["F", "B"]) {
-      set(`bones.arm${side}1.rotation`, lap ? -6 : -14);
-      set(`bones.arm${side}2.rotation`, lap ? -78 : -52);
+      set(`bones.arm${side}1.rotation`, lap ? -10 : -20);
+      set(`bones.arm${side}2.rotation`, lap ? -88 : -80);
       set(`bones.arm${side}1.spread`, side === "F" ? 6 : -6);
     }
   }
