@@ -93,6 +93,8 @@ Types: `PoseState`, `EvaluatedPose`, `CharacterInput`, `ClipInstance`, `BlendMod
 | `applyRig3d(rig, r3, state, world, ikTargets)`, `Rig3dFrame` | Run by `evaluatePose` for a rig with `rig3d`: poses the listed bones in 3D (a 2D `rotation` = about the body's sideways axis, plus `turn` and `spread`), solves leg IK in the side plane, projects for the current view's yaw and the rig's pitch and writes the matching 2D offsets, rotations and squash |
 | `rig3dDrawOrder(rig, r3, frame)` | The frame's draw order: limbs nearer than the body before the `front` part (in the chains' order), farther ones after the `back` part (farthest first); `EvaluatedPose.drawOrder` |
 | `viewPoint(p, yaw, pitch)`, `V3` | Body space → view space (screen x, y, depth) |
+| `rig3dPose(doc, values)`, `Rig3dValues` | Forward kinematics of a document's `rig3d` for channel values (`{ bone: { rotation?, turn?, spread? } }`, degrees): each 3D bone's joint, tip and rotation in body space (the hips at rest) — where a pose puts the knees, the hands… |
+| `reach3d(doc, upper, lower, target, values, pole)` | Two-bone reach in 3D: the channel values (`upper`: `rotation`, `spread`; `lower`: `rotation`, `turn`) putting the limb's tip on a body-space `target`, the middle joint bent towards `pole`, the rest of the pose in `values`. The director rests hands on knees, in the lap, around the shins with it |
 | `EvaluatedPose.frame3d` | The frame's projection (`Rig3dFrame`: posed 3D bones `pos` / `rot`, `yaw`, `pitch`, screen `off`): solids are drawn from it |
 
 ### Solids — `solid.ts`, `field.ts`

@@ -96,6 +96,8 @@ export interface MountKey {
   blend: number;
   /** Parts drawn just behind the ridden actor. */
   behind?: string[];
+  /** Keeps the rider's own facing (`facing: "own"`) instead of the ridden actor's. */
+  own?: boolean;
 }
 
 export interface ReachKey {
@@ -648,7 +650,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         }
         const { rig } = requireActor(a.actor, path);
         for (const id of a.behind ?? []) if (!rig.partIndex.has(id)) throw new SceneError(`mount: unknown part "${id}" in "behind". Known parts: ${[...rig.partIndex.keys()].join(", ")}.`, path);
-        buffers.mounts.push({ t: a.at, on: a.on, anchor, point: (a.point as Vec2 | undefined) ?? [0, 0], blend: a.duration ?? 0.3, ...(a.behind?.length ? { behind: a.behind } : {}) });
+        buffers.mounts.push({ t: a.at, on: a.on, anchor, point: (a.point as Vec2 | undefined) ?? [0, 0], blend: a.duration ?? 0.3, ...(a.behind?.length ? { behind: a.behind } : {}), ...(a.facing === "own" ? { own: true } : {}) });
         return;
       }
       case "reach": {
@@ -992,7 +994,7 @@ function mountedPlacement(actor: CompiledActor, own: Placement, t: number): Plac
     if (!ridden) return own;
     const pv = actorPlacementState(ridden, t);
     const seat = anchorPosition(scene, ridden.id, key.anchor, t);
-    const st: Placement = { ...own, rotation: own.rotation + pv.rotation, flip: pv.flip };
+    const st: Placement = { ...own, rotation: own.rotation + pv.rotation, flip: key.own ? own.flip : pv.flip };
     const q = apply(placementMatrix({ ...st, x: 0, y: 0 }), key.point);
     return { ...st, x: seat[0] - q[0], y: seat[1] - q[1] };
   };

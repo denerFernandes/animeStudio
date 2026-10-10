@@ -233,3 +233,108 @@ export function rig3dDrawOrder(rig: Rig, r3: CompiledRig3d, frame: Rig3dFrame): 
   if (!changed) return undefined;
   return [...rig.drawOrder].sort((a, b) => key.get(a.index)! - key.get(b.index)!);
 }
+
+// ------------------------------------------------------------------ posing a 3D skeleton (authoring)
+
+/** Channel values of 3D bones (degrees), as a clip or the director would set them. */
+export type Rig3dValues = Record<string, { rotation?: number; turn?: number; spread?: number }>;
+
+interface Rig3dDocLike {
+  skeleton: { id: string; parent?: string; inheritRotation?: boolean }[];
+  rig3d?: { bones: Record<string, { from: V3; to: V3 }> };
+}
+
+/**
+ * Forward kinematics of a document's `rig3d` for channel values (body space, the hips at rest):
+ * each 3D bone's joint, tip and rotation. The same posing as `applyRig3d` (before projection).
+ */
+export function rig3dPose(doc: Rig3dDocLike, values: Rig3dValues): Record<string, { from: V3; to: V3; rot: number[] }> {
+  const def = doc.rig3d?.bones ?? {};
+  const parentOf = new Map(doc.skeleton.map((b) => [b.id, b.parent]));
+  const inherit = new Map(doc.skeleton.map((b) => [b.id, b.inheritRotation !== false]));
+  const out: Record<string, { from: V3; to: V3; rot: number[] }> = {};
+  let first: string | undefined;
+  for (const b of doc.skeleton) {
+    const d = def[b.id];
+    if (!d) continue;
+    let p = parentOf.get(b.id);
+    while (p && !def[p]) p = parentOf.get(p);
+    const v = values[b.id] ?? {};
+    const local = mul(mul(ry((v.turn ?? 0) * DEG), rz((v.spread ?? 0) * DEG)), rx((v.rotation ?? 0) * DEG));
+    let rot: M3, pos: V3;
+    if (!p || !out[p]) {
+      rot = local;
+      pos = d.from;
+      first ??= b.id;
+    } else {
+      const P = out[p];
+      rot = mul(inherit.get(b.id) ? P.rot : out[first!].rot, local);
+      pos = add3(P.from, mv(P.rot, sub3(d.from, def[p].from)));
+    }
+    out[b.id] = { from: pos, to: add3(pos, mv(rot, sub3(d.to, d.from))), rot };
+  }
+  return out;
+}
+
+/** The two angles (degrees) of `make(a, b)` turning `v` onto `w`, by a coarse-to-fine search. */
+function fit2(make: (a: number, b: number) => M3, v: V3, w: V3, a0 = 0, b0 = 0): [number, number] {
+  const err = (a: number, b: number) => {
+    const q = mv(make(a * DEG, b * DEG), v);
+    return (q[0] - w[0]) ** 2 + (q[1] - w[1]) ** 2 + (q[2] - w[2]) ** 2;
+  };
+  let a = a0, b = b0, e = err(a, b);
+  for (let step = 64; step > 0.01; step /= 2) {
+    let moved = true;
+    while (moved) {
+      moved = false;
+      for (const [da, db] of [[step, 0], [-step, 0], [0, step], [0, -step], [step, step], [-step, -step], [step, -step], [-step, step]]) {
+        const e2 = err(a + da, b + db);
+        if (e2 < e - 1e-12) {
+          a += da; b += db; e = e2; moved = true;
+        }
+      }
+    }
+  }
+  return [wrapAngle(a), wrapAngle(b)];
+}
+
+const norm3 = (v: V3): V3 => {
+  const l = Math.hypot(...v) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
+const T3 = (m: M3): M3 => [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
+
+/**
+ * Two-bone reach in 3D for a 2.5D rig (an arm onto a knee, around the shins): the channel values
+ * of `upper` (`rotation`, `spread`) and `lower` (`rotation`, `turn`) putting the tip of `lower` on
+ * `target` (body space), the middle joint bent towards `pole` (a direction: elbows back and out).
+ * `values` holds the rest of the pose (the body's lean, the legs). Out of reach, the limb points
+ * straight at the target.
+ */
+export function reach3d(doc: Rig3dDocLike, upper: string, lower: string, target: V3, values: Rig3dValues, pole: V3): Rig3dValues {
+  const def = doc.rig3d!.bones;
+  const posed = rig3dPose(doc, { ...values, [upper]: {}, [lower]: {} });
+  const U = posed[upper];
+  // The upper bone's parent frame (its rotation with no channel of its own).
+  const Rp = U.rot;
+  const S = U.from;
+  const l1 = Math.hypot(...sub3(def[upper].to, def[upper].from)), l2 = Math.hypot(...sub3(def[lower].to, def[lower].from));
+  const D = sub3(target, S);
+  const d = clamp(Math.hypot(...D), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+  const dh = norm3(D);
+  // The bend plane: the pole without its part along the reach.
+  const pd = pole[0] * dh[0] + pole[1] * dh[1] + pole[2] * dh[2];
+  const ph = norm3([pole[0] - dh[0] * pd, pole[1] - dh[1] * pd, pole[2] - dh[2] * pd]);
+  const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  const E = add3(S, [l1 * (cosA * dh[0] + sinA * ph[0]), l1 * (cosA * dh[1] + sinA * ph[1]), l1 * (cosA * dh[2] + sinA * ph[2])]);
+  const T = add3(S, [dh[0] * d, dh[1] * d, dh[2] * d]);
+  const u = mv(T3(Rp), norm3(sub3(E, S)));
+  const restU = norm3(sub3(def[upper].to, def[upper].from));
+  const [r1, s1] = fit2((a, b) => mul(rz(b), rx(a)), restU, u);
+  const R1 = mul(Rp, mul(rz(s1 * DEG), rx(r1 * DEG)));
+  const f = mv(T3(R1), norm3(sub3(T, E)));
+  const restL = norm3(sub3(def[lower].to, def[lower].from));
+  const [r2, t2] = fit2((a, b) => mul(ry(b), rx(a)), restL, f);
+  const k = (n: number) => Math.round(n * 100) / 100;
+  return { [upper]: { rotation: k(r1), spread: k(s1), turn: 0 }, [lower]: { rotation: k(r2), turn: k(t2), spread: 0 } };
+}

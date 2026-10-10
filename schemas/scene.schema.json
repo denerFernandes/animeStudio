@@ -1390,6 +1390,14 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "facing": {
+                "description": "\"ridden\" (default): face the way the ridden actor faces (a horse turning round); \"own\": keep this actor's own facing (seated on furniture drawn turned, facing the way the seat is turned)",
+                "type": "string",
+                "enum": [
+                  "ridden",
+                  "own"
+                ]
               }
             },
             "required": [

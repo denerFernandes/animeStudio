@@ -528,6 +528,10 @@ export const ActionSchema = z.discriminatedUnion("action", [
       .array(z.string())
       .optional()
       .describe("Parts of this actor drawn just behind the ridden actor (e.g. the far leg behind a bicycle's frame)"),
+    facing: z
+      .enum(["ridden", "own"])
+      .optional()
+      .describe('"ridden" (default): face the way the ridden actor faces (a horse turning round); "own": keep this actor\'s own facing (seated on furniture drawn turned, facing the way the seat is turned)'),
   }),
   z.strictObject({
     ...At,
