@@ -445,7 +445,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
   `bounds`).
 - `world`: physics settings for rigid bodies (`gravity` px/s², `ground` y, optional `walls`) and
   walkable `surfaces` (see 3.6).
-- `animation`: cartoon timing — characters drawn on twos and moving holds (see 3.8).
+- `animation`: cartoon timing — characters drawn on twos, moving holds, smears, arcs and line boil (see 3.8).
 
 ### 3.0 Lighting
 
@@ -672,11 +672,12 @@ or audio amplitude — see `@animestudio/lipsync`.
 ### 3.8 Cartoon timing
 
 Hand-drawn cartoons hold each drawing for two frames ("on twos"), a character that holds a pose
-is never completely still, a fast move is drawn as a smear rather than blurred, and a hand moving
-from one place to another travels along an arc. The optional scene `animation` gives you all four:
+is never completely still, a fast move is drawn as a smear rather than blurred, a hand moving from
+one place to another travels along an arc, and the lines of a drawing are never quite still (line
+boil). The optional scene `animation` gives you all five:
 
 ```jsonc
-"animation": { "twos": true, "holds": 0.5, "smear": 0.8, "arcs": 1 }
+"animation": { "twos": true, "holds": 0.5, "smear": 0.8, "arcs": 1, "boil": 0.6 }
 ```
 
 | Field | Value | Effect |
@@ -685,6 +686,7 @@ from one place to another travels along an arc. The optional scene `animation` g
 | `holds` | 0–1 (default 0) | Moving holds: every actor drifts slightly (up to ±1.2 px across, ±0.8 px up and down and ±0.35° at 1), a mix of a slow and a quicker drift seeded by the actor id. It is the same in every render and is never written into the tracks |
 | `smear` | 0–1 (default 0: off) | Smears: a fast-moving actor or flying prop is drawn stretched along its path (up to 1.9× at 1) and thinned across it; a fast-swinging limb, and a prop held in that hand, are drawn as faded multiples at in-between poses. See **Smears** below |
 | `arcs` | 0–1 (default 0: off) | Arcs: a hand or foot blending into, out of or between `reach` targets travels along an arc instead of a straight line, bulging away from the chain's root (the shoulder, the hip) by up to 0.3 × the distance at 1. See **Arcs** below |
+| `boil` | 0–1 (default 0: off) | Line boil: the outlines of every actor and prop wobble slightly, redrawn every two frames (on threes and fours: with each drawing). Up to ~2.4 px on screen at 1. Layers stay still. See **Line boil** below |
 
 An actor's own `twos` overrides the scene's value: `false` (or 1) keeps that actor smooth (a
 clock, a car), and a number puts just that actor on twos or threes. Its own `holds` overrides the
@@ -753,6 +755,29 @@ arc starts at the point (and weight) the blend in progress had reached, so there
 continuity holds with `arcs` off too). A moving target (an anchor, a prop point) is followed: the
 chord is taken every frame. A point beyond the chain's reach is clamped by the IK as usual. Moves
 keyed by the director on `ik.<id>.x/y` channels get their arcs from the director (DIRECTOR.md).
+
+**Line boil.** Hand-drawn lines are traced again for every drawing, so they are never exactly where
+they were: the outline "boils". With `boil` on, each actor and each prop gets an SVG filter in the
+frame's defs, `boil-<item key>` (`boil-actor-<id>`, `boil-prop-<id>`): fractal noise
+(`feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2"`, centred so nothing shifts)
+displacing the item's pixels (`feDisplacementMap`, red → x, green → y) over the item's box plus 10%.
+The filter is set on the item's own element, inside its transform, so the noise belongs to the
+drawing: a held drawing under a moving camera does not swim. Its strength is `2.4 × boil` screen px
+for an item at a screen scale of 1 or more, shrinking with the item for small, far ones
+(`boil × clamp(2.4 × s, 1, 2.4)` px at screen scale s). The seed is
+`floor(drawingTime × fps / 2) + 1 + hash(item key) mod 100000`: every two frames on ones and on
+twos (frames 2k and 2k+1 share a wobble), with each drawing on threes and fours; a held prop follows
+its holder's drawings, a free prop changes every two frames of the scene; the same frame always gets
+the same wobble, and different items wobble differently. Actors boil as a whole (a smear's limb
+ghosts, the hand drawn over a held prop and the parts drawn behind a mount share the actor's filter),
+props too; layers, cords, effects, lighting and transitions stay still. With motion blur the boiled
+drawing is blurred (the blur is a screen-space wrapper). With cel shading the masks copy the actor's
+art with its boil (a namespaced twin of the filter), so light and shadow wobble with the lines.
+**Cost:** one `feTurbulence` + `feDisplacementMap` per actor and prop per frame, evaluated by the
+browser; on headless Chrome without a GPU it is noticeable in crowded scenes — keep it for scenes
+that need it and consider the `raster` capture mode for heavy ones. In debug renders the sentinel
+of a boiled node is drawn outside its filtered content, so it stays verifiable; `toon debug` sees
+the same nodes every frame.
 
 **Motion blur** compares each item with the previous frame. For an actor on twos, a held frame
 shows the same drawing as the frame before it, so it gets no motion blur. A frame where the

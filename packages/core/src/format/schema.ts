@@ -463,7 +463,7 @@ export const LightingSchema = z
 /** Frames per drawing: `true` = 2 (on twos), `false` = 1 (on ones), or a number 1..4. */
 const Twos = z.union([z.boolean(), z.number().int().min(1).max(4)]);
 
-/** Cartoon timing of a scene: characters drawn on twos, moving holds, smears, arcs. */
+/** Cartoon timing of a scene: characters drawn on twos, moving holds, smears, arcs, line boil. */
 const AnimationSchema = z
   .strictObject({
     twos: Twos.optional().describe("Frames per drawing of the characters: `true` = 2 (classic \"on twos\"), a number 1..4 (1 = on ones, default)"),
@@ -480,8 +480,14 @@ const AnimationSchema = z
       .max(1)
       .optional()
       .describe("Arcs 0..1 (default 0: off): a hand or foot blending to or from a `reach` travels along an arc (bulging away from the chain's root, up to 0.3 × the distance at 1) instead of a straight line"),
+    boil: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .describe("Line boil 0..1 (default 0: off): the outlines of every actor and prop wobble slightly, redrawn every two frames (or with each drawing on twos/threes), up to ~2.4 px on screen at 1; layers stay still"),
   })
-  .describe("Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds, smears and arcs");
+  .describe("Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds, smears, arcs and line boil");
 
 export const ActorSchema = z.strictObject({
   id: z.string(),

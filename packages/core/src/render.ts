@@ -6,8 +6,29 @@ import { type PathStyle, type Rig, type RigPart, namespaceIds } from "./rig";
 
 /** Framework-agnostic render tree, consumed by the React and string renderers. */
 export type RenderNode =
-  | { kind: "group"; key: string; id?: string; transform?: Mat; opacity?: number; /** Screen-space CSS filter (e.g. `blur(2px)`). */ filter?: string; children: RenderNode[] }
-  | { kind: "markup"; key: string; transform?: Mat; opacity?: number; /** Screen-space CSS filter (e.g. `blur(2px)`). */ filter?: string; markup: string }
+  | {
+      kind: "group";
+      key: string;
+      id?: string;
+      transform?: Mat;
+      opacity?: number;
+      /** Screen-space CSS filter (e.g. `blur(2px)`). */
+      filter?: string;
+      /** SVG filter reference (`url(#id)`, defined in the frame's defs) set as the element's `filter` attribute: it works in the node's own (transformed) space, under the CSS `filter` (line boil). */
+      svgFilter?: string;
+      children: RenderNode[];
+    }
+  | {
+      kind: "markup";
+      key: string;
+      transform?: Mat;
+      opacity?: number;
+      /** Screen-space CSS filter (e.g. `blur(2px)`). */
+      filter?: string;
+      /** SVG filter reference (`url(#id)`, defined in the frame's defs) set as the element's `filter` attribute: it works in the node's own (transformed) space, under the CSS `filter` (line boil). */
+      svgFilter?: string;
+      markup: string;
+    }
   | { kind: "path"; key: string; d: string; opacity?: number; attrs: Record<string, string | number> };
 
 export interface RenderFrame {
@@ -192,8 +213,10 @@ export function nodeToString(node: RenderNode): string {
   const common = {
     transform: "transform" in node && node.transform && !isIdentity(node.transform) ? matToString(node.transform) : undefined,
     opacity: node.opacity,
+    // An SVG filter works in the element's own space (inside its transform).
+    filter: "svgFilter" in node ? node.svgFilter : undefined,
   };
-  // Filters are in screen space: applied on a wrapper without transform.
+  // CSS filters are in screen space: applied on a wrapper without transform.
   const wrap = (inner: string) => ("filter" in node && node.filter ? `<g style="filter:${node.filter}">${inner}</g>` : inner);
   switch (node.kind) {
     case "group":
@@ -228,9 +251,9 @@ export function prefixFrame(frame: RenderFrame, prefix: string): RenderFrame {
   const walk = (n: RenderNode): RenderNode => {
     switch (n.kind) {
       case "group":
-        return { ...n, id: n.id ? `${prefix}-${n.id}` : undefined, children: n.children.map(walk) };
+        return { ...n, id: n.id ? `${prefix}-${n.id}` : undefined, ...(n.svgFilter ? { svgFilter: fixUrl(n.svgFilter) } : {}), children: n.children.map(walk) };
       case "markup":
-        return { ...n, markup: ns(n.markup) };
+        return { ...n, ...(n.svgFilter ? { svgFilter: fixUrl(n.svgFilter) } : {}), markup: ns(n.markup) };
       case "path":
         return { ...n, attrs: Object.fromEntries(Object.entries(n.attrs).map(([k, v]) => [k, typeof v === "string" ? (fixUrl(v) as string) : v])) };
     }

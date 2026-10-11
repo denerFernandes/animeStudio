@@ -62,7 +62,7 @@ a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit`
 ## Staging
 
 ```jsonc
-{ "animation": { "twos": true, "holds": 0.5, "anticipation": 1, "life": 1, "arcs": 1 }, "blocks": [ … ] }
+{ "animation": { "twos": true, "holds": 0.5, "smear": 0.8, "boil": 0.6, "anticipation": 1, "life": 1, "arcs": 1 }, "blocks": [ … ] }
 ```
 
 `animation` is the cartoon timing of the characters (the scene's `animation`, FORMAT §3.8): `twos`

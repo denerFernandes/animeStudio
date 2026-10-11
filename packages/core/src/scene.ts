@@ -18,6 +18,7 @@ import {
   clampToBounds,
   depthBlur,
   fitBox,
+  matScale,
   handheldOffset,
   pathPoint,
   punchFactor,
@@ -35,6 +36,7 @@ import {
   apply,
   applyLinear,
   clamp,
+  formatNumber,
   fromTRS,
   hashString,
   invert,
@@ -55,7 +57,7 @@ import {
 } from "./lighting";
 import { type CharacterInput, type ClipInstance, type EvaluatedPose, applyPhysicsSample, evaluatePose } from "./pose";
 import { type RenderFrame, type RenderNode, nodeToString, renderCharacter } from "./render";
-import { type ChannelRef, type Rig, type RigPart, type RigTrack, RigError, compileRig, resolveChannel } from "./rig";
+import { type ChannelRef, type Rig, type RigPart, type RigTrack, RigError, compileRig, namespaceIds, resolveChannel } from "./rig";
 
 export class SceneError extends Error {
   constructor(
@@ -214,10 +216,12 @@ export interface CompiledScene {
   lighting?: { def: LightingDef; tracks: Record<string, Track> };
   /**
    * Cartoon timing, resolved: frames per drawing of the characters, the moving-hold amount (0..1),
-   * the smear amount (0..1; only present when smears are on) and the arcs amount (0..1; only
-   * present when arcs are on: a reaching hand or foot travels along an arc, not a straight line).
+   * the smear amount (0..1; only present when smears are on), the arcs amount (0..1; only
+   * present when arcs are on: a reaching hand or foot travels along an arc, not a straight line)
+   * and the line boil amount (0..1; only present when the boil is on: the outlines of actors and
+   * props wobble, redrawn every two frames).
    */
-  animation: { twos: number; holds: number; smear?: number; arcs?: number };
+  animation: { twos: number; holds: number; smear?: number; arcs?: number; boil?: number };
   rigid?: RigidBodySampler;
 }
 
@@ -374,11 +378,13 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
   const rigCache = new Map<string, Rig>();
   const smear = clamp(doc.animation?.smear ?? 0, 0, 1);
   const arcs = clamp(doc.animation?.arcs ?? 0, 0, 1);
+  const boil = clamp(doc.animation?.boil ?? 0, 0, 1);
   const animation = {
     twos: framesPerDrawing(doc.animation?.twos, 1),
     holds: clamp(doc.animation?.holds ?? 0, 0, 1),
     ...(smear > 0 ? { smear } : {}),
     ...(arcs > 0 ? { arcs } : {}),
+    ...(boil > 0 ? { boil } : {}),
   };
 
   // Actors -----------------------------------------------------------------
@@ -2039,6 +2045,33 @@ function transitionCenter(scene: CompiledScene, cam: CameraState, target: string
   return p ? apply(viewMatrix(scene, cam, 1), p) : [scene.width / 2, scene.height / 2];
 }
 
+/** Displacement of the line boil on screen at `boil` 1 (px), and the least it shrinks to for small items. */
+const BOIL_PX = 2.4;
+const BOIL_MIN_PX = 1;
+
+/**
+ * Line boil: the SVG filter that makes an item's outlines wobble (turbulence noise displacing its
+ * pixels), redrawn every two frames. It is set on the item's own (transformed) element, so the noise
+ * belongs to the drawing (a held drawing under a moving camera does not swim) and its strength is
+ * given in the item's units: `BOIL_PX × boil` screen px at a screen scale of 1 or more, shrinking
+ * with the item (down to `BOIL_MIN_PX × boil`) for small, far ones. The seed steps every two frames
+ * of the item's drawing time (on twos and threes: with each drawing), offset per item by `hashString`
+ * of its key; the same frame always gets the same seed.
+ */
+function boilFilter(key: string, boil: number, drawnTime: number, fps: number, m: Mat): { ref: string; def: string } {
+  const id = `boil-${key.replace(/[^\w-]/g, "_")}`;
+  const seed = Math.floor((drawnTime * fps) / 2 + 1e-6) + 1 + (hashString(key) % 100000);
+  const s = matScale(m) || 1;
+  const scale = (boil * clamp(BOIL_PX * s, BOIL_MIN_PX, BOIL_PX)) / s;
+  return {
+    ref: `url(#${id})`,
+    def:
+      `<filter id="${id}" x="-10%" y="-10%" width="120%" height="120%">` +
+      `<feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="${seed}" result="n"/>` +
+      `<feDisplacementMap in="SourceGraphic" in2="n" scale="${formatNumber(scale)}" xChannelSelector="R" yChannelSelector="G"/></filter>`,
+  };
+}
+
 /** Evaluates a full scene frame at time `t` (seconds). Pure and deterministic. */
 export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   const cam = cameraAt(scene, t);
@@ -2087,6 +2120,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   // Smears: a fast move drawn stretched along its path (cartoon timing). Off: nothing below runs.
   const smear = scene.animation.smear ?? 0;
   const smears = new Map<string, ActorSmear>();
+  // Line boil: one filter per actor and prop in this frame's defs (layers stay still). Off: none.
+  const boil = scene.animation.boil ?? 0;
+  let boilDefs = "";
   // Crowd shots: more lit actors on screen than `shading.crowd` → no rim light.
   const crowded = !!(light?.shading.crowd && scene.actors.filter((a) => a.def.shading !== false && actorPlacementState(a, t).opacity > 0.01 && a.rig.anchors.head).length > light.shading.crowd);
   for (const actor of scene.actors) {
@@ -2132,6 +2168,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     // (the fingers wrap around it).
     const holdBones = new Set(scene.props.flatMap((pr) => pr.grabs.filter((g) => g.actor === actor.id && t >= g.start && t < g.end).map((g) => actor.rig.anchors[g.anchor]?.bone)).filter((b): b is number => b !== undefined));
     const overParts = new Set(holdBones.size ? actor.rig.parts.filter((pt) => "bone" in pt && holdBones.has((pt as { bone: number }).bone)).map((pt) => pt.id) : []);
+    // The boil follows the actor's drawings; the held hand and the parts behind a mount share it.
+    const boiled = boil > 0 ? boilFilter(`actor-${actor.id}`, boil, drawingTime(scene, actor, t), scene.fps, m) : undefined;
+    if (boiled) boilDefs += boiled.def;
     const actorNode: RenderNode = {
       kind: "group",
       key: `actor-${actor.id}`,
@@ -2140,6 +2179,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       opacity: p.opacity < 1 ? p.opacity : undefined,
       // Motion blur measures the unsmeared move; with smears on, it blurs the smeared drawing.
       filter: blurFor(depth, m0, mPrev),
+      ...(boiled ? { svgFilter: boiled.ref } : {}),
       children: draw(`${actor.id}-`, under || overParts.size ? (id) => !under?.parts.has(id) && !overParts.has(id) : undefined),
     };
     if (overParts.size) {
@@ -2160,10 +2200,13 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       // Shade around the actor's middle (head anchor if any, else ~100 px above its origin).
       const head = actor.rig.anchors.head;
       const local: Vec2 = head ? [head.at[0] * 0.5, head.at[1] * 0.5] : [0, -100];
-      // The masks get their own copy of the (unfiltered, id-less) actor art.
+      // The masks get their own copy of the (unblurred, id-less) actor art. A boiled copy keeps its
+      // boil, so the masks wobble with the drawing: the copy's references are namespaced by the
+      // shading (`shade-<actor id>`), so its boil filter gets a namespaced twin.
       const art = nodeToString({ ...actorNode, id: undefined, filter: undefined, opacity: undefined });
       const lit = crowded ? { ...light, shading: { ...light.shading, rimOpacity: 0 } } : light;
-      const markup = shadingMarkup(lit, key, actor.id, art, apply(m0, local), Math.hypot(m0[0], m0[1]), scene.width, scene.height, box);
+      const shade = shadingMarkup(lit, key, actor.id, art, apply(m0, local), Math.hypot(m0[0], m0[1]), scene.width, scene.height, box);
+      const markup = shade && boiled ? namespaceIds(boiled.def, `shade-${actor.id}`) + shade : shade;
       if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup: p.opacity < 1 ? `<g opacity="${p.opacity}">${markup}</g>` : markup } });
     }
   }
@@ -2223,6 +2266,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     }
     // Held: just above its holder (under the holding hand, above the rest of the body).
     const propZ = holder ? (holderZ ?? 0) + 1e-3 : p.z;
+    // A held prop boils with its holder's drawings; a free prop is smooth (every two frames).
+    const boiled = boil > 0 ? boilFilter(`prop-${prop.id}`, boil, holderActor ? drawingTime(scene, holderActor, t) : t, scene.fps, m) : undefined;
+    if (boiled) boilDefs += boiled.def;
     for (const node of ghosts) items.push({ z: propZ, order: order++, node });
     items.push({
       z: propZ,
@@ -2233,6 +2279,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
         transform: m,
         opacity: p.opacity < 1 ? p.opacity : undefined,
         filter: blurFor(depth, m0, mPrev),
+        ...(boiled ? { svgFilter: boiled.ref } : {}),
         markup: prop.markup,
       },
     });
@@ -2306,7 +2353,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     width: scene.width,
     height: scene.height,
     background: scene.background,
-    defs: scene.defs,
+    defs: scene.defs + boilDefs,
     nodes: items.map((i) => i.node),
   };
 }

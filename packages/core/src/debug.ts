@@ -233,7 +233,11 @@ export function withDebugOverlay(frame: RenderFrame, opts: DebugOverlayOptions):
       nodes.push(n);
       return;
     }
-    const inner = n.kind === "group" ? `<g${n.id ? ` id="${n.id}"` : ""}>${n.children.map(nodeToString).join("")}</g>` : n.markup;
+    // An SVG filter (line boil) stays on the content only: the sentinel is drawn outside it, so a
+    // displacement never moves it off its cell and it stays verifiable.
+    const svgFilter = n.svgFilter ? ` filter="${n.svgFilter}"` : "";
+    const inner =
+      n.kind === "group" ? `<g${n.id ? ` id="${n.id}"` : ""}${svgFilter}>${n.children.map(nodeToString).join("")}</g>` : svgFilter ? `<g${svgFilter}>${n.markup}</g>` : n.markup;
     const clip = `dbg-clip-${i}`;
     nodes.push({
       kind: "markup",

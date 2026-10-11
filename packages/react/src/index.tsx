@@ -26,19 +26,20 @@ export function RenderNodes({ nodes }: { nodes: RenderNode[] }) {
 
 export function Node({ node }: { node: RenderNode }) {
   const transform = "transform" in node && node.transform && !isIdentity(node.transform) ? matToString(node.transform) : undefined;
-  // Filters are in screen space: a wrapper without transform (keeps the element tree stable).
+  // CSS filters are in screen space: a wrapper without transform (keeps the element tree stable).
+  // An SVG filter (`svgFilter`, line boil) works in the element's own space: set on the element.
   const wrap = (el: ReactElement) => <g style={"filter" in node && node.filter ? { filter: node.filter } : undefined}>{el}</g>;
   switch (node.kind) {
     case "group":
       return wrap(
-        <g id={node.id} transform={transform} opacity={node.opacity}>
+        <g id={node.id} transform={transform} opacity={node.opacity} filter={node.svgFilter}>
           {node.children.map((c) => (
             <Node key={c.key} node={c} />
           ))}
         </g>,
       );
     case "markup":
-      return wrap(<MarkupNode transform={transform} opacity={node.opacity} markup={node.markup} />);
+      return wrap(<MarkupNode transform={transform} opacity={node.opacity} filter={node.svgFilter} markup={node.markup} />);
     case "path": {
       const attrs = Object.fromEntries(Object.entries(node.attrs).map(([k, v]) => [toReactAttr(k), v]));
       return <path d={node.d} opacity={node.opacity} {...attrs} />;
@@ -47,8 +48,8 @@ export function Node({ node }: { node: RenderNode }) {
 }
 
 /** Static art is memoized on its markup so React only updates the transform. */
-const MarkupNode = memo(function MarkupNode(props: { transform?: string; opacity?: number; markup: string }) {
-  return <g transform={props.transform} opacity={props.opacity} dangerouslySetInnerHTML={{ __html: props.markup }} />;
+const MarkupNode = memo(function MarkupNode(props: { transform?: string; opacity?: number; filter?: string; markup: string }) {
+  return <g transform={props.transform} opacity={props.opacity} filter={props.filter} dangerouslySetInnerHTML={{ __html: props.markup }} />;
 });
 
 export interface ToonFrameProps {

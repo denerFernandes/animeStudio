@@ -203,6 +203,7 @@ export interface Music {
  * `life` — 0..1 (default 0: off): blinks on head turns, saccades while listening, head accents on
  * stressed words (staged by the director, never in the scene). `arcs` — 0..1 (default 0: off): IK
  * moves travel along arcs (the director's paired `ik.<id>.x/y` moves; the scene's reach blends).
+ * `smear` and `boil` go to the scene as they are.
  */
 export interface Animation {
   twos?: boolean | number;
@@ -210,6 +211,9 @@ export interface Animation {
   anticipation?: number;
   life?: number;
   arcs?: number;
+  /** Passed on to the scene (FORMAT §3.8): smears on fast moves, line boil on the outlines. */
+  smear?: number;
+  boil?: number;
 }
 
 export interface Staging {

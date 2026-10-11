@@ -166,7 +166,7 @@ reaching): its mix is multiplied by `1 − ik mix`.
 | `cuesToVisemeKeys(cues, offset, blend?)` | Mouth cues → cross-faded viseme weight keys |
 | `frameTime(scene, frame)`, `frameCount(scene)` | Frame ↔ seconds helpers (`frameCount` = ⌈duration × fps⌉ without the extra frame floating point noise would add: 2.2 s × 25 = 55) |
 
-Types: `CompiledScene` (with `animation: { twos, holds, smear?, arcs? }`, the resolved cartoon timing: frames per drawing of the characters, the moving-hold amount and, when on, the smear and arcs amounts — reach blends along arcs, FORMAT §3.8), `CompiledActor` (with `twos` and `holds`: the actor's own values, else the scene's), `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
+Types: `CompiledScene` (with `animation: { twos, holds, smear?, arcs?, boil? }`, the resolved cartoon timing: frames per drawing of the characters, the moving-hold amount and, when on, the smear, arcs and line-boil amounts, FORMAT §3.8), `CompiledActor` (with `twos` and `holds`: the actor's own values, else the scene's), `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
 `CompiledTransition`, `SceneAssets`, `AudioEvent`, `Shake`, `Grab`, `RigidBodySampler`,
 `SceneError`.
 
@@ -272,6 +272,7 @@ Types: `Diagnostic`, `DiagnosticKind`, `DiagnoseOptions`, `DebugOverlayOptions`,
 |---|---|
 | `renderCharacter(rig, pose, keyPrefix?): RenderNode[]` | Parts in draw order → render nodes (character space) |
 | `frameToSVG(frame: RenderFrame): string` | Standalone SVG document |
+| `RenderNode.svgFilter`, `RenderFrame.defs` | `svgFilter` (group and markup nodes): an SVG filter reference (`url(#id)`, defined in the frame's `defs`) set as the element's own `filter` attribute, so it works in the node's transformed space (line boil) — distinct from `filter`, the screen-space CSS blur on a wrapper; honoured by `frameToSVG`, `<ToonFrame>` and `prefixFrame`. `defs` is the scene's static defs plus, with `animation.boil`, that frame's boil filters |
 | `nodeToString(node)` | One node as SVG markup |
 | `prefixFrame(frame, prefix)` | Copy of a frame with every SVG id prefixed (to composite two frames) |
 

@@ -19,8 +19,8 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
   accelerate/decelerate locomotion, smooth look-at transitions, cross-faded morph mouths.
 - **Cartoon timing**: characters on twos (or threes) over a smooth camera, per-actor overrides,
   moving holds so a held pose never freezes, smears (fast moves stretched along their path,
-  swinging limbs drawn as multiples) and arcs (a reaching hand travels along an arc) — `animation`
-  in the scene; in the director,
+  swinging limbs drawn as multiples), arcs (a reaching hand travels along an arc) and line boil
+  (outlines that wobble every two frames, like pencil) — `animation` in the scene; in the director,
   anticipation and settle (`animation.anticipation`: leans into walks, landing squashes, limb
   overshoots), life (`animation.life`: blinks on head turns, saccades, head nods on stressed words),
   arcs on IK moves (`animation.arcs`) and takes / double takes (`take`).
@@ -141,7 +141,8 @@ instrumentation strip: every element paints a small colored sentinel inside its 
 each frame carries a barcode with its index. `toon doctor video.mp4 doc.json` then reports
 flickers, whether the library output changed at those frames, and exactly which elements the
 browser failed to paint in which frames. Sentinels of transparent (opacity < 0.6) or strongly
-blurred (≥ 2px) elements cannot be verified and are counted as skipped instead of reported.
+blurred (≥ 2px) elements cannot be verified and are counted as skipped instead of reported (a
+boiled element's sentinel is drawn outside its boil, so it is still verified).
 Flickers with stable library output are browser capture glitches; they are usually
 nondeterministic, so re-rendering the reported frames fixes them.
 

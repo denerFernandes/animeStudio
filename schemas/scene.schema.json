@@ -408,10 +408,16 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "boil": {
+          "description": "Line boil 0..1 (default 0: off): the outlines of every actor and prop wobble slightly, redrawn every two frames (or with each drawing on twos/threes), up to ~2.4 px on screen at 1; layers stay still",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false,
-      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds, smears and arcs"
+      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds, smears, arcs and line boil"
     },
     "layers": {
       "type": "array",
