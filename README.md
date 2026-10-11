@@ -18,9 +18,15 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
 - **Fluid by default**: smooth monotone splines between keys, eased cross-fades between clips,
   accelerate/decelerate locomotion, smooth look-at transitions, cross-faded morph mouths.
 - **Cartoon timing**: characters on twos (or threes) over a smooth camera, per-actor overrides,
-  moving holds so a held pose never freezes, and smears (fast moves stretched along their path,
-  swinging limbs drawn as multiples) — `animation` in the scene; in the director,
-  anticipation and settle (`animation.anticipation`: leans into walks, landing squashes, limb overshoots).
+  moving holds so a held pose never freezes, smears (fast moves stretched along their path,
+  swinging limbs drawn as multiples) and arcs (a reaching hand travels along an arc) — `animation`
+  in the scene; in the director,
+  anticipation and settle (`animation.anticipation`: leans into walks, landing squashes, limb
+  overshoots), life (`animation.life`: blinks on head turns, saccades, head nods on stressed words),
+  arcs on IK moves (`animation.arcs`) and takes / double takes (`take`).
+- **Personality walks**: sneak, strut, tired, march and scared run for every kit character — built
+  from one gait with knee lift, crouch, tiptoe, hip sway, overlapping head lag, arm styles, slump,
+  dragged feet and a double bounce, each with a stride measured from its planted feet (no sliding).
 - **Skeleton**: forward kinematics, two-bone and FABRIK IK, rotation limits, local
   (non-inherited) squash & stretch.
 - **Physics**: baked spring chains and jiggles with per-bone mass (ears, tails, hair), plus

@@ -1618,6 +1618,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
         run: { a: r(46 * (b.L / 200)), lift: r(28 * (b.L / 200)), dur: 0.42, bob: 8, lean: 8, armSwing: 56 },
         jump: 80,
         hands: true,
+        leg: r(Math.abs(j.footF[1] - j.hipF[1])),
+        foot: r(30 * b.shoe),
       }),
       ...humanClips(),
     }),

@@ -399,7 +399,9 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
    colours, points and weight records interpolate.
 3. Direct tracks (scene `tracks` and `set` actions). Numeric offset channels (bones, IK targets,
    morphs, opacity) are **added** on top of clips; other channels override.
-4. `pose` controls, `viseme` controls.
+4. `pose` controls, `viseme` controls. A switch variant set by a direct track (a `set
+   parts.<id>.variant`: a blink closing the eyes over an emotion's eyes) is kept: a pose control
+   does not take it back.
 5. Behaviors.
 6. Rotation limits, forward kinematics. 2.5D rigs: the 3D pose, leg IK in the side plane, the projection (2.6b).
 7. IK (the legs a 2.5D rig already placed are skipped), `aim` controls.
@@ -531,13 +533,13 @@ Actions are compiled into clip instances and tracks before rendering.
 | `action` | Fields | Effect |
 |---|---|---|
 | `play` | `clip`, `duration?`, `loop?`, `speed` (1), `fadeIn` (0.2), `fadeOut` (0.2), `layer` (0), `blend` (`override` \| `additive`), `weight` (1) | Plays a character clip |
-| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps. With `duration` 0 the value steps in at `at` (at `at: 0`, on frame 0), replacing a step already there; a ramp ending at `at` still ends there first |
+| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps. With `duration` 0 the value steps in at `at` (at `at: 0`, on frame 0), replacing a step already there; a ramp ending at `at` still ends there first. On a `parts.<id>.variant` channel a `set` wins over the pose controls' variant until a `set` of `null` lets go (a blink closing the eyes over an emotion's eyes, then giving them back) |
 | `pose` | `control`, `value`, `duration` (0.3), `ease` | Shortcut for `set controls.<control>`: cross-fades the pose weights from where they are, taking over a change under way |
 | `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction. It takes over a move under way (on both axes) from where the actor is, like `set` |
 | `face` | `direction` (`left` \| `right`) | Flips the actor |
 | `lookAt` | `target` (actor id, prop id, `[x, y]` scene point, or `null`), `control` (first `aim` control) | Aims eyes/head until the next `lookAt`; target changes blend smoothly (0.35 s) and moving targets are tracked |
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
-| `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight |
+| `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line |
 | `say` | `audio?`, `lipsync?` (cues id), `cues?` (inline), `text?` + `duration?`, `control` (first `viseme` control) | Plays audio and lip syncs |
 | `grab` | `prop`, `anchor` | Attaches a prop to an actor anchor |
 | `release` | `prop`, `velocity?` | Releases a grabbed prop |
@@ -670,11 +672,11 @@ or audio amplitude — see `@animestudio/lipsync`.
 ### 3.8 Cartoon timing
 
 Hand-drawn cartoons hold each drawing for two frames ("on twos"), a character that holds a pose
-is never completely still, and a fast move is drawn as a smear rather than blurred. The optional
-scene `animation` gives you all three:
+is never completely still, a fast move is drawn as a smear rather than blurred, and a hand moving
+from one place to another travels along an arc. The optional scene `animation` gives you all four:
 
 ```jsonc
-"animation": { "twos": true, "holds": 0.5, "smear": 0.8 }
+"animation": { "twos": true, "holds": 0.5, "smear": 0.8, "arcs": 1 }
 ```
 
 | Field | Value | Effect |
@@ -682,6 +684,7 @@ scene `animation` gives you all three:
 | `twos` | `true` (= 2), or a number 1–4 (default 1 = on ones) | Frames per drawing of the characters. On twos at 24 fps, frames 2k and 2k+1 show the same drawing and the next drawing appears at 2k+2; `3` steps every three frames |
 | `holds` | 0–1 (default 0) | Moving holds: every actor drifts slightly (up to ±1.2 px across, ±0.8 px up and down and ±0.35° at 1), a mix of a slow and a quicker drift seeded by the actor id. It is the same in every render and is never written into the tracks |
 | `smear` | 0–1 (default 0: off) | Smears: a fast-moving actor or flying prop is drawn stretched along its path (up to 1.9× at 1) and thinned across it; a fast-swinging limb, and a prop held in that hand, are drawn as faded multiples at in-between poses. See **Smears** below |
+| `arcs` | 0–1 (default 0: off) | Arcs: a hand or foot blending into, out of or between `reach` targets travels along an arc instead of a straight line, bulging away from the chain's root (the shoulder, the hip) by up to 0.3 × the distance at 1. See **Arcs** below |
 
 An actor's own `twos` overrides the scene's value: `false` (or 1) keeps that actor smooth (a
 clock, a car), and a number puts just that actor on twos or threes. Its own `holds` overrides the
@@ -733,6 +736,23 @@ a camera move never smears anything.
   stretches by the whole-actor rule, its leading point half its size ahead (40 px of art at its
   scale).
 - The first drawing of a scene has nothing to compare with and is never smeared.
+
+**Arcs.** A limb moving from one place to another follows an arc, never a straight line (the
+principle of arcs). With `arcs` on, every `reach` blend (§3.3) takes its point along an arc: the
+straight blend's point is pushed across the chord by `arcs × 0.3 × |chord| × sin(π·u)` (u: the
+blend's eased progress), so it leaves and arrives exactly where the straight blend does and bulges
+most halfway (at `arcs` 1, 0.3 × the distance). It bulges away from the chain's root (the first
+bone's joint: the shoulder for an arm, the hip for a leg); when the root lies on the chord's line,
+upwards (a vertical chord there: forwards). The chord and the root are measured in the actor's
+character space, the space of the targets. It applies to a blend between two targets; to a blend
+into a reach from a free chain and out of one (`target: null`), where the chord runs from (to) the
+chain's own target — its rest tip plus `ik.<id>.x/y` and a sloped ground's offset — the IK mix still
+rising (falling) with the blend weight, so an IK chain (`mix` 1, a leg) follows the arc exactly and an
+FK arm (`mix` 0) mixes its FK pose with the arcing reach; and to a reach taking over mid-blend, whose
+arc starts at the point (and weight) the blend in progress had reached, so there is no jump (that
+continuity holds with `arcs` off too). A moving target (an anchor, a prop point) is followed: the
+chord is taken every frame. A point beyond the chain's reach is clamped by the IK as usual. Moves
+keyed by the director on `ik.<id>.x/y` channels get their arcs from the director (DIRECTOR.md).
 
 **Motion blur** compares each item with the previous frame. For an actor on twos, a held frame
 shows the same drawing as the frame before it, so it gets no motion blur. A frame where the

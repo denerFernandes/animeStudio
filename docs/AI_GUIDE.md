@@ -185,6 +185,12 @@ Lessons from converting a 66-shot storyboard into an episode:
 - Hands read better with shapes than as plain circles: give the hands a switch part with
   `handShapes` (open, fist, point, grip) and build the clips with `hands: true` — a pointing
   gesture then shows a finger, a punch a fist, a wave an open hand.
+- Personality walks: every kit character (human and cartoon) has `sneak`, `strut`, `tired`,
+  `march` and `scaredRun` besides `walk` and `run` — looping locomotion clips with their own
+  stride, so walking with one of them keeps the feet planted like the plain walk. Pick by mood:
+  sneaking up on someone → `sneak`; showing off → `strut`; exhausted, sad, late at night →
+  `tired`; parade, determined → `march`; fleeing a monster → `scaredRun`. They shape the hands
+  themselves (fists for strut/march, open for the others).
 - 2.5D rigs (`rig3d`): limbs that can point at the camera (a seated lap, feet) read
   only as volumes. Flat hoses and hulls turned towards the camera become shapeless blobs, however
   they are tuned: make them a `solid` part (cones on the 3D bones, cel shaded, composited by depth)

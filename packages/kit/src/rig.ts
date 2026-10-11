@@ -8,6 +8,8 @@
  * outline colour.
  */
 
+import { makeTrack } from "@animestudio/core";
+
 export type P = [number, number];
 export type Tracks = Record<string, (number | string)[][]>;
 export const r = (n: number) => Math.round(n * 100) / 100;
@@ -148,28 +150,139 @@ export interface Gait {
   bob: number;
   lean: number;
   armSwing: number;
+  /** Extra knee lift (0..1): the swinging foot rises up to a quarter of the leg higher, ahead of the hips (a march, a sneak). */
+  knee?: number;
+  /** Hips lowered by this fraction of the leg length (0..0.3): knees bent all through the cycle. */
+  crouch?: number;
+  /** Heels up: the feet planted on the balls of the feet, the foot turned toe down. */
+  tiptoe?: boolean;
+  /** Side sway of the hips (degrees, `spread`): the hip over the planted foot rises, the torso stays upright. */
+  sway?: number;
+  /** The head's bob comes this fraction of the cycle late (overlapping action, 0..0.25). */
+  headLag?: number;
+  /** Arms: `swing` (counter-swing, default), `pump` (bent at the elbow, pumping), `hang` (limp), `up` (flailing overhead). */
+  armStyle?: "swing" | "pump" | "hang" | "up";
+  /** Torso bent forward (degrees; negative: chest out, leaning back); the head mostly follows. */
+  slump?: number;
+  /** Feet dragged (0..1): lower lift, the swinging foot trailing low with the toe scuffing. */
+  drag?: number;
+  /** Two bobs per step (four per cycle): the bouncy cartoon walk. */
+  doubleBounce?: boolean;
+  /** Leg length (px, hip to ankle) for `crouch` and `knee`; default 7 × `a`. */
+  leg?: number;
+  /** Foot length (px, ankle to toe) for `tiptoe`; default 0.9 × `a`. */
+  foot?: number;
 }
 
-/** Locomotion cycle: feet glide linearly while planted (no sliding), body bobs twice per cycle. */
+/** Rounds a key time (four decimals: eighths of a short cycle stay exact enough). */
+const rt = (t: number) => Math.round(t * 1e4) / 1e4;
+
+/**
+ * A smooth loop: `base` at phase `shift` (fraction of the cycle) and `peak` half a period later,
+ * `n` periods per cycle — keys at the extremes, wrapped round the loop, plus keys at both ends with
+ * the same value (seamless).
+ */
+function osc(d: number, base: number, peak: number, n: number, shift = 0): (number | string)[][] {
+  const mid = (base + peak) / 2;
+  const at = (p: number) => r(mid + (base - mid) * Math.cos(2 * Math.PI * n * (p - shift)));
+  const keys = new Map<number, number>();
+  for (let k = 0; k < 2 * n; k++) {
+    const p = (((shift + k / (2 * n)) % 1) + 1) % 1;
+    keys.set(rt(p * d), r(k % 2 ? peak : base));
+  }
+  const ends = keys.get(0) ?? at(0);
+  keys.set(0, ends);
+  keys.set(rt(d), ends);
+  return [...keys].sort((x, y) => x[0] - y[0]).map(([t, v]) => [t, v]);
+}
+
+/** Distance the feet travel while planted in a cycle (the `linear` key segments of their x tracks). */
+function plantedTravel(...xs: (number | string)[][][]): number {
+  let s = 0;
+  for (const keys of xs) for (let i = 0; i + 1 < keys.length; i++) if (keys[i + 1][2] === "linear") s += Math.abs((keys[i][1] as number) - (keys[i + 1][1] as number));
+  return s;
+}
+
+/**
+ * Locomotion cycle: feet glide linearly while planted (no sliding), body bobs twice per cycle.
+ * The near foot is planted for the first half (its x from +a to −a), the far foot for the second;
+ * `stride` is the distance the planted feet travel in a cycle (what the director matches the
+ * actor's speed to). The optional fields make personality walks (a sneak, a strut, a tired shuffle,
+ * a march, a scared run) from the same cycle.
+ */
 export function gait(g: Gait, arms = true): { duration: number; loop: boolean; stride: number; tracks: Tracks } {
   const d = g.dur;
   const q = d / 4;
+  const knee = g.knee ?? 0, drag = g.drag ?? 0, slump = g.slump ?? 0, lag = g.headLag ?? 0;
+  const n = g.doubleBounce ? 4 : 2;
+  // Bobs: the original quarter keys, or `osc` (doubled, or delayed).
+  const wav = (base: number, peak: number, shift = 0) =>
+    n === 2 && !shift ? [[0, base], [q, peak], [2 * q, base], [3 * q, peak], [d, base]] : osc(d, base, peak, n, shift);
+  // On tiptoe the foot turns toe down about the ball of the foot (0.7 of its length): the ankle
+  // rises and comes forward by a constant amount, so a planted foot still does not slide.
+  const toe = g.tiptoe ? 40 : 0;
+  const ball = 0.7 * (g.foot ?? g.a * 0.9);
+  const h = g.tiptoe ? -r(ball * Math.sin((toe * Math.PI) / 180)) : 0;
+  const dx = g.tiptoe ? r(ball * (1 - Math.cos((toe * Math.PI) / 180))) : 0;
+  // The swing: higher with `knee` (and the foot ahead at the top), lower and trailing with `drag`.
+  const leg = g.leg ?? g.a * 7;
+  const lift = (g.lift + knee * 0.25 * leg) * (1 - 0.75 * drag);
+  const px = g.a * (0.45 * knee - 0.5 * drag);
+  const crouch = (g.crouch ?? 0) * leg;
   const t: Tracks = {
-    "ik.footF.x": [[0, g.a], [2 * q, -g.a, "linear"], [3 * q, 0], [d, g.a]],
-    "ik.footF.y": [[0, 0], [2 * q, 0, "linear"], [3 * q, -g.lift], [d, 0]],
-    "ik.footB.x": [[0, -g.a], [q, 0], [2 * q, g.a], [d, -g.a, "linear"]],
-    "ik.footB.y": [[0, 0], [q, -g.lift], [2 * q, 0], [d, 0, "linear"]],
-    "bones.hips.y": [[0, g.bob], [q, -g.bob], [2 * q, g.bob], [3 * q, -g.bob], [d, g.bob]],
-    "bones.body.rotation": [[0, g.lean], [q, g.lean + 1.5], [2 * q, g.lean], [3 * q, g.lean + 1.5], [d, g.lean]],
-    "bones.head.rotation": [[0, -g.lean * 0.6], [q, -g.lean * 0.6 + 2], [2 * q, -g.lean * 0.6], [3 * q, -g.lean * 0.6 + 2], [d, -g.lean * 0.6]],
+    "ik.footF.x": [[0, g.a + dx], [2 * q, -g.a + dx, "linear"], [3 * q, px + dx], [d, g.a + dx]],
+    "ik.footF.y": [[0, h], [2 * q, h, "linear"], [3 * q, h - lift], [d, h]],
+    "ik.footB.x": [[0, -g.a + dx], [q, px + dx], [2 * q, g.a + dx], [d, -g.a + dx, "linear"]],
+    "ik.footB.y": [[0, h], [q, h - lift], [2 * q, h], [d, h, "linear"]],
+    "bones.hips.y": wav(g.bob + crouch, -g.bob + crouch),
+    "bones.body.rotation": wav(g.lean + slump, g.lean + slump + 1.5),
+    // The head looks ahead through a lean, less so through a slump (it hangs with the torso).
+    "bones.head.rotation": wav(-g.lean * 0.6 - slump * 0.35, -g.lean * 0.6 - slump * 0.35 + 2, lag),
   };
-  if (arms) {
-    t["bones.armF1.rotation"] = [[0, g.armSwing], [2 * q, -g.armSwing], [d, g.armSwing]];
-    t["bones.armF2.rotation"] = [[0, -6], [2 * q, -g.armSwing * 0.8], [d, -6]];
-    t["bones.armB1.rotation"] = [[0, -g.armSwing], [2 * q, g.armSwing], [d, -g.armSwing]];
-    t["bones.armB2.rotation"] = [[0, -g.armSwing * 0.8], [2 * q, -6], [d, -g.armSwing * 0.8]];
+  if (toe || drag || knee) {
+    // Feet toe down on tiptoe; the toe trails (drag) or points (a high knee) in the swing.
+    const sw = r(toe + 18 * drag + 12 * knee);
+    t["bones.footF.rotation"] = [[0, toe], [2 * q, toe, "linear"], [3 * q, sw], [d, toe]];
+    t["bones.footB.rotation"] = [[0, toe], [q, sw], [2 * q, toe], [d, toe, "linear"]];
   }
-  return { duration: d, loop: true, stride: 4 * g.a, tracks: t };
+  if (g.sway) {
+    // The hip over the planted foot rises (`spread`, a roll about the forward axis: seen from the
+    // front or three-quarters on a 2.5D rig); the torso rolls back to stay upright.
+    const s = g.sway;
+    t["bones.hips.spread"] = [[0, 0], [q, s], [2 * q, 0], [3 * q, -s], [d, 0]];
+    t["bones.body.spread"] = [[0, 0], [q, -s], [2 * q, 0], [3 * q, s], [d, 0]];
+  }
+  if (arms) {
+    const s = g.armSwing;
+    const style = g.armStyle ?? "swing";
+    if (style === "swing") {
+      t["bones.armF1.rotation"] = [[0, s], [2 * q, -s], [d, s]];
+      t["bones.armF2.rotation"] = [[0, -6], [2 * q, -s * 0.8], [d, -6]];
+      t["bones.armB1.rotation"] = [[0, -s], [2 * q, s], [d, -s]];
+      t["bones.armB2.rotation"] = [[0, -s * 0.8], [2 * q, -6], [d, -s * 0.8]];
+    } else if (style === "pump") {
+      // Elbows bent near a right angle, the arms driven forward and back (fists).
+      t["bones.armF1.rotation"] = [[0, r(s * 0.9)], [2 * q, r(-s * 1.1)], [d, r(s * 0.9)]];
+      t["bones.armF2.rotation"] = [[0, -75], [2 * q, -105], [d, -75]];
+      t["bones.armB1.rotation"] = [[0, r(-s * 1.1)], [2 * q, r(s * 0.9)], [d, r(-s * 1.1)]];
+      t["bones.armB2.rotation"] = [[0, -105], [2 * q, -75], [d, -105]];
+    } else if (style === "hang") {
+      // Limp: hanging plumb whatever the torso does, a small swing dragged behind the legs.
+      const plumb = -(g.lean + slump) * 0.9;
+      t["bones.armF1.rotation"] = osc(d, r(plumb + s), r(plumb - s), 1, 0.12);
+      t["bones.armF2.rotation"] = osc(d, -3, -10, 1, 0.2);
+      t["bones.armB1.rotation"] = osc(d, r(plumb - s), r(plumb + s), 1, 0.12);
+      t["bones.armB2.rotation"] = osc(d, -10, -3, 1, 0.2);
+    } else {
+      // Up: both arms flailing overhead in turn (nearly straight, clear of the face).
+      const f = r(Math.min(28, s * 0.5));
+      t["bones.armF1.rotation"] = [[0, -168 + f], [2 * q, -168 - f], [d, -168 + f]];
+      t["bones.armF2.rotation"] = [[0, -12], [2 * q, 12], [d, -12]];
+      t["bones.armB1.rotation"] = [[0, 168 - f], [2 * q, 168 + f], [d, 168 - f]];
+      t["bones.armB2.rotation"] = [[0, 12], [2 * q, -12], [d, 12]];
+    }
+  }
+  return { duration: d, loop: true, stride: plantedTravel(t["ik.footF.x"], t["ik.footB.x"]), tracks: t };
 }
 
 export interface ClipOptions {
@@ -187,6 +300,29 @@ export interface ClipOptions {
    * point, grip): gestures then shape them (a fist to punch, a finger to point).
    */
   hands?: boolean;
+  /** Leg length (px, hip to ankle): how low the personality walks crouch. Default 7 × `walk.a`. */
+  leg?: number;
+  /** Foot length (px, ankle to toe): how high a tiptoe lifts the ankle. Default 0.9 × `walk.a`. */
+  foot?: number;
+}
+
+/**
+ * Personality walks built from a character's walk and run (looping, with their own `stride`, so the
+ * director's stride matching keeps the feet planted): `sneak` (crouched on tiptoe, high knees, small
+ * steps), `strut` (chest out, hips swaying, bouncing twice a step, fists pumping), `tired` (slumped,
+ * feet dragging, arms hanging), `march` (knees high, upright, fists pumping) and `scaredRun` (a run
+ * leaning in, arms flailing overhead).
+ */
+export function personalityGaits(walk: Gait, run: Gait, o: { leg?: number; foot?: number } = {}): Record<"sneak" | "strut" | "tired" | "march" | "scaredRun", Gait> {
+  const leg = o.leg ?? walk.a * 7, foot = o.foot ?? walk.a * 0.9;
+  const w = (k: number, dur: number, extra: Partial<Gait>): Gait => ({ ...walk, a: r(walk.a * k), dur, leg, foot, ...extra });
+  return {
+    sneak: w(0.6, 0.9, { lift: r(walk.lift * 0.7), bob: r(walk.bob * 0.5), lean: walk.lean + 6, armSwing: r(walk.armSwing * 0.35), crouch: 0.18, knee: 0.8, tiptoe: true, armStyle: "pump", headLag: 0.1 }),
+    strut: w(1.1, 0.6, { bob: r(walk.bob * 0.8), armSwing: r(walk.armSwing * 1.2), slump: -4, sway: 6, armStyle: "pump", doubleBounce: true, headLag: 0.12 }),
+    tired: w(0.8, 0.95, { bob: 1, armSwing: r(walk.armSwing * 0.4), slump: 12, drag: 0.7, armStyle: "hang", headLag: 0.2 }),
+    march: w(1, 0.5, { lean: 0, armSwing: r(walk.armSwing * 1.6), knee: 1, sway: 0, armStyle: "pump" }),
+    scaredRun: { ...run, dur: 0.36, lean: 12, leg, foot, armStyle: "up", headLag: 0.1 },
+  };
 }
 
 /**
@@ -242,6 +378,15 @@ export function characterClips(o: ClipOptions) {
     },
     walk: gait(o.walk),
     run: gait(o.run),
+    // Personality walks (sneak, strut, tired, march, scaredRun) with their hands.
+    ...Object.fromEntries(
+      Object.entries(personalityGaits(o.walk, o.run, o)).map(([name, g]) => {
+        const c = gait(g);
+        if (!B) for (const k of Object.keys(c.tracks)) if (/^bones\.armB/.test(k)) delete c.tracks[k];
+        const shape = name === "strut" || name === "march" ? "fist" : "open";
+        return [name, { ...c, tracks: { ...c.tracks, ...hand(shape, c.duration, true) } }];
+      }),
+    ),
     // Talking gesture: the near hand opens out on stressed beats, head nods.
     talk: {
       duration: 1.6,

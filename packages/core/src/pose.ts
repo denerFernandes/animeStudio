@@ -420,8 +420,15 @@ export function evaluatePose(
   }
 
   // 3. Direct tracks.
-  // Numeric offset channels layer additively on top of clips; everything else overrides.
-  for (const tr of input.tracks ?? []) applyChannel(s, tr.ref, sampleTrack(tr.track, t), 1, isLayeredChannel(tr.ref) ? "additive" : "override");
+  // Numeric offset channels layer additively on top of clips; everything else overrides. A variant
+  // set here (a `set parts.<id>.variant`: a blink closing the eyes over an emotion's eyes) is what
+  // the scene asked for explicitly: the pose controls below do not take it back.
+  const setVariants = new Set<number>();
+  for (const tr of input.tracks ?? []) {
+    const v = sampleTrack(tr.track, t);
+    applyChannel(s, tr.ref, v, 1, isLayeredChannel(tr.ref) ? "additive" : "override");
+    if (tr.ref.kind === "part" && tr.ref.prop === "variant" && typeof v === "string") setVariants.add(tr.ref.index);
+  }
 
   for (const [k, v] of Object.entries(input.controls ?? {})) if (k in rig.controls) s.controls[k] = v;
   // 4. Pose and viseme controls.
@@ -439,7 +446,7 @@ export function evaluatePose(
           if (typeof v === "number") applyChannel(s, ref, v, w, control.override ? "override" : "additive");
           else if (ref.kind === "part" && typeof v === "string") {
             const key = String(ref.index);
-            if ((best[key] ?? 0) < w && w >= 0.5) {
+            if ((best[key] ?? 0) < w && w >= 0.5 && !setVariants.has(ref.index)) {
               best[key] = w;
               s.variant[ref.index] = v;
             }

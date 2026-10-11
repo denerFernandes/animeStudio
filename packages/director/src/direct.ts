@@ -39,6 +39,76 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9 ]/g, " ")
     .trim();
 
+/** A number in [0, 1) from a string (FNV-1a): the same in every render. */
+function hash01(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * IK moves along arcs (`animation.arcs`): every pair of `set`s moving one chain's target on both
+ * axes (`ik.<id>.x` and `.y`, same actor, moment and duration, eased) gets a key halfway, pushed
+ * across the chord by `arcs × 0.3 × |chord|` away from the chain's root (unknown, or on the chord's
+ * line: upwards; a vertical chord there: forwards), as the scene's reach blends do. The two halves
+ * keep the move's sineInOut along the chord and meet at the midpoint at its speed (cubic-bezier
+ * eases per axis), so the hand flows through it. `joints` gives the chain's root and rest tip
+ * (character space). A pair taking over a move still under way, or taken over itself, is left straight.
+ */
+export function arcIk<A extends Record<string, unknown> & { at: number; action: string }>(script: A[], arcs: number, joints: (actor: string, chain: string) => { rest?: [number, number]; root?: [number, number] } | undefined): A[] {
+  if (!(arcs > 0)) return script;
+  const IK = /^ik\.(.+)\.(x|y)$/;
+  const sets = script.filter((a) => a.action === "set" && typeof a.channel === "string" && IK.test(a.channel));
+  const out = [...script];
+  for (const x of sets) {
+    const [, chain, axis] = IK.exec(x.channel as string)!;
+    if (axis !== "x") continue;
+    const dur = (x.duration as number | undefined) ?? 0;
+    if (!(dur > 0) || x.ease === "linear" || x.ease === "step") continue;
+    const y = sets.find((s) => s.actor === x.actor && s.channel === `ik.${chain}.y` && Math.abs(s.at - x.at) < 1e-6 && Math.abs(((s.duration as number | undefined) ?? 0) - dur) < 1e-6 && s.ease === x.ease);
+    if (!y || typeof x.value !== "number" || typeof y.value !== "number") continue;
+    // Where the target was: the last set of each axis, ended by then (else it is taken over mid-move).
+    const before = (ch: string) => sets.filter((s) => s.actor === x.actor && s.channel === ch && s.at < x.at - 1e-6).sort((p, q) => p.at - q.at).pop();
+    const px = before(x.channel as string), py = before(y.channel as string);
+    if ([px, py].some((p) => p && p.at + ((p.duration as number | undefined) ?? 0) > x.at + 1e-6)) continue;
+    // (Nor one taken over before it arrives: its second half would never play.)
+    if (sets.some((s) => s.actor === x.actor && (s.channel === x.channel || s.channel === y.channel) && s.at > x.at + 1e-6 && s.at < x.at + dur - 1e-6)) continue;
+    const p0: [number, number] = [Number(px?.value ?? 0) || 0, Number(py?.value ?? 0) || 0];
+    const p1: [number, number] = [x.value, y.value];
+    const cx = p1[0] - p0[0], cy = p1[1] - p0[1], len = Math.hypot(cx, cy);
+    if (len < 1) continue;
+    // Across the chord, away from the root (the target offsets are from the rest tip).
+    const j = joints(x.actor as string, chain);
+    let nx = -cy / len, ny = cx / len;
+    const rest = j?.rest ?? [0, 0];
+    const side = j?.root ? (j.root[0] - (rest[0] + p0[0])) * nx + (j.root[1] - (rest[1] + p0[1])) * ny : 0;
+    if (side > 1e-6 * len || (Math.abs(side) <= 1e-6 * len && (ny > 1e-9 || (Math.abs(ny) <= 1e-9 && nx < 0)))) [nx, ny] = [-nx, -ny];
+    const h = arcs * 0.3 * len;
+    const mid = [p0[0] + cx / 2 + nx * h, p0[1] + cy / 2 + ny * h].map((v, i) => {
+      // (An axis that moves must not land exactly where it started a half: its ease is relative to that change.)
+      const c = i ? cy : cx, v1 = r3(v);
+      return c !== 0 && (Math.abs(v1 - p0[i]) < 0.01 || Math.abs(p1[i] - v1) < 0.01) ? r3(v1 + 0.01 * Math.sign(c)) : v1;
+    });
+    // Per axis: into the midpoint from rest at the chord's speed there (π/4 of the axis' chord per
+    // half), out of it the same way: cubic-bezier eases with those end slopes (x1 = ⅓, x2 = ⅔: the
+    // ease is the cubic itself).
+    const half = r3(dur / 2);
+    const ease = (from: number, to: number, c: number, end: boolean): string | number[] => {
+      const d = to - from;
+      if (Math.abs(d) < 1e-6) return "sineInOut";
+      const m = (c * Math.PI) / 4 / d;
+      return end ? [1 / 3, 0, 2 / 3, r3(1 - m / 3)] : [1 / 3, r3(m / 3), 2 / 3, 1];
+    };
+    for (const [a, i] of [[x, 0], [y, 1]] as const) {
+      const c = i ? cy : cx;
+      const into = { ...a, value: mid[i], duration: half, ease: ease(p0[i], mid[i], c, true) } as A;
+      const outOf = { ...a, at: r3(a.at + half), value: a.value, duration: r3(dur - half), ease: ease(mid[i], p1[i], c, false) } as A;
+      out.splice(out.indexOf(a), 1, into, outOf);
+    }
+  }
+  return out;
+}
+
 /** "unknown x" messages name the closest valid id. */
 /** Controls with their own actions, never worn. */
 const NOT_WORN = ["view", "emotion"];
@@ -1536,7 +1606,10 @@ class BlockScene {
         if (one) this.use(one, b.prop as string, (b.at ?? {}) as Record<string, string>, at, until, b.hands !== false);
         break;
       case "take":
-        if (one) this.take(one, b.prop as string, at);
+        // With a prop: taken from where it hangs; without: a (double) take, a reaction.
+        if (b.prop !== undefined) {
+          if (one) this.take(one, b.prop as string, at);
+        } else for (const w of who) this.reaction(w, at, { double: !!b.double, target: b.target, line: b.line });
         break;
       case "putBack":
         if (one) this.putBack(one, b.prop as string, at);
@@ -3651,8 +3724,9 @@ class BlockScene {
   /** The scene's `animation`: the staging's cartoon timing without what the director stages itself. */
   private sceneAnimation(): { animation?: Animation } {
     if (!this.animation) return {};
-    const { anticipation, ...rest } = this.animation;
-    return anticipation === undefined || Object.keys(rest).length ? { animation: rest } : {};
+    // (`arcs` goes on to the scene too: its reach blends travel along arcs.)
+    const { anticipation, life, ...rest } = this.animation;
+    return (anticipation === undefined && life === undefined) || Object.keys(rest).length ? { animation: rest } : {};
   }
   /**
    * Everything that turns or holds the whole body other than the walks' leans — rotations of the
@@ -3773,6 +3847,255 @@ class BlockScene {
     }
   }
 
+  // -------------------------------------------------- life in the eyes and head (`animation.life`)
+  /** Life in the eyes and head, 0..1 (the block's `animation`, else the staging's; 0: off). */
+  private get life() {
+    return Math.min(1, Math.max(0, Number(this.animation?.life ?? 0) || 0));
+  }
+  /** Arcs on IK moves, 0..1 (the block's `animation`, else the staging's; 0: off). */
+  private get arcs() {
+    return Math.min(1, Math.max(0, Number(this.animation?.arcs ?? 0) || 0));
+  }
+  /** Takes (reaction and double takes) per actor: the face and the body are theirs while they last. */
+  private takes: { actor: string; t0: number; t1: number }[] = [];
+  /** Blinks staged on head turns (saccades keep out of them). */
+  private blinkLog: { actor: string; t0: number; t1: number }[] = [];
+  /**
+   * A rig's eyes: the switch part its `blink` behaviour closes (else a switch part `eyes`), when it
+   * draws a closed variant — with its variants and default.
+   */
+  private eyesOf(actor: string): { part: string; open: string; closed: string; variants: string[]; def?: string } | undefined {
+    const doc = this.kit.characters[this.characterOf(actor)] as { behaviors?: { type: string; part?: string; open?: string; closed?: string }[]; parts?: { id: string; type: string; variants?: Record<string, unknown>; default?: string }[] } | undefined;
+    const b = doc?.behaviors?.find((x) => x.type === "blink" && x.part);
+    const part = doc?.parts?.find((p) => p.type === "switch" && p.id === (b?.part ?? "eyes"));
+    const variants = Object.keys(part?.variants ?? {});
+    const closed = b?.closed ?? "closed";
+    if (!part || !variants.includes(closed)) return undefined;
+    return { part: part.id, open: b?.open ?? (variants.includes("open") ? "open" : (part.default ?? variants[0])), closed, variants, def: part.default };
+  }
+  /** The emotion an actor shows at a moment (the last one posed). */
+  private emotionAt(actor: string, abs: number): string | undefined {
+    const t = this.t(abs);
+    let v: unknown;
+    for (const a of this.script) if (a.actor === actor && a.action === "pose" && a.control === "emotion" && a.at <= t + 1e-6) v = a.value;
+    return typeof v === "string" ? v : undefined;
+  }
+  /** The variant the eyes rest on at a moment: the current emotion's when its pose sets them, else the part's default. */
+  private eyesAt(actor: string, abs: number): string {
+    const eyes = this.eyesOf(actor)!;
+    const poses = (this.kit.characters[this.characterOf(actor)]?.controls?.emotion as { poses?: Record<string, Record<string, unknown>> } | undefined)?.poses;
+    const emotion = this.emotionAt(actor, abs);
+    const v = emotion ? poses?.[emotion]?.[`parts.${eyes.part}.variant`] : undefined;
+    return typeof v === "string" && eyes.variants.includes(v) ? v : (eyes.def ?? eyes.open);
+  }
+  /** Frames per drawing of an actor (its cast entry's `twos`, else the block's). */
+  private drawingOf(actor: string): number {
+    const tw = this.block.cast.find((c) => c.id === actor)?.twos ?? this.animation?.twos;
+    return tw === true ? 2 : typeof tw === "number" ? Math.max(1, tw) : 1;
+  }
+  /** Asleep, dead or out of sight: no eye or head life then. */
+  private still(actor: string, abs: number) {
+    const e = this.emotionAt(actor, abs);
+    return e === "sleep" || e === "dead" || this.hiddenAt(actor, abs) || !!this.rests.find((r) => r.actor === actor && r.sleep && r.t0 <= abs && r.t1 > abs);
+  }
+  private inTake(actor: string, a: number, b: number) {
+    return this.takes.some((k) => k.actor === actor && k.t0 < b && k.t1 > a);
+  }
+  /** The value a channel was last set to (by a `set` begun by then), if any. */
+  private setBefore(actor: string, channel: string, abs: number): unknown {
+    const t = this.t(abs);
+    let v: unknown;
+    for (const a of this.script) if (a.actor === actor && a.action === "set" && a.channel === channel && a.at <= t + 1e-6) v = a.value;
+    return v;
+  }
+  /**
+   * The eyes blink on every head turn — a `face` (flip or in-between turn), a new `view`, a new
+   * gaze target — as animators do: closed for 3 frames (two drawings on twos) from a frame before
+   * the turn, then back to where they rest. One blink per turn (its in-betweens are one turn).
+   */
+  private blinks() {
+    if (!(this.life > 0)) return;
+    const frame = 1 / (this.kit.fps ?? 30);
+    for (const actor of this.present) {
+      const eyes = this.eyesOf(actor);
+      if (!eyes) continue;
+      const len = Math.max(3, this.drawingOf(actor) > 1 ? 2 * this.drawingOf(actor) : 0) * frame;
+      const turns: number[] = [];
+      let view: unknown, look: unknown = null;
+      for (const a of this.script.filter((x) => x.actor === actor).sort((p, q) => p.at - q.at)) {
+        const abs = this.t0 + a.at;
+        if (a.action === "face") {
+          if ((this.facing(actor, abs - 0.002) ? "right" : "left") !== a.direction && a.at > 0.05) turns.push(abs);
+        } else if (a.action === "pose" && a.control === "view") {
+          if (view !== undefined && a.value !== view && a.at > 0.05) turns.push(abs);
+          view = a.value;
+        } else if (a.action === "lookAt") {
+          if (JSON.stringify(a.target ?? null) !== JSON.stringify(look) && a.at > 0.05) turns.push(abs);
+          look = a.target ?? null;
+        }
+      }
+      // (Changes less than 0.35 s apart are one turn: the drawings of a turn, its way back, the gaze with it.)
+      let prev = -Infinity;
+      for (const t of turns.sort((p, q) => p - q)) {
+        const same = t - prev < 0.35;
+        prev = t;
+        if (same) continue;
+        const t0 = Math.max(this.t0, t - frame), t1 = t0 + len;
+        if (t1 > this.t1 || this.still(actor, t0) || this.still(actor, t1) || this.inTake(actor, t0 - 0.05, t1 + 0.05)) continue;
+        this.set(actor, `parts.${eyes.part}.variant`, eyes.closed, t0);
+        this.set(actor, `parts.${eyes.part}.variant`, null, t1);
+        this.blinkLog.push({ actor, t0, t1 });
+      }
+    }
+  }
+  /**
+   * Listening or idle (not speaking, not walking), the gaze darts now and then: the pupils jump a
+   * little sideways (±2 px × life) for 0.12 s and back, every 1.4–2.6 s (seeded by the actor and
+   * the line: the same in every render). On the pupils bone, so the gaze keeps tracking its target.
+   */
+  private saccades() {
+    const life = this.life;
+    if (!(life > 0)) return;
+    const lines = this.time.lines.filter((l) => l.s < this.t1 && l.e > this.t0);
+    for (const actor of this.present) {
+      if (!this.hasBone(actor, "pupils")) continue;
+      const speaking = lines.filter((l) => this.speakerOf(l).includes(actor));
+      let k = 0;
+      for (let t = this.t0 + 0.4; ; ) {
+        const line = this.time.lines.filter((l) => l.s <= t).pop()?.i ?? this.block.from;
+        t += 1.4 + 1.2 * hash01(`${actor}|${line}|${k++}`);
+        if (t + 0.2 > this.t1) break;
+        const a = t, b = t + 0.17;
+        if (speaking.some((l) => l.s - 0.2 < b && l.e + 0.1 > a)) continue;
+        if (this.walks.some((w) => w.actor === actor && w.t0 - 0.3 < b && w.t1 > a)) continue;
+        if (this.still(actor, a) || this.inTake(actor, a, b) || this.blinkLog.some((x) => x.actor === actor && x.t0 < b && x.t1 > a)) continue;
+        const base = Number(this.setBefore(actor, "bones.pupils.x", a) ?? 0) || 0;
+        const side = hash01(`${actor}|${line}|${k}|side`) < 0.5 ? -1 : 1;
+        this.set(actor, "bones.pupils.x", r3(base + side * 2 * life), a, 0.03, "sineOut");
+        this.set(actor, "bones.pupils.x", base, a + 0.12, 0.03, "sineIn");
+      }
+    }
+  }
+  /**
+   * The head nods on the stressed words of a spoken line — the longest word of each clause and the
+   * last word — +3° × life over 0.08 s and back over 0.16 s, on top of what the head does (direct
+   * tracks add to clips and poses); none closer than 0.35 s to the previous one.
+   */
+  private accents() {
+    const life = this.life;
+    if (!(life > 0)) return;
+    const letters = (w: string) => norm(w).replace(/ /g, "").length;
+    for (const l of this.time.lines.filter((x) => x.s >= this.t0 && x.s < this.t1 && x.words?.length)) {
+      if (l.song || norm(l.speaker) === "song") continue;
+      const words = l.words!;
+      const picks = new Set<number>([words.length - 1]);
+      let from = 0;
+      words.forEach((w, i) => {
+        if (i < words.length - 1 && !/[,.!?…;:]["'”’»)\]]*$/.test(w.w.trim())) return;
+        let best = from;
+        for (let j = from; j <= i; j++) if (letters(words[j].w) > letters(words[best].w)) best = j;
+        picks.add(best);
+        from = i + 1;
+      });
+      const times = [...picks].map((i) => words[i].s).sort((p, q) => p - q);
+      for (const actor of this.speakerOf(l)) {
+        if (!this.hasBone(actor, "head")) continue;
+        let prev = -Infinity;
+        for (const s of times) {
+          if (s - prev < 0.35 || s + 0.24 > this.t1) continue;
+          prev = s;
+          const rest = this.restAt(actor, s);
+          if ((rest && rest.kind !== "sit") || this.still(actor, s) || this.inTake(actor, s, s + 0.24)) continue;
+          // (Not over a head move staged by something else.)
+          if (this.script.some((a) => a.actor === actor && a.action === "set" && a.channel === "bones.head.rotation" && a.at < this.t(s + 0.24) && a.at + ((a.duration as number | undefined) ?? 0) > this.t(s) - 0.02)) continue;
+          const base = Number(this.setBefore(actor, "bones.head.rotation", s) ?? 0) || 0;
+          this.set(actor, "bones.head.rotation", r3(base + 3 * life), s, 0.08, "sineOut");
+          this.set(actor, "bones.head.rotation", base, s + 0.08, 0.16, "sineInOut");
+        }
+      }
+    }
+  }
+
+  /**
+   * Once a blink or a take has set the eyes, they follow the emotions again: each later emotion
+   * sets them to its own eyes (or the default) as it crosses half weight, so a set variant never
+   * outlives the face it was drawn for.
+   */
+  // -------------------------------------------------- takes
+  /**
+   * A take: anticipation (the body squashes 4% and leans 3° away from the target over 0.12 s, the
+   * eyes shut), then the reaction on the moment (the eyes wide, the body stretched 6% up and leaning
+   * 4° towards the target over 0.08 s, the head snapping to it, `surprised`), held 0.35 s and
+   * settled over 0.3 s. A double take glances at the target first, looks back away after 0.25 s
+   * and fires the full take 0.2 s later, 1.4× bigger. Sized by `animation.anticipation` (else 1).
+   */
+  reaction(actor: string, at: number, o: { double?: boolean; target?: unknown; line: number }) {
+    const k = this.anticipation > 0 ? this.anticipation : 1;
+    // The target: someone, a prop or a set mark (as `look` takes it).
+    let target: unknown = null, tx: number | undefined;
+    const tg = o.target;
+    if (typeof tg === "string") {
+      const mk = this.setDef.marks[tg] ?? (tg === "left" || tg === "right" || tg === "center" ? this.mark(tg) : undefined);
+      if (this.actors.some((a) => a.id === tg) && tg !== actor) [target, tx] = [tg, this.xAt(tg, at)];
+      else if (this.propStates.has(tg)) [target, tx] = [tg, this.propX(tg, at)];
+      else if (mk) [target, tx] = [[mk.x, mk.y ?? this.setDef.ground.near - 180], mk.x];
+      else this.issue("error", `line ${o.line} "take": unknown target "${tg}"${closest(tg, [...this.actors.map((a) => a.id as string).filter((a) => a !== actor), ...this.propStates.keys(), ...Object.keys(this.setDef.marks)])}: taken without looking at anything`);
+    } else if (tg !== undefined && tg !== null) this.issue("error", `line ${o.line} "take": "target" is an id or a mark, got ${JSON.stringify(tg)}`);
+    const x = this.xAt(actor, at);
+    const dir = tx !== undefined && Math.abs(tx - x) > 1 ? Math.sign(tx - x) : this.facing(actor, at) ? 1 : -1;
+    let T = at, m = 1;
+    const start = at - 0.12;
+    if (o.double) {
+      // The glance, the look back away (to what they looked at before), then the full take.
+      if (target !== null) {
+        const before = [...this.script].filter((a) => a.actor === actor && a.action === "lookAt" && a.at <= this.t(at) + 1e-6).pop()?.target ?? null;
+        this.push({ at: this.t(at), actor, action: "lookAt", target });
+        this.push({ at: this.t(at + 0.25), actor, action: "lookAt", target: JSON.stringify(before) === JSON.stringify(target) ? null : before });
+      }
+      T = at + 0.57;
+      m = 1.4;
+    }
+    const a0 = Math.max(this.t0, T - 0.12), hold = T + 0.08 + 0.35, end = hold + 0.3;
+    this.takes.push({ actor, t0: Math.max(this.t0, Math.min(start, a0)), t1: end });
+    const eyes = this.eyesOf(actor);
+    if (eyes) {
+      this.set(actor, `parts.${eyes.part}.variant`, eyes.closed, a0);
+      this.set(actor, `parts.${eyes.part}.variant`, eyes.variants.includes("wide") ? "wide" : eyes.open, T);
+    }
+    if (target !== null) this.push({ at: this.t(T), actor, action: "lookAt", target });
+    if ((this.kit.characters[this.characterOf(actor)]?.controls?.emotion as { poses?: Record<string, unknown> } | undefined)?.poses?.surprised) this.push({ at: this.t(T), actor, action: "pose", control: "emotion", value: "surprised", duration: 0.08 });
+    if (eyes) this.set(actor, `parts.${eyes.part}.variant`, null, end);
+    // The body, from the feet (as the walks lean): not while something else turns, holds or scales it.
+    const held = this.bodyHeld(actor).some(([p, q]) => p < end && q > a0 - 0.003);
+    const scaled = this.script.some((s) => s.action === "set" && s.actor === actor && s.channel === "scale" && s.at + this.t0 < end && s.at + this.t0 + ((s.duration as number | undefined) ?? 0) > a0);
+    if (held || scaled) return;
+    const { base, single } = this.scaleAt(actor, a0);
+    const sc = (w: number, h: number): [number, number] => [r3(base[0] * w), r3(base[1] * h)];
+    const A = 0.04 * k * m, S = 0.06 * k * m;
+    this.set(actor, "scale", base, a0 - 0.002, 0);
+    this.set(actor, "scale", sc(1 + A, 1 - A), a0, T - a0, "sineOut");
+    this.set(actor, "rotation", r3(-dir * 3 * k * m), a0, T - a0, "sineOut");
+    this.set(actor, "scale", sc(1 - A, 1 + S), T, 0.08, "easeOut");
+    this.set(actor, "rotation", r3(dir * 4 * k * m), T, 0.08, "easeOut");
+    this.set(actor, "scale", sc(1, 1), hold, 0.3, "sineInOut");
+    this.set(actor, "rotation", 0, hold, 0.3, "sineInOut");
+    if (single) this.set(actor, "scale", base[0], end + 0.002, 0);
+  }
+
+  // -------------------------------------------------- arcs (`animation.arcs`)
+  /** Where an IK chain starts (its shoulder: the kit's rig info, else its first bone's joint) and its rest tip, in character space. */
+  private chainJoints(actor: string, chain: string): { rest?: [number, number]; root?: [number, number] } | undefined {
+    const doc = this.kit.characters[this.characterOf(actor)] as { ik?: { id: string; bones: string[] }[]; skeleton?: { id: string; from?: [number, number]; to?: [number, number] }[] } | undefined;
+    const k = doc?.ik?.find((c) => c.id === chain);
+    if (!k) return undefined;
+    const bone = (id: string) => doc?.skeleton?.find((b) => b.id === id);
+    const side = /^hand([FB])$/.exec(chain)?.[1] as "F" | "B" | undefined;
+    const info = this.member(actor)?.rig;
+    const root = (side && (info?.shoulder?.[side] as [number, number] | undefined)) ?? bone(k.bones[0])?.from;
+    const rest = bone(k.bones[k.bones.length - 1])?.to ?? (side ? (info?.hand?.[side] as [number, number] | undefined) : undefined);
+    return { ...(root ? { root: [root[0], root[1]] } : {}), ...(rest ? { rest: [rest[0], rest[1]] } : {}) };
+  }
+
   build(): SceneDoc {
     this.placeCast();
     this.placeVehicles();
@@ -3843,6 +4166,11 @@ class BlockScene {
     // Anticipation and settle, once every move is known (they keep out of the way of the others).
     this.leanWalks();
     this.settleLimbs();
+    // Life in the eyes and head, and arcs on IK moves, once every turn, line and move is known.
+    this.blinks();
+    this.saccades();
+    this.accents();
+    if (this.arcs > 0) this.script.splice(0, this.script.length, ...arcIk(this.script, this.arcs, (actor, chain) => this.chainJoints(actor, chain)));
     for (const st of this.propStates.values()) {
       for (const [ch, keys] of [["x", st.x], ["y", st.y], ["scale", st.scale], ["rotation", st.rotation]] as const)
         if (keys.length) this.tracks[`props.${st.id}.${ch}`] = [...keys].sort((a, b) => a[0] - b[0]);

@@ -62,7 +62,7 @@ a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit`
 ## Staging
 
 ```jsonc
-{ "animation": { "twos": true, "holds": 0.5, "anticipation": 1 }, "blocks": [ … ] }
+{ "animation": { "twos": true, "holds": 0.5, "anticipation": 1, "life": 1, "arcs": 1 }, "blocks": [ … ] }
 ```
 
 `animation` is the cartoon timing of the characters (the scene's `animation`, FORMAT §3.8): `twos`
@@ -89,6 +89,32 @@ arm arcs of 2.5D rigs (already timed with in-betweens), moves eased into a conta
 on the knees, hiding) and short holds are left as they are. Gesture clips are never changed (the
 kit's `fluid()` builds anticipation into them). `anticipation` is staged by the director and never
 reaches the scene's `animation`.
+
+`life` (0..1, default 0: off) puts life in the eyes and the head of every character, scaled by its
+value. **Blinks on turns**: every head turn — a `face` (a flip, or a turn through the in-between
+drawings), a new `view`, a new gaze target (a `look`, or the automatic look at a speaker) — closes
+the eyes for 3 frames from a frame before the turn (on twos, two drawings: `max(3 frames, 2 ×
+twos)`), then lets them go (`set … null`): the emotion's eyes come back by themselves. Changes
+less than 0.35 s apart are one turn (one blink). The eyes are the switch part the rig's `blink`
+behaviour closes (else a part `eyes`), when it has a `closed` variant; no blink while asleep or
+dead (`sleep` / `dead` emotion), hidden, or during a `take`. **Saccades**: listening or idle (not
+speaking, not walking), the gaze darts every 1.4–2.6 s (seeded by the character and the line: the
+same in every render): the `pupils` bone moves ±2 px × `life` sideways for 0.12 s and back — on top
+of the `look` control, which keeps tracking its target (rigs without a `pupils` bone get none).
+**Head accents**: on each spoken line with word timings the head nods on the stressed words — the
+longest word of each clause (clauses end at `, . ! ? … ; :`) and the last word — +3° × `life` over
+0.08 s and back over 0.16 s, on top of whatever the head is doing (none closer than 0.35 s to the
+previous one; only rigs with a `head` bone; not lying, asleep, during a `take` or over another move
+of the head). `life` is staged by the director and never reaches the scene's `animation`.
+
+`arcs` (0..1, default 0: off): IK moves travel along arcs instead of straight lines. The scene's
+`reach` blends do it (FORMAT §3.8: `arcs` goes on to the scene's `animation`); in the director, a
+move of a chain's target set on both axes at once (`ik.<id>.x` and `.y`, same moment and duration,
+eased) gets a key halfway, pushed across the chord by `arcs × 0.3 × |chord|`, away from the chain's
+root (the shoulder from the cast's `rig.shoulder` for `handF` / `handB`, else the chain's first
+joint; unknown or on the chord's line: upwards), the two halves meeting at the midpoint at the
+move's speed. The 3D arm arcs of 2.5D rigs are already arcs and are left alone; a move taking over
+another under way, or taken over before it arrives, stays straight.
 
 Times are always **relative to a line**: `{ "line": 25 }` (its start), `{ "line": 25, "word":
 "goes" }`, `{ "line": 25, "end": true }`, plus an optional `offset` (s). A line that does not exist
@@ -133,8 +159,8 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). With `animation.anticipation` the body leans back before setting off, into the walk (more for a run) and past upright on arrival (see Staging). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
 | `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?`, `to?` | Same as `enter` on the cast entry (the beat's moment, `word`, `end` and `offset` included): comes in from off screen (invisible until then, whatever the camera frames); from the top drops in and lands, `fly: true` comes through the air. A second `enter` after an `exit` comes in again, to `to` (default: where they stood before leaving) |
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame, at the cast's walk (or run) speed |
-| `face` | `who`, `direction` | Turns around. A rig drawn at in-between angles turns through them towards the camera (or away from it, seen from behind), flips while symmetric and turns back — a hand-drawn turn instead of a flip |
-| `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
+| `face` | `who`, `direction` | Turns around (with `animation.life` the eyes blink on the turn). A rig drawn at in-between angles turns through them towards the camera (or away from it, seen from behind), flips while symmetric and turns back — a hand-drawn turn instead of a flip |
+| `look` | `who`, `target` (id, prop, mark, `null`) | Gaze (with `animation.life` a new target makes the eyes blink) |
 | `emotion` | `who`, `value` | Emotion pose |
 | `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once). From the front, `facepalm`, `despair`, `think`, `cover`, `excited` and `shout` are hand positions on the posed face (IK), and the hands come back where they were (on a table…) afterwards |
@@ -149,10 +175,11 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `peek` | `who` (hiding), `until?` | Peeks out and back (default 1.2 s): from a crouch the back straightens and the head pops up over the top, then ducks back into the same crouch (not when the hide's `until` has passed by then: they stay up); behind something taller it slides out past the edge |
 | `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target — knocked off a seat, a bed, the ground or whatever they ride first — is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up. With `animation.anticipation` the target squashes flat on landing and the attacker's dash leans like a run |
 | `fx` | `type`, `who`, `prop` (following it), or `at` (a mark — at its `y` when it has one, else in the air above the ground — or a scene point `[x, y]`), `scale?` | Cartoon effect |
-| `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A view the rig does not draw is a warning and the current one stays. A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
+| `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A view the rig does not draw is a warning and the current one stays. With `animation.life` the eyes blink on the turn. A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
 | (2.5D rigs) | | The `phone`, `smoke` and `drink` gestures with a held prop bring the near hand up in 3D to the ear or the mouth (no 2D clip: its arm swing would go round the front), the 2D reach only placing the grip |
 | `cradle` | `who` (the adult), `target` (a baby: a small rig), `until?` | Holds the little one in both arms in front of the belly (arms reached in 3D; the baby sits on them, drawn in front while held: its `z` is a stepped track, back to its own after), until `until`, then puts them down |
 | `take` | `who`, `prop` (hung on `who` by `use … hands: false`) | 2.5D rigs: the near hand goes to where it hangs (the mouth: `rig3d.points`), takes it by its `grip` (else a third of the way along it) and brings it in front of the chest (`points.chest`), standing up between the fingers — the arm reached in 3D, so it never crosses the body, sitting (sofa, floor) or standing |
+| `take` (no `prop`) | `who`, `target?` (someone, a prop or a mark), `double?` | A take: anticipation — the body squashes 4% and leans 3° away from the target over 0.12 s, the eyes shut — then the reaction on the moment — the eyes `wide` (else `open`), the body stretched 6% up (4% thinner) and leaning 4° towards it over 0.08 s, the gaze snapping to it, the `surprised` emotion (if the rig has it, kept afterwards) — held 0.35 s and settled over 0.3 s, the eyes let go to the emotion's. `double: true`: a glance at the target on the moment, the gaze back away 0.25 s later (to what a beat last had them look at, else ahead), and the full take 0.2 s after that, 1.4× bigger. Sized by `animation.anticipation` (default 1). The body part is skipped while something else turns, holds or scales the body (sitting, riding, lying, a fall, a landing); a walk under way does not lean over it. An unknown target is an error (the take still happens, looking nowhere) |
 | `hold` | `who`, `prop`, `until?` | With a prop: held up in front of the chest (taken from the body first if it hangs there) until `until`, then the arm goes back to where it rests |
 | `putBack` | `who`, `prop` | The prop back where it hung (the same fit as its `use … hands: false`), the hand lets go and the arm goes back to rest (the knees, the floor behind, hanging) |
 | `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character; as the block opens, with no time to step, they start there) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing — whoever held the hand of someone released lets go of that hand too (keeping any other), and the holding clip ends there |
@@ -263,7 +290,7 @@ under songs; lines less than a second apart are one span; a bed whose `until` is
 ### Automatic (never written in a staging)
 
 Group and wide shots framed sideways only (from the tallest head to the ground: jumps and flights
-never move the set up and down), idle loops, lip sync per word, talking/singing gestures, listeners turning towards the speaker
+never move the set up and down), idle loops, lip sync per word, with `animation.life` blinks on head turns, saccades while listening and head nods on the stressed words, talking/singing gestures, listeners turning towards the speaker
 and looking at them (whoever is addressed by name or alias first), the speaker turning to the
 one addressed (a 2.5D rig that cannot turn — sitting, facing the camera — turns its head instead:
 the `head` control picks the drawn angle nearest to looking their way, at most 75° from the body's,

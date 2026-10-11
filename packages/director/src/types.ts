@@ -200,11 +200,16 @@ export interface Music {
  * `anticipation` — 0..1 (default 0: off): walks lean back before setting off, into the move and
  * past upright on arrival, landings squash and settle, free limb moves overshoot and settle
  * (from 0.5). Staged by the director: it never reaches the scene's `animation`.
+ * `life` — 0..1 (default 0: off): blinks on head turns, saccades while listening, head accents on
+ * stressed words (staged by the director, never in the scene). `arcs` — 0..1 (default 0: off): IK
+ * moves travel along arcs (the director's paired `ik.<id>.x/y` moves; the scene's reach blends).
  */
 export interface Animation {
   twos?: boolean | number;
   holds?: number;
   anticipation?: number;
+  life?: number;
+  arcs?: number;
 }
 
 export interface Staging {

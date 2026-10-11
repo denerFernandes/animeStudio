@@ -401,6 +401,9 @@ export function humanCharacter(look: HumanLook): ToonDoc {
         run: { a: 52, lift: 30, dur: 0.44, bob: 8, lean: 8, armSwing: 60 },
         jump: 90,
         hands: true,
+        // Hip to ankle and ankle to toe of the skeleton above (personality walks crouch, tiptoe).
+        leg: 188,
+        foot: 26,
       }),
       ...humanClips(),
     },

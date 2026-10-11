@@ -402,10 +402,16 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "arcs": {
+          "description": "Arcs 0..1 (default 0: off): a hand or foot blending to or from a `reach` travels along an arc (bulging away from the chain's root, up to 0.3 × the distance at 1) instead of a straight line",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false,
-      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds and smears"
+      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds, smears and arcs"
     },
     "layers": {
       "type": "array",

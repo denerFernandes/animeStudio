@@ -158,7 +158,10 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     // Plane coordinates (z forward, y down), relative to the hip joint. The ground under the foot
     // (`ikOffset`: a slope) is a height, which the plane shares with the picture.
     const l1 = Math.hypot(B.from[1] - A.from[1], B.from[2] - A.from[2]), l2 = Math.hypot(end[1] - B.from[1], end[2] - B.from[2]);
-    const tz = end[2] - A.from[2] + s.ikX[c], ty = end[1] - A.from[1] + s.ikY[c] + (ikOffset?.[k.id]?.[1] ?? 0);
+    // The target is in character space like a 2D chain's (rest tip + offsets): the hip joint moving
+    // (a crouch, the bob of a walk: `bones.hips.y`) does not carry the planted foot with it.
+    const hipDy = world[a][5] - rig.bones[a].setupWorld[5];
+    const tz = end[2] - A.from[2] + s.ikX[c], ty = end[1] - A.from[1] + s.ikY[c] + (ikOffset?.[k.id]?.[1] ?? 0) - hipDy;
     const d = clamp(Math.hypot(tz, ty), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
     const base = Math.atan2(ty, tz);
     const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);

@@ -53,7 +53,7 @@ import {
   shadingMarkup,
   unknownKeyLight,
 } from "./lighting";
-import { type ClipInstance, type EvaluatedPose, applyPhysicsSample, evaluatePose } from "./pose";
+import { type CharacterInput, type ClipInstance, type EvaluatedPose, applyPhysicsSample, evaluatePose } from "./pose";
 import { type RenderFrame, type RenderNode, nodeToString, renderCharacter } from "./render";
 import { type ChannelRef, type Rig, type RigPart, type RigTrack, RigError, compileRig, resolveChannel } from "./rig";
 
@@ -213,10 +213,11 @@ export interface CompiledScene {
   audio: AudioEvent[];
   lighting?: { def: LightingDef; tracks: Record<string, Track> };
   /**
-   * Cartoon timing, resolved: frames per drawing of the characters, the moving-hold amount (0..1) and
-   * the smear amount (0..1; only present when smears are on).
+   * Cartoon timing, resolved: frames per drawing of the characters, the moving-hold amount (0..1),
+   * the smear amount (0..1; only present when smears are on) and the arcs amount (0..1; only
+   * present when arcs are on: a reaching hand or foot travels along an arc, not a straight line).
    */
-  animation: { twos: number; holds: number; smear?: number };
+  animation: { twos: number; holds: number; smear?: number; arcs?: number };
   rigid?: RigidBodySampler;
 }
 
@@ -295,7 +296,9 @@ export function defaultChannelValue(rig: Rig, ref: ChannelRef): Value | undefine
       return ref.prop === "scaleX" || ref.prop === "scaleY" ? 1 : 0;
     case "part": {
       const part = rig.parts[ref.index];
-      return ref.prop === "opacity" ? 1 : part.type === "switch" ? part.default : undefined;
+      // A variant channel starts with no opinion (`null`): the pose controls choose the variant until a
+      // `set` names one, and again after a `set` of `null` (a blink closing the eyes, then letting go).
+      return ref.prop === "opacity" ? 1 : part.type === "switch" ? null : undefined;
     }
     case "morph":
       return 0;
@@ -370,7 +373,13 @@ const framesPerDrawing = (v: boolean | number | undefined, fallback: number): nu
 export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene {
   const rigCache = new Map<string, Rig>();
   const smear = clamp(doc.animation?.smear ?? 0, 0, 1);
-  const animation = { twos: framesPerDrawing(doc.animation?.twos, 1), holds: clamp(doc.animation?.holds ?? 0, 0, 1), ...(smear > 0 ? { smear } : {}) };
+  const arcs = clamp(doc.animation?.arcs ?? 0, 0, 1);
+  const animation = {
+    twos: framesPerDrawing(doc.animation?.twos, 1),
+    holds: clamp(doc.animation?.holds ?? 0, 0, 1),
+    ...(smear > 0 ? { smear } : {}),
+    ...(arcs > 0 ? { arcs } : {}),
+  };
 
   // Actors -----------------------------------------------------------------
   const actorBuffers = new Map<
@@ -1409,9 +1418,50 @@ function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { 
   return ridden ? { parts: new Set(key.behind), z: actorPlacementState(ridden, t).z } : undefined;
 }
 
+/**
+ * The actor's pose without its reaches (lazily evaluated) and its extra IK offsets: where a free
+ * chain aims (`restTarget` + `ik.<id>.x/y` + offset) and where its root joint is (arcs).
+ */
+interface FreePose {
+  pose: () => EvaluatedPose;
+  ikOffset?: Record<string, Vec2>;
+}
+
+/** How far an arc bulges at its middle (`arcs` 1), as a fraction of its chord. */
+const ARC_BULGE = 0.3;
+
+/**
+ * A reach blend's state: the point the chain is held on (scene space; null: free) and its weight
+ * (0: free, 1: held). The chain aims at own + (point − own) × weight, `own` being its own target.
+ */
+interface ReachState {
+  point: Vec2 | null;
+  weight: number;
+}
+
+/**
+ * How far the point `u` of the way from `a` to `b` (character space) sits off the straight chord on
+ * an arc: `amount × 0.3 × |ab| × sin(π·u)` across the chord, away from `root` (a root on the
+ * chord's line: upwards, −y; a vertical chord there: forwards, +x).
+ */
+function arcOffset(a: Vec2, b: Vec2, u: number, root: Vec2, amount: number): Vec2 {
+  const cx = b[0] - a[0], cy = b[1] - a[1];
+  const len = Math.hypot(cx, cy);
+  if (len < 1e-9 || amount <= 0) return [0, 0];
+  let nx = -cy / len, ny = cx / len;
+  const side = (root[0] - a[0]) * nx + (root[1] - a[1]) * ny;
+  if (side > 1e-6 * len || (Math.abs(side) <= 1e-6 * len && (ny > 1e-9 || (Math.abs(ny) <= 1e-9 && nx < 0)))) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const h = amount * ARC_BULGE * len * Math.sin(Math.PI * u);
+  return [nx * h, ny * h];
+}
+
 /** IK chains held on another actor's anchor (pedals, a handlebar) or a scene point, in character space. */
-function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toChar: Mat): Record<string, { point: Vec2; weight: number }> | undefined {
+function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toChar: Mat, free?: FreePose): Record<string, { point: Vec2; weight: number }> | undefined {
   if (!actor.reach) return undefined;
+  const arcs = scene.animation.arcs ?? 0;
   const out: Record<string, { point: Vec2; weight: number; from?: Vec2 }> = {};
   // The forearm's direction at a prop's grip, in character space.
   const fromOf = (k: ReachKey | undefined): Vec2 | undefined => {
@@ -1439,21 +1489,85 @@ function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toC
     if (!other || resolvingAim.has(other)) return null;
     return anchorPosition(scene, other.id, (k.target as { anchor: string }).anchor, t);
   };
+  let freePose: EvaluatedPose | undefined;
+  let toScene: Mat | undefined;
   for (const [chain, keys] of Object.entries(actor.reach)) {
     let idx = -1;
     for (let k = 0; k < keys.length; k++) if (keys[k].t <= t) idx = k;
     if (idx < 0) continue;
     const key = keys[idx];
     const u = key.blend > 0 ? ease(clamp((t - key.t) / key.blend, 0, 1)) : 1;
-    const cur = resolve(key);
-    const prev = u < 1 ? resolve(keys[idx - 1]) : null;
+    const ci = actor.rig.ik.findIndex((k) => k.id === chain);
+    const ik = actor.rig.ik[ci];
+    if (!ik) continue;
+    // A blend under way goes from where the chain is (the previous target, the point and weight a
+    // blend it takes over had reached, or the chain's own target) to the new one — a new reach never
+    // jumps — along an arc with `arcs` on. The chain's own target and root joint (character space)
+    // come from the pose without reaches: only an arc needs them.
+    let own: Vec2 | undefined, root: Vec2 | undefined;
+    const ownTarget = (): Vec2 => {
+      if (!own) {
+        const fp = (freePose ??= free?.pose() ?? evaluatePose(actor.rig, { time: t, clips: actor.clips, tracks: actor.tracks, seed: actor.seed }));
+        const extra = free?.ikOffset?.[chain];
+        own = [ik.restTarget[0] + fp.state.ikX[ci] + (extra?.[0] ?? 0), ik.restTarget[1] + fp.state.ikY[ci] + (extra?.[1] ?? 0)];
+        const m = fp.world[ik.bones[0]];
+        root = [m[4], m[5]];
+      }
+      return own;
+    };
+    const resolved = new Map<number, ReachState>();
+    const target = (i: number): ReachState => {
+      let st = resolved.get(i);
+      if (!st) {
+        const p = resolve(keys[i]);
+        st = p ? { point: p, weight: 1 } : { point: null, weight: 0 };
+        resolved.set(i, st);
+      }
+      return st;
+    };
+    // `u` of the way from state `a` to `b` (points in scene space, as resolved). Without an arc
+    // the chain's own target cancels out: the point is the weighted mean of both points.
+    const blend = (a: ReachState, b: ReachState, v: number): ReachState => {
+      const weight = lerp(a.weight, b.weight, v);
+      let point: Vec2 | null;
+      if (!a.point || a.weight <= 0) point = b.point;
+      else if (!b.point || b.weight <= 0) point = a.point;
+      else if (a.weight === b.weight) point = [lerp(a.point[0], b.point[0], v), lerp(a.point[1], b.point[1], v)];
+      else {
+        const wa = a.weight * (1 - v), wb = b.weight * v;
+        point = [(a.point[0] * wa + b.point[0] * wb) / (wa + wb), (a.point[1] * wa + b.point[1] * wb) / (wa + wb)];
+      }
+      if (arcs > 0 && point && weight > 1e-9) {
+        // The arc is drawn by the aimed-at point (own + (point − own) × weight), offset across
+        // its chord (chord and root in character space); the point is scaled back so the pose's
+        // blend lands on it. sin(πu) over the weight stays bounded.
+        const o = ownTarget();
+        const aim = (st: ReachState): Vec2 => {
+          if (!st.point) return o;
+          const c = apply(toChar, st.point);
+          return [o[0] + (c[0] - o[0]) * st.weight, o[1] + (c[1] - o[1]) * st.weight];
+        };
+        const off = applyLinear((toScene ??= invert(toChar)), arcOffset(aim(a), aim(b), v, root!, arcs));
+        point = [point[0] + off[0] / weight, point[1] + off[1] / weight];
+      }
+      return { point, weight };
+    };
+    // The state of key `i`'s blend at time `at` (its targets taken at t: a moving anchor moves on).
+    const stateAt = (i: number, at: number): ReachState => {
+      if (i < 0) return { point: null, weight: 0 };
+      const k = keys[i];
+      const v = k.blend > 0 ? ease(clamp((at - k.t) / k.blend, 0, 1)) : 1;
+      const end = target(i);
+      return v >= 1 ? end : blend(stateAt(i - 1, k.t), end, v);
+    };
+    const startState = u < 1 ? stateAt(idx - 1, key.t) : undefined, endState = target(idx);
+    const st = startState ? blend(startState, endState, u) : endState;
+    if (!st.point) continue;
     // The grip direction blends with the target: between two gripped reaches it turns from one to
     // the other; between a free and a gripped one it switches halfway, like the engine's other
     // stepped channels (a bend side has no in-between).
-    const from = blendFrom(prev ? fromOf(keys[idx - 1]) : undefined, cur ? fromOf(key) : undefined, u);
-    if (cur && prev) out[chain] = { point: apply(toChar, [lerp(prev[0], cur[0], u), lerp(prev[1], cur[1], u)]), weight: 1, ...(from ? { from } : {}) };
-    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u, ...(from ? { from } : {}) };
-    else if (prev) out[chain] = { point: apply(toChar, prev), weight: 1 - u, ...(from ? { from } : {}) };
+    const from = blendFrom(startState?.point && startState.weight > 0 ? fromOf(keys[idx - 1]) : undefined, endState.weight > 0 ? fromOf(key) : undefined, u);
+    out[chain] = { point: apply(toChar, st.point), weight: st.weight, ...(from ? { from } : {}) };
   }
   return out;
 }
@@ -1517,29 +1631,31 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
   // each other) depends on this very pose: inside such a cycle the pose is evaluated without aim.
   let aim: ReturnType<typeof aimTargets> | undefined;
   let reach: ReturnType<typeof reachTargets>;
-  if (!resolvingAim.has(actor)) {
-    resolvingAim.add(actor);
-    try {
-      aim = aimTargets(scene, actor, t, toChar);
-      reach = reachTargets(scene, actor, t, toChar);
-    } finally {
-      resolvingAim.delete(actor);
-    }
-  }
-  return evaluatePose(actor.rig, {
+  const ikOffset = actor.mounts ? undefined : groundFeet(actor, placement);
+  const input = (): CharacterInput => ({
     time: t,
     clips: actor.clips,
     tracks: actor.tracks,
     seed: actor.seed,
     aim,
-    ikOffset: actor.mounts ? undefined : groundFeet(actor, placement),
-    ikTarget: reach,
+    ikOffset,
     // A rig with a `side` control keeps its asymmetric details (a breast pocket, a wristwatch) on the
     // same side of the body when it faces left (the drawing is mirrored).
     ...(actor.rig.controls.side ? { controls: { side: placement[0] * placement[3] - placement[1] * placement[2] < 0 ? "left" : "right" } } : {}),
     // A hand holding a prop closes around it (its `grip` variant, or the one named after the anchor).
     variants: holdingVariants(scene, actor, t),
   });
+  if (!resolvingAim.has(actor)) {
+    resolvingAim.add(actor);
+    try {
+      aim = aimTargets(scene, actor, t, toChar);
+      // Arcs measure a reach blend against the pose without reaches (only evaluated when needed).
+      reach = reachTargets(scene, actor, t, toChar, { pose: () => evaluatePose(actor.rig, input()), ikOffset });
+    } finally {
+      resolvingAim.delete(actor);
+    }
+  }
+  return evaluatePose(actor.rig, { ...input(), ikTarget: reach });
 }
 
 /** Actors whose physics bake is running (a pose of theirs needed meanwhile is taken before physics). */
