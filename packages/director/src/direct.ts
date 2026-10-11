@@ -25,7 +25,7 @@ import {
   validateSequence,
 } from "@animestudio/core";
 import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
-import type { Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
+import type { Animation, Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
 type Key = [number, number | string | [number, number], string?];
@@ -267,6 +267,8 @@ class BlockScene {
     first = false,
     /** A moment of another block as a frozen frame (for photos). */
     readonly photoOf: (block: string, when: When, key: string) => string | undefined = () => undefined,
+    /** Cartoon timing of the characters (the block's, else the staging's). */
+    readonly animation?: Animation,
   ) {
     // The first block starts the episode (whatever cuts show before its first line).
     this.t0 = first ? 0 : time.blockStart(block);
@@ -487,7 +489,7 @@ class BlockScene {
       }
     }
   }
-  addActor(id: string, x: number, o: { flip?: boolean; emotion?: string; y?: number; scale?: number; character?: string; z?: number; palette?: Record<string, string>; parallax?: number } = {}) {
+  addActor(id: string, x: number, o: { flip?: boolean; emotion?: string; y?: number; scale?: number; character?: string; z?: number; palette?: Record<string, string>; parallax?: number; holds?: number } = {}) {
     const cast = !!this.kit.cast[id];
     this.actors.push({
       id,
@@ -499,6 +501,8 @@ class BlockScene {
       z: o.z ?? 2,
       ...(o.palette ? { palette: o.palette } : {}),
       ...(o.parallax !== undefined ? { parallax: o.parallax } : {}),
+      // Things that are not alive (vehicles, furniture, fixtures) get no moving-hold drift.
+      ...(o.holds !== undefined ? { holds: o.holds } : {}),
     });
     this.x0[id] = x;
     this.facing0[id] = !o.flip;
@@ -1783,7 +1787,7 @@ class BlockScene {
     // ground, or the far ground for the far lane (smaller there, by the set's depth scale).
     const far = b.lane === "far", ds = this.setDef.depthScale ?? 0.6;
     const laneY = far ? (this.setDef.marks.farLane?.y ?? (this.setDef.ground.far !== undefined ? this.setDef.ground.far - 16 * ds : this.setDef.ground.near - 16)) : (this.setDef.marks.nearLane?.y ?? this.setDef.ground.near - 16);
-    this.addActor(id, x0, { character: v.character, y: laneY, scale: v.scale * (far ? ds : 1), z: far ? 0.3 : 1, flip: !leftToRight, palette: b.color ? { paint: b.color as string } : undefined });
+    this.addActor(id, x0, { character: v.character, y: laneY, scale: v.scale * (far ? ds : 1), z: far ? 0.3 : 1, flip: !leftToRight, palette: b.color ? { paint: b.color as string } : undefined , holds: 0 });
     this.push({ at: this.t(start), actor: id, action: "walkTo", x: Math.round(x1), duration: r3(dur), clip: "drive", ease: "linear" });
     this.tracks[`actors.${id}.opacity`] = [[0, 0], [this.t(start) - 0.001 > 0 ? this.t(start) - 0.001 : 0, 0], [this.t(start), 1], [this.t(start + dur), 1], [this.t(start + dur) + 0.001, 0]];
   }
@@ -1962,7 +1966,7 @@ class BlockScene {
       const rider = (Array.isArray(first) ? first[0] : first) as string | undefined;
       const scale = r3(def.scale * (rider && this.kit.cast[rider] ? this.scaleOf(rider) : 1));
       const x = v.at ? this.placeX(v.at, this.t0) : rider && this.present.includes(rider) ? this.xAt(rider, this.t0) + 150 * this.scaleOf(rider) : this.mark("center").x;
-      this.addActor(v.id, x, { character: def.character, scale, z: 1.9, flip: v.facing === "left", palette: v.color ? { paint: v.color } : undefined });
+      this.addActor(v.id, x, { character: def.character, scale, z: 1.9, flip: v.facing === "left", palette: v.color ? { paint: v.color } : undefined , holds: 0 });
       this.vehicleOf.set(v.id, { kind: v.kind, scale });
       // Upright from the start (a track holds its first key before it: a later "lying" would show).
       const up = this.lyingPose(v.id);
@@ -2642,7 +2646,7 @@ class BlockScene {
       }
       // Standing on its mark's floor line (e.g. a sofa against the back wall), else the near ground.
       const y = this.markOf(f.at)?.y ?? this.setDef.ground.near;
-      this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, y, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
+      this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, y, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined , holds: 0 });
       // A blanket (`meta.cover`: its own rig, drawn over whoever lies there), hidden until then.
       const cover = (this.kit.characters[def.character]?.meta as { cover?: { character: string } } | undefined)?.cover;
       let coverId: string | undefined;
@@ -2650,7 +2654,7 @@ class BlockScene {
         if (!this.kit.characters[cover.character]) this.issue("error", `furniture "${f.id}": its cover rig "${cover.character}" is not in the kit`);
         else {
           coverId = `${f.id}Cover`;
-          this.addActor(coverId, this.placeX(f.at ?? "center", this.t0), { character: cover.character, scale: def.scale, y, z: 2.01, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
+          this.addActor(coverId, this.placeX(f.at ?? "center", this.t0), { character: cover.character, scale: def.scale, y, z: 2.01, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined , holds: 0 });
           this.set(coverId, "opacity", 0, this.t0);
         }
       }
@@ -3629,7 +3633,7 @@ class BlockScene {
     // Fixtures (traffic lights…).
     for (const f of this.setDef.fixtures ?? []) {
       const m = this.mark(f.mark);
-      this.addActor(f.id, m.x, { character: f.character, y: f.y ?? m.y ?? this.setDef.ground.far ?? this.setDef.ground.near, scale: f.scale ?? 1, z: f.z ?? 0, flip: f.flip, parallax: f.parallax });
+      this.addActor(f.id, m.x, { character: f.character, y: f.y ?? m.y ?? this.setDef.ground.far ?? this.setDef.ground.near, scale: f.scale ?? 1, z: f.z ?? 0, flip: f.flip, parallax: f.parallax , holds: 0 });
       if (f.value) this.set(f.id, f.channel ?? "parts.light.variant", f.value, this.t0);
       // Moving scenery (clock hands, a weather vane, a windmill): its clip loops from the start.
       const loop = f.clip ?? (this.kit.characters[f.character]?.clips?.loop ? "loop" : undefined);
@@ -3695,6 +3699,12 @@ class BlockScene {
     }
     const layers = typeof this.setDef.layers === "function" ? this.setDef.layers() : this.setDef.layers;
     const usedChars = new Set(this.actors.map((a) => a.character as string));
+    // Who is drawn on their own timing (a clock's hand on ones under characters on twos).
+    const twosOf = new Map<string, boolean | number>();
+    for (const c of this.block.cast) if (c.twos !== undefined) twosOf.set(c.id, c.twos);
+    for (const v of this.block.vehicles ?? []) if (v.twos !== undefined) twosOf.set(v.id, v.twos);
+    for (const f of this.setDef.fixtures ?? []) if (f.twos !== undefined) twosOf.set(f.id, f.twos);
+    for (const a of this.actors) if (twosOf.has(a.id as string)) a.twos = twosOf.get(a.id as string);
     const doc = {
       format: "toon-scene",
       version: 1,
@@ -3710,6 +3720,7 @@ class BlockScene {
       props: this.props,
       tracks: this.tracks,
       ...(this.setDef.lighting ? { lighting: this.sceneLighting() } : {}),
+      ...(this.animation ? { animation: this.animation } : {}),
       script: [...this.script].sort((a, b) => a.at - b.at),
     } as unknown as SceneDoc;
     if (this.pendingGestures.length) {
@@ -3748,7 +3759,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const build = (block: Block) => {
     if (scenes[block.id] || building.has(block.id)) return;
     building.add(block.id);
-    const bs = new BlockScene(block, kit, time, issues, live[0] === block, photo);
+    const bs = new BlockScene(block, kit, time, issues, live[0] === block, photo, block.animation ?? staging.animation);
     scenes[block.id] = bs.build();
     starts[block.id] = bs.t0;
   };
@@ -4085,7 +4096,11 @@ function motionIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: Ki
     const bones = actor.rig.bones.filter((b) => /^(arm|leg)[FB][12]$/.test(b.id));
     let prev: { t: number; ang: Map<number, [number, number, number]>; x: number; op: number; props: Map<string, [number, number]>; det: number } | undefined;
     const held = sc.props.filter((p) => p.grabs.some((g) => g.actor === actor.id));
-    for (let t = 0; t < sc.duration; t += dt) {
+    // An actor on twos changes every n frames: compare its drawings (a step of whole drawings), or
+    // every held frame would read as a stop and every change as twice the speed.
+    const drawing = actor.twos > 1 ? actor.twos / sc.fps : 0;
+    const step = drawing ? Math.ceil(dt / drawing - 1e-6) * drawing : dt;
+    for (let t = 0; t < sc.duration; t += step) {
       const op = opacity(actor.id, t);
       const pose = actorPose(sc, actor, t);
       const pl = actorPlacement(actor, t);

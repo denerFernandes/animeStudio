@@ -422,6 +422,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
   "lipsync": { "hello": "./audio/hello.cues.json" },
   "world": { "gravity": [0, 1800], "ground": 900 },
   "camera": { "x": 960, "y": 540, "zoom": 1, "rotation": 0 },
+  "animation": { "twos": true, "holds": 0.5 },
   "layers": [ /* Layer — background art */ ],
   "actors": [ { "id": "pip", "character": "pip", "x": 700, "y": 900, "scale": 1.6 } ],
   "props": [ { "id": "ball", "art": "<circle r='30' fill='#3A7'/>", "x": 1200, "y": 600,
@@ -442,6 +443,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
   `bounds`).
 - `world`: physics settings for rigid bodies (`gravity` px/s², `ground` y, optional `walls`) and
   walkable `surfaces` (see 3.6).
+- `animation`: cartoon timing — characters drawn on twos and moving holds (see 3.8).
 
 ### 3.0 Lighting
 
@@ -493,7 +495,7 @@ All three share placement fields: `x`, `y`, `rotation`, `scale` (number or `[sx,
 | Kind | Extra fields |
 |---|---|
 | Layer | `id`, `art` |
-| Actor | `id`, `character`, `flip` (face left), `palette` overrides, `seed`, `shading` (receive cel shading, default true), `ground?` (3.6) |
+| Actor | `id`, `character`, `flip` (face left), `palette` overrides, `seed`, `shading` (receive cel shading, default true), `ground?` (3.6), `twos?` and `holds?` (its own cartoon timing, overriding the scene's; 3.8) |
 | Prop | `id`, `art`, `body?`, `ground?` (3.6), `cord?` |
 
 `cord`: a cord or string drawn every frame from the prop (`point`, its art's coordinates) to `to` —
@@ -662,6 +664,47 @@ shape and the Preston Blair viseme set:
 
 Cues can come from Rhubarb (recorded audio), TTS character timestamps, text with a duration,
 or audio amplitude — see `@animestudio/lipsync`.
+
+---
+
+### 3.8 Cartoon timing
+
+Hand-drawn cartoons hold each drawing for two frames ("on twos"), and a character that holds a
+pose is never completely still. The optional scene `animation` gives you both:
+
+```jsonc
+"animation": { "twos": true, "holds": 0.5 }
+```
+
+| Field | Value | Effect |
+|---|---|---|
+| `twos` | `true` (= 2), or a number 1–4 (default 1 = on ones) | Frames per drawing of the characters. On twos at 24 fps, frames 2k and 2k+1 show the same drawing and the next drawing appears at 2k+2; `3` steps every three frames |
+| `holds` | 0–1 (default 0) | Moving holds: every actor drifts slightly (up to ±1.2 px across, ±0.8 px up and down and ±0.35° at 1), a mix of a slow and a quicker drift seeded by the actor id. It is the same in every render and is never written into the tracks |
+
+An actor's own `twos` overrides the scene's value: `false` (or 1) keeps that actor smooth (a
+clock, a car), and a number puts just that actor on twos or threes. Its own `holds` overrides the
+drift (`0`: a wall clock, a parked car, furniture — things that are not alive).
+
+**What is a drawing.** For an actor on twos, everything that makes up its drawing is taken at the
+drawing's time: the pose (clips, controls, behaviours, IK), what it looks at and reaches for, its
+spring physics, and its placement (tracks, ground surface, mount). Anything attached to the actor
+moves with the drawing too: a prop held in its hand, a rider on it, effects at its anchors,
+transition irises aimed at its head, and the director's checks. The springs are still simulated at
+their own fixed rate over the smooth motion, so each drawing is exactly the smooth animation's frame
+at that time. Moving holds also follow the drawings: on twos the drift steps with them.
+
+**What stays smooth.** The camera (moves, follows and framing follow the actors' smooth motion:
+a smooth pan over characters on twos is the classic look), layers, free props (tracks, rigid
+bodies, cords), lighting, effects at scene points and on screen, transitions and audio. The rigid
+body simulation reads the hands' smooth motion (a throw leaves the hand at the hand's real speed),
+then the thrown prop flies smoothly. A grab or release still happens at its own script time. A
+rider on twos follows its mount's drawings, so to keep a rider steady on a smooth vehicle, give
+both the same `twos`.
+
+**Motion blur** compares each item with the previous frame. For an actor on twos, a held frame
+shows the same drawing as the frame before it, so it gets no motion blur. A frame where the
+drawing changes is compared with the previous drawing, so it gets the blur of the whole
+two-frame move.
 
 ---
 

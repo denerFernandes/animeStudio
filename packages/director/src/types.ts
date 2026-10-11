@@ -39,6 +39,8 @@ export interface CastEntry {
   offset?: number;
   facing?: "left" | "right";
   emotion?: string;
+  /** Frames per drawing for this one (default the block's `animation.twos`; `false` or 1: smooth). */
+  twos?: boolean | number;
   /**
    * Wardrobe for this block: wardrobe control → pose (e.g. `{ "outfit": "swim", "backpack": "off" }`).
    * Every block starts from the rig's defaults; only what is listed here changes.
@@ -62,6 +64,8 @@ export interface VehicleEntry {
   /** Its wardrobe controls (e.g. `{ "trainingWheels": "on" }`). */
   wear?: Record<string, string>;
   color?: string;
+  /** Frames per drawing (default the block's `animation.twos`; `false` or 1: smooth). */
+  twos?: boolean | number;
 }
 
 export interface FurnitureEntry {
@@ -122,6 +126,8 @@ export interface Block {
   to: number;
   cast: CastEntry[];
   props?: PropEntry[];
+  /** Cartoon timing of this block (default the staging's). */
+  animation?: Animation;
   /**
    * An insert: built on the same lines as the others but not part of the live action — it shows only
    * where a cut `insert`s it (a montage: icons, a logo, another place between the verses).
@@ -187,8 +193,20 @@ export interface Music {
   fade?: number;
 }
 
+/**
+ * Cartoon timing of the characters (the scene's `animation`, FORMAT §3.8): `twos` — frames per
+ * drawing (`true` = 2: the classic "on twos"; the camera, free props and lighting stay smooth);
+ * `holds` — moving holds, 0..1: a held pose keeps drifting subtly instead of freezing.
+ */
+export interface Animation {
+  twos?: boolean | number;
+  holds?: number;
+}
+
 export interface Staging {
   blocks: Block[];
+  /** Cartoon timing for every block (a block's own `animation` overrides it). */
+  animation?: Animation;
   cuts?: Cut[];
   texts?: Text[];
   /** A music bed under the episode: it ducks under the dialogue (not under songs). */
@@ -244,6 +262,8 @@ export interface SetDef {
     clip?: string;
     /** Shown only in these light moods (the moon, twinkling stars). */
     moods?: string[];
+    /** Frames per drawing (default the block's `animation.twos`; a clock's hand: `false`, smooth). */
+    twos?: boolean | number;
   }[];
   bounds?: [number, number, number, number];
   background?: string;

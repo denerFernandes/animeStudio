@@ -375,6 +375,32 @@
       "additionalProperties": false,
       "description": "Scene lighting: lights, ambient darkness, character cel shading, grading and vignette"
     },
+    "animation": {
+      "type": "object",
+      "properties": {
+        "twos": {
+          "description": "Frames per drawing of the characters: `true` = 2 (classic \"on twos\"), a number 1..4 (1 = on ones, default)",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4
+            }
+          ]
+        },
+        "holds": {
+          "description": "Moving holds 0..1 (default 0): a held pose never stands still, every actor drifts subtly",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth) and moving holds"
+    },
     "layers": {
       "type": "array",
       "items": {
@@ -492,6 +518,25 @@
               "number",
               "string"
             ]
+          },
+          "twos": {
+            "description": "Frames per drawing for this actor, overriding the scene's `animation.twos` (`false` / 1 = smooth: a clock, a car)",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              }
+            ]
+          },
+          "holds": {
+            "description": "Moving-hold drift for this actor, overriding the scene's `animation.holds` (0: a clock, a parked car, furniture)",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           },
           "x": {
             "type": "number"

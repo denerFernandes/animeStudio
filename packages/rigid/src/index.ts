@@ -12,6 +12,7 @@ import {
   compileScene,
   multiply,
   propPlacement,
+  inSmoothTime,
 } from "@animestudio/core";
 
 /** Pixels per physics meter. Rapier is tuned for meter-scale worlds. */
@@ -157,6 +158,9 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
   // Each iteration samples the state at `t` and then steps the world to `t + dt`: kinematic
   // targets (hands, scripted props, colliders) are therefore set for `t + dt`.
   const steps = Math.ceil(scene.duration * rate) + 1;
+  // The simulation reads the motion as authored (hands on ones, no moving holds): a throw leaves the
+  // hand at the hand's real speed; the samples are then shown at drawing times like everything else.
+  inSmoothTime(() => {
   for (let n = 0; n < steps; n++) {
     const t = n * dt;
     for (const b of bodies) {
@@ -205,6 +209,7 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
     for (const place of colliders) place(t + dt, false);
     physics.step();
   }
+  });
 
   const byId = new Map(bodies.map((b) => [b.prop.id, b.samples]));
   const sampler: RigidBodySampler = {

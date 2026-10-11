@@ -1041,7 +1041,7 @@
                           "from"
                         ],
                         "additionalProperties": false,
-                        "description": "A cone between two points of the skeleton (a sphere without `to`), or a rounded box"
+                        "description": "A cone between two points of the skeleton (a sphere without `to`), a rounded box or an ellipsoid"
                       }
                     }
                   },

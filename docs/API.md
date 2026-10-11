@@ -151,9 +151,11 @@ reaching): its mix is multiplied by `1 − ik mix`.
 |---|---|
 | `compileScene(doc, assets: SceneAssets): CompiledScene` | Compiles actors, props, layers, camera, user tracks, script actions and lighting into tracks and clip instances. Throws `SceneError` with a path |
 | `evaluateScene(scene, t): RenderFrame` | Full frame at time t: layers, actors (with baked physics and shading), props (rigid bodies, grabs), cartoon effects, lighting overlays, sorted by `z` |
-| `actorPose(scene, actor, t)` | Final pose of an actor (including physics) |
-| `actorBake(scene, actor)` | Lazily computed physics bake for an actor — the same whichever API first needed it (a rider's seat, a look at the rider: the bake resolves aims and mounts afresh); a pose of the actor needed while its own bake runs is taken before physics |
-| `actorPlacement(actor, t)` | Character → scene matrix |
+| `actorPose(scene, actor, t)` | Final pose of an actor (including physics). On twos it is the pose of the drawing shown at t: the pose, its aim and reach targets and the physics sample are all taken at `drawingTime` |
+| `drawingTime(scene, actor, t)` | Time of the drawing an actor shows at t: `t` on ones (`actor.twos` ≤ 1), else `⌊t × fps / n⌋ × n / fps` (on twos, frames 2k and 2k+1 show frame 2k's drawing). Its pose and placement are evaluated at that time; the camera, layers, free props, lighting and audio stay smooth |
+| `inSmoothTime(fn)` | Runs `fn` with every actor on ones and without moving holds — what the bakes do (springs, camera follow/frame, rigid bodies): a simulation reads the motion as authored, its samples are then shown at drawing times |
+| `actorBake(scene, actor)` | Lazily computed physics bake for an actor. It gives the same result whichever API needed it first (a rider's seat, a look at the rider): the bake resolves aims and mounts afresh, and it runs over the smooth motion (no drawings on twos, no moving holds), so cartoon timing never changes it. A pose of the actor needed while its own bake runs is taken before physics |
+| `actorPlacement(actor, t)` | Character → scene matrix (of the drawing shown at t, with the moving-hold drift) |
 | `anchorPosition(scene, actorId, anchor, t, pose?)` | Scene position of an actor anchor |
 | `propPlacement(scene, prop, t, poses?)` | Prop placement: held, in the hand (fitted, or on the anchor turned with it — a rigid body only follows the hand then); free, its rigid body sample, else its tracks (on its ground) |
 | `cameraAt(scene, t): CameraState` | Camera at time t: base tracks → director segments (moves, paths, follows, frames, holds — each starting from the camera's actual pose) → punch-ins → handheld → shakes → bounds |
@@ -164,7 +166,7 @@ reaching): its mix is multiplied by `1 − ik mix`.
 | `cuesToVisemeKeys(cues, offset, blend?)` | Mouth cues → cross-faded viseme weight keys |
 | `frameTime(scene, frame)`, `frameCount(scene)` | Frame ↔ seconds helpers (`frameCount` = ⌈duration × fps⌉ without the extra frame floating point noise would add: 2.2 s × 25 = 55) |
 
-Types: `CompiledScene`, `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
+Types: `CompiledScene` (with `animation: { twos, holds }`, the resolved cartoon timing: frames per drawing of the characters and the moving-hold amount), `CompiledActor` (with `twos` and `holds`: the actor's own values, else the scene's), `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
 `CompiledTransition`, `SceneAssets`, `AudioEvent`, `Shake`, `Grab`, `RigidBodySampler`,
 `SceneError`.
 
@@ -255,7 +257,7 @@ Remotion components.
 
 | Function / constant | Description |
 |---|---|
-| `diagnoseFrames(frames, times, { maxJump? }): Diagnostic[]` | Library-side checks per frame: NaN/Infinity, broken `url(#…)` / `href` references, duplicate ids, zero-axis blurs (a whole `stdDeviation` token that is 0, not a digit inside `2.0`), nodes present (or missing) for a single frame, top-level nodes jumping more than `maxJump` px between frames (camera pops) |
+| `diagnoseFrames(frames, times, { maxJump? }): Diagnostic[]` | Library-side checks per frame: NaN/Infinity, broken `url(#…)` / `href` references, duplicate ids, zero-axis blurs (a whole `stdDeviation` token that is 0, not a digit inside `2.0`), nodes present (or missing) for a single frame, and top-level nodes that jump more than `maxJump` px between frames (camera pops). The jump check compares drawings, not frames: a node that changes in a steady rhythm of 2–4 frames (an actor on twos or threes) may move `maxJump` × that many frames in one change, while a single change after a pause (a real pop) keeps the per-frame limit |
 | `withDebugOverlay(frame, { frameIndex, time, label? })` | Instruments a frame for a debug render: each top-level node paints a colored sentinel square inside its own content (in a strip at the bottom, `DEBUG_STRIP` px), and a barcode encodes the frame index |
 | `sentinelLayout(frame)`, `sentinelColor(key)`, `barcodeLayout(frame)` | Sentinel and barcode geometry (shared by the renderer and the reader) |
 | `readDebugStrip(raster, frame, tolerance?)` | Reads a captured frame: decoded frame index plus painted / missing sentinels (= nodes the browser did not paint) |

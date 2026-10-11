@@ -61,6 +61,16 @@ a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit`
 
 ## Staging
 
+```jsonc
+{ "animation": { "twos": true, "holds": 0.5 }, "blocks": [ … ] }
+```
+
+`animation` is the cartoon timing of the characters (the scene's `animation`, FORMAT §3.8): `twos`
+draws them on twos (or every `n` frames) under a smooth camera, `holds` keeps held poses alive with
+a subtle drift. A block's own `animation` overrides it; a cast entry, a block vehicle or a set
+fixture may say `twos` for itself (`false`: a clock's hand on ones). Vehicles, furniture and
+fixtures never drift. The motion checks compare drawings, not frames, for who is on twos.
+
 Times are always **relative to a line**: `{ "line": 25 }` (its start), `{ "line": 25, "word":
 "goes" }`, `{ "line": 25, "end": true }`, plus an optional `offset` (s). A line that does not exist
 is an error on that beat (the rest of the block is still staged); a `word` the line does not have

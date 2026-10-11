@@ -460,6 +460,17 @@ export const LightingSchema = z
   })
   .describe("Scene lighting: lights, ambient darkness, character cel shading, grading and vignette");
 
+/** Frames per drawing: `true` = 2 (on twos), `false` = 1 (on ones), or a number 1..4. */
+const Twos = z.union([z.boolean(), z.number().int().min(1).max(4)]);
+
+/** Cartoon timing of a scene: characters drawn on twos, moving holds. */
+const AnimationSchema = z
+  .strictObject({
+    twos: Twos.optional().describe("Frames per drawing of the characters: `true` = 2 (classic \"on twos\"), a number 1..4 (1 = on ones, default)"),
+    holds: z.number().min(0).max(1).optional().describe("Moving holds 0..1 (default 0): a held pose never stands still, every actor drifts subtly"),
+  })
+  .describe("Cartoon timing: characters on twos (the camera, layers and free props stay smooth) and moving holds");
+
 export const ActorSchema = z.strictObject({
   id: z.string(),
   character: z.string(),
@@ -468,6 +479,8 @@ export const ActorSchema = z.strictObject({
   flip: z.boolean().optional(),
   palette: z.record(z.string(), z.string()).optional(),
   seed: z.union([z.number(), z.string()]).optional(),
+  twos: Twos.optional().describe("Frames per drawing for this actor, overriding the scene's `animation.twos` (`false` / 1 = smooth: a clock, a car)"),
+  holds: z.number().min(0).max(1).optional().describe("Moving-hold drift for this actor, overriding the scene's `animation.holds` (0: a clock, a parked car, furniture)"),
   ...Placement,
 });
 
@@ -764,6 +777,7 @@ export const SceneSchema = z.strictObject({
     })
     .optional(),
   lighting: LightingSchema.optional(),
+  animation: AnimationSchema.optional(),
   layers: z.array(LayerSchema).optional(),
   actors: z.array(ActorSchema).optional(),
   props: z.array(PropSchema).optional(),

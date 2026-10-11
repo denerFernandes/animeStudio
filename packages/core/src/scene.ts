@@ -76,6 +76,10 @@ export interface CompiledActor {
   def: ActorDef;
   rig: Rig;
   seed: number;
+  /** Frames per drawing (1 = smooth, 2 = on twos…): the actor's own `twos`, else the scene's. */
+  twos: number;
+  /** Moving-hold drift 0..1: the actor's own `holds`, else the scene's (0 for things that are not alive). */
+  holds: number;
   clips: ClipInstance[];
   tracks: RigTrack[];
   placement: Partial<Record<PlacementProp, Track>>;
@@ -208,6 +212,8 @@ export interface CompiledScene {
   fx: CompiledFx[];
   audio: AudioEvent[];
   lighting?: { def: LightingDef; tracks: Record<string, Track> };
+  /** Cartoon timing, resolved: frames per drawing of the characters and the moving-hold amount (0..1). */
+  animation: { twos: number; holds: number };
   rigid?: RigidBodySampler;
 }
 
@@ -353,9 +359,14 @@ function initialPlacement(def: { x?: number; y?: number; rotation?: number; scal
   };
 }
 
+/** Frames per drawing from a `twos` field: `true` = 2, `false` = 1, a number as is (unset: `fallback`). */
+const framesPerDrawing = (v: boolean | number | undefined, fallback: number): number =>
+  v === undefined ? fallback : v === true ? 2 : v === false ? 1 : Math.max(1, Math.round(v));
+
 /** Compiles a validated scene and its assets into an evaluable scene. */
 export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene {
   const rigCache = new Map<string, Rig>();
+  const animation = { twos: framesPerDrawing(doc.animation?.twos, 1), holds: clamp(doc.animation?.holds ?? 0, 0, 1) };
 
   // Actors -----------------------------------------------------------------
   const actorBuffers = new Map<
@@ -398,6 +409,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       def,
       rig,
       seed: typeof def.seed === "string" ? hashString(def.seed) : (def.seed ?? hashString(def.id)),
+      twos: framesPerDrawing(def.twos, animation.twos),
+      holds: clamp(def.holds ?? animation.holds, 0, 1),
       clips: [],
       tracks: [],
       placement: {},
@@ -969,8 +982,10 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
     surfaces,
     fx,
     audio: audio.sort((x, y) => x.start - y.start),
+    animation,
   };
-  for (const actor of actors) if (actor.mounts) sceneOfActor.set(actor, compiled);
+  // Every actor knows its scene: riding resolves the ridden actor, drawings need the frame rate.
+  for (const actor of actors) sceneOfActor.set(actor, compiled);
   return compiled;
 }
 
@@ -1010,16 +1025,72 @@ function samplePlacement(
 
 const placementMatrix = (p: Placement): Mat => fromTRS(p.x, p.y, p.rotation, p.scale[0] * (p.flip ? -1 : 1), p.scale[1]);
 
-/** Scene of each compiled actor (riding resolves the ridden actor's pose). */
+/** Scene of each compiled actor (riding resolves the ridden actor's pose; drawings need the frame rate). */
 const sceneOfActor = new WeakMap<CompiledActor, CompiledScene>();
 /** Actors whose mount is being resolved (guards against riding cycles). */
 const resolvingMount = new Set<CompiledActor>();
 
-/** Placement of an actor, standing on its ground surface when it has one, or riding another actor. */
+// ---------------------------------------------------------------------------
+// Cartoon timing: drawings on twos, moving holds
+// ---------------------------------------------------------------------------
+
+/**
+ * Depth of smooth-time evaluation. The bakes (an actor's springs, a camera following or framing
+ * actors) run over the animation as authored — no drawings on twos, no moving holds — so they come
+ * out the same whatever the cartoon timing and whichever API needed them first; only their samples
+ * are taken at drawing times.
+ */
+let smoothDepth = 0;
+
+/** Runs `fn` with every actor on ones and without moving holds: what a bake (springs, camera rigs, rigid bodies) reads. */
+export function inSmoothTime<T>(fn: () => T): T {
+  smoothDepth++;
+  try {
+    return fn();
+  } finally {
+    smoothDepth--;
+  }
+}
+
+/**
+ * Time of the drawing an actor shows at `t`: `t` itself on ones (`twos` ≤ 1), else the start of its
+ * group of `twos` frames at the scene's frame rate (on twos, frames 2k and 2k+1 show frame 2k's drawing).
+ * The small tolerance keeps a frame time computed as `frame / fps` on its own frame.
+ */
+export function drawingTime(scene: CompiledScene, actor: CompiledActor, t: number): number {
+  const n = actor.twos;
+  if (!(n > 1)) return t;
+  return (Math.floor((t * scene.fps) / n + 1e-6) * n) / scene.fps;
+}
+
+/** The time an actor is drawn at while a frame is evaluated (smooth inside the bakes). */
+const drawnAt = (scene: CompiledScene, actor: CompiledActor, t: number): number => (smoothDepth > 0 ? t : drawingTime(scene, actor, t));
+
+/**
+ * Moving hold: a small drift of an actor's placement (scene px and degrees at `holds` 1), a slow and
+ * a quicker noise blended, so a held pose never freezes. Seeded by the actor id: the same every render.
+ */
+function holdDrift(actor: CompiledActor, holds: number, t: number): { x: number; y: number; rotation: number } {
+  const seed = hashString(actor.id);
+  const drift = (k: number) => 0.7 * noise1((seed + k * 7919) >>> 0, t * 0.35) + 0.3 * noise1((seed + k * 7919 + 1) >>> 0, t * 0.9);
+  return { x: drift(0) * 1.2 * holds, y: drift(1) * 0.8 * holds, rotation: drift(2) * 0.35 * holds };
+}
+
+/**
+ * Placement of an actor, standing on its ground surface when it has one, or riding another actor.
+ * On twos everything about it is taken at its drawing's time; moving holds add their drift on top
+ * (a view-time offset, never written into the tracks).
+ */
 function actorPlacementState(actor: CompiledActor, t: number): Placement {
-  const p = samplePlacement(actor.placement, actor.def, t);
+  const scene = sceneOfActor.get(actor);
+  const td = scene ? drawnAt(scene, actor, t) : t;
+  const p = samplePlacement(actor.placement, actor.def, td);
   if (actor.ground) p.y = surfaceY(actor.ground.surface, p.x) + actor.ground.offset;
-  return actor.mounts ? mountedPlacement(actor, p, t) : p;
+  const placed = actor.mounts ? mountedPlacement(actor, p, td) : p;
+  const holds = scene && smoothDepth === 0 ? actor.holds : 0;
+  if (!(holds > 0)) return placed;
+  const d = holdDrift(actor, holds, td);
+  return { ...placed, x: placed.x + d.x, y: placed.y + d.y, rotation: placed.rotation + d.rotation };
 }
 
 /**
@@ -1204,10 +1275,13 @@ function segmentPose(scene: CompiledScene, k: number, t: number, base: CameraPos
       const fl = seg.follow;
       const w = rigWeight(fl.start, Infinity, fl.blend, t);
       const actor = scene.actors.find((a) => a.id === fl.actor)!;
-      fl.samples ??= bakeFollow(fl, scene.duration, (tt) => {
-        const m = actorPlacement(actor, tt);
-        return [m[4], m[5]];
-      });
+      // The camera is not a drawing: it follows the actor's smooth motion (a pan over characters on twos).
+      fl.samples ??= inSmoothTime(() =>
+        bakeFollow(fl, scene.duration, (tt) => {
+          const m = actorPlacement(actor, tt);
+          return [m[4], m[5]];
+        }),
+      );
       const [fx, fy] = sampleFollow(fl.samples, fl.start, t);
       const prev = prevAt(t);
       return {
@@ -1220,11 +1294,14 @@ function segmentPose(scene: CompiledScene, k: number, t: number, base: CameraPos
     case "frame": {
       const fr = seg.frame;
       const w = rigWeight(fr.start, Infinity, fr.blend, t);
-      fr.samples ??= bakeFrame(fr, scene.duration, (tt) => {
-        const raw = targetsBox(scene, fr.targets, tt, fr.on === "face");
-        const box: typeof raw = fr.band ? [raw[0], fr.band[0], raw[2], fr.band[1]] : raw;
-        return Number.isFinite(box[0]) ? fitBox(box, scene.width, scene.height, fr.padding, fr.minZoom, fr.maxZoom) : null;
-      });
+      // Framed over the targets' smooth motion, like a follow.
+      fr.samples ??= inSmoothTime(() =>
+        bakeFrame(fr, scene.duration, (tt) => {
+          const raw = targetsBox(scene, fr.targets, tt, fr.on === "face");
+          const box: typeof raw = fr.band ? [raw[0], fr.band[0], raw[2], fr.band[1]] : raw;
+          return Number.isFinite(box[0]) ? fitBox(box, scene.width, scene.height, fr.padding, fr.minZoom, fr.maxZoom) : null;
+        }),
+      );
       const prev = prevAt(t);
       const fit = sampleFrame(fr.samples, fr.start, t);
       if (!fit) return prev;
@@ -1319,8 +1396,10 @@ function screenBox(actor: CompiledActor, pose: EvaluatedPose, m: Mat): [number, 
 /** Parts of a riding actor drawn just behind the ridden one, and that actor's z. */
 function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { parts: Set<string>; z: number } | undefined {
   if (!actor.mounts) return undefined;
+  // The mount is part of the drawing (its placement rides at the drawing's time too).
+  const td = drawnAt(scene, actor, t);
   let key: MountKey | undefined;
-  for (const k of actor.mounts) if (k.t <= t) key = k;
+  for (const k of actor.mounts) if (k.t <= td) key = k;
   if (!key?.on || !key.behind) return undefined;
   const ridden = scene.actors.find((a) => a.id === key!.on);
   return ridden ? { parts: new Set(key.behind), z: actorPlacementState(ridden, t).z } : undefined;
@@ -1477,11 +1556,17 @@ export function actorBake(scene: CompiledScene, actor: CompiledActor): PhysicsBa
   resolvingMount.clear();
   baking.add(actor);
   try {
-    actor.bake = bakePhysics(actor.rig, {
-      duration: scene.duration,
-      poseAt: (t) => prePhysicsPose(scene, actor, t),
-      placementAt: (t) => actorPlacement(actor, t),
-    });
+    // In smooth time: the springs follow the motion as animated, at the bake's own fixed rate, and
+    // the pose and placement callbacks are not quantized to drawings (stepped placements would kick
+    // the springs at every drawing). A drawing then takes its sample at its own time (`actorPose`),
+    // so a frame on twos shows exactly the smooth animation's frame of that drawing, physics included.
+    actor.bake = inSmoothTime(() =>
+      bakePhysics(actor.rig, {
+        duration: scene.duration,
+        poseAt: (t) => prePhysicsPose(scene, actor, t),
+        placementAt: (t) => actorPlacement(actor, t),
+      }),
+    );
   } finally {
     baking.delete(actor);
     resolvingAim.clear();
@@ -1492,10 +1577,15 @@ export function actorBake(scene: CompiledScene, actor: CompiledActor): PhysicsBa
   return actor.bake;
 }
 
-/** Full pose of an actor at time t (including baked physics), in character space. */
+/**
+ * Full pose of an actor at time t (including baked physics), in character space. On twos it is the
+ * pose of the drawing shown at t: the pose, the aim and reach targets it resolves and the physics
+ * sample are all taken at the drawing's time.
+ */
 export function actorPose(scene: CompiledScene, actor: CompiledActor, t: number): EvaluatedPose {
-  const pose = prePhysicsPose(scene, actor, t);
-  applyPhysicsSample(actor.rig, pose, samplePhysics(actorBake(scene, actor), t));
+  const td = drawnAt(scene, actor, t);
+  const pose = prePhysicsPose(scene, actor, td);
+  applyPhysicsSample(actor.rig, pose, samplePhysics(actorBake(scene, actor), td));
   return pose;
 }
 

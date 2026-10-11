@@ -38,7 +38,10 @@ export interface Diagnostic {
 }
 
 export interface DiagnoseOptions {
-  /** Screen px a top-level node may move between consecutive frames before it counts as a jump (default 160). */
+  /**
+   * Screen px a top-level node may move between consecutive frames before it counts as a jump
+   * (default 160). A node drawn on twos (threes, fours) may move that much per frame of its drawing.
+   */
   maxJump?: number;
 }
 
@@ -49,11 +52,48 @@ function nodePosition(n: RenderNode): [number, number] | undefined {
   return "transform" in n && n.transform ? [n.transform[4], n.transform[5]] : undefined;
 }
 
+/**
+ * Frames each node's drawing spans when it changes, by frame: a node that moves in a steady rhythm
+ * of every 2–4 frames (an actor on twos, threes, fours) changes by a whole drawing at once, so its
+ * jump threshold is per drawing, not per frame. A lone change (a pop after a pause, with no drawings
+ * following it in that rhythm) keeps the per-frame threshold.
+ */
+function drawingSpans(frames: RenderFrame[]): Map<string, number>[] {
+  const changes = new Map<string, number[]>();
+  let prev = new Map<string, [number, number] | undefined>();
+  frames.forEach((frame, i) => {
+    const cur = new Map(frame.nodes.map((n) => [n.key, nodePosition(n)]));
+    for (const [key, b] of cur) {
+      const a = prev.get(key);
+      if (a && b && (a[0] !== b[0] || a[1] !== b[1])) {
+        const list = changes.get(key) ?? [];
+        list.push(i);
+        changes.set(key, list);
+      }
+    }
+    prev = cur;
+  });
+  const spans = frames.map(() => new Map<string, number>());
+  for (const [key, list] of changes) {
+    const steady = (h: number) => h >= 2 && h <= 4;
+    list.forEach((i, k) => {
+      const h = k > 0 ? i - list[k - 1] : Infinity;
+      const before = k > 1 ? list[k - 1] - list[k - 2] : 0;
+      const after = k + 1 < list.length ? list[k + 1] - i : 0;
+      if (steady(h) && (before === h || after === h)) spans[i].set(key, h);
+      // The first drawing of a move (after standing still) spans as many frames as the ones after it.
+      else if (steady(after) && h >= after) spans[i].set(key, after);
+    });
+  }
+  return spans;
+}
+
 /** Diagnoses a list of consecutive frames (frame i at time `times[i]`). */
 export function diagnoseFrames(frames: RenderFrame[], times: number[], opts: DiagnoseOptions = {}): Diagnostic[] {
   const out: Diagnostic[] = [];
   const maxJump = opts.maxJump ?? 160;
   const keySets = frames.map((fr) => new Set(fr.nodes.map((n) => n.key)));
+  const spans = drawingSpans(frames);
 
   frames.forEach((frame, i) => {
     const time = times[i];
@@ -100,8 +140,11 @@ export function diagnoseFrames(frames: RenderFrame[], times: number[], opts: Dia
       for (const n of frame.nodes) {
         const a = prev.get(n.key);
         const b = nodePosition(n);
-        if (a && b && Math.hypot(b[0] - a[0], b[1] - a[1]) > maxJump) {
-          out.push({ frame: i, time, kind: "jump", severity: "info", key: n.key, message: `moved ${Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]))} px in one frame (a cut or a pop)` });
+        // On twos a drawing replaces the one held before it: compare drawings, not frames.
+        const span = spans[i].get(n.key) ?? 1;
+        if (a && b && Math.hypot(b[0] - a[0], b[1] - a[1]) > maxJump * span) {
+          const where = span > 1 ? `one drawing (${span} frames)` : "one frame";
+          out.push({ frame: i, time, kind: "jump", severity: "info", key: n.key, message: `moved ${Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]))} px in ${where} (a cut or a pop)` });
         }
       }
     }
