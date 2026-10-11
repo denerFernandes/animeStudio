@@ -235,5 +235,7 @@ describe("crossfades keep the timeline", () => {
     const plain = direct({ blocks: (s.blocks as { transition?: string }[]).map(({ transition, ...b }) => b) } as unknown as Staging, ls, kit);
     const seqPlain = compileSequence(plain.sequence as never, { scenes: Object.fromEntries(Object.entries(plain.scenes).map(([id, doc]) => [id, { doc, assets: { characters: kit.characters } }])) } as never);
     expect(seq.shots[seq.shots.length - 1].end).toBeCloseTo(seqPlain.shots[seqPlain.shots.length - 1].end, 2);
+    // check() watches the same rule.
+    expect(check(s, ls, kit).filter((i) => /early|late/.test(i.message))).toEqual([]);
   });
 });

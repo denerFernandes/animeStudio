@@ -22,8 +22,7 @@ import {
   rig3dPoint,
   rig3dPose,
   validateScene,
-  validateSequence,
-} from "@animestudio/core";
+  validateSequence, layoutShots } from "@animestudio/core";
 import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
 import type { Animation, Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
 
@@ -4524,8 +4523,18 @@ export function check(staging: Staging, lines: Line[], kit: Kit, opts: CheckOpti
       t += d;
     }
   }
-  // Every speaking cast member is in the block where they speak.
   const time = new Timeline(lines);
+  // The picture on the beat: every live shot's scene is laid out so that its time 0 falls on the
+  // block's start (a transition that overlaps shots never pulls what follows early: the mouths
+  // would move before the voices). Replays and rewinds are shown out of their time on purpose.
+  for (const sh of layoutShots(out.sequence, (id) => out.scenes[id].duration)) {
+    const block = staging.blocks.find((b) => b.id === sh.sceneId);
+    const src = out.sequence.shots[sh.index] as { muteSpeech?: boolean; speed?: number };
+    if (!block || src.muteSpeech || (src.speed ?? 1) !== 1) continue;
+    const drift = sh.start - sh.from - blocks0(staging, time, block);
+    if (Math.abs(drift) > 0.02) issues.push({ severity: "error", where: `sequence at ${sh.start.toFixed(2)} s`, message: `the shot of "${block.id}" runs ${Math.abs(drift).toFixed(2)} s ${drift < 0 ? "early" : "late"} against the dialogue (its scene's time 0 should fall on the block's start)` });
+  }
+  // Every speaking cast member is in the block where they speak.
   for (const l of lines) {
     const id = speakerId(kit, l.speaker);
     if (!id) continue;

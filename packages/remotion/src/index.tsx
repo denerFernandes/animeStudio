@@ -153,13 +153,19 @@ function RasterFrame({ frame }: { frame: RenderFrame }) {
         const c = ref.current;
         if (done || !c) return;
         const k = window.devicePixelRatio || 1;
-        c.width = Math.round(width * k);
-        c.height = Math.round(height * k);
+        const w = Math.round(width * k), h = Math.round(height * k);
+        // (Sized once: resizing a canvas every frame throws its backing store away, and a capture
+        // can catch the compositor with half its tiles still the old ones — a torn frame.)
+        if (c.width !== w) c.width = w;
+        if (c.height !== h) c.height = h;
         const ctx = c.getContext("2d", { willReadFrequently: true });
         if (!ctx) throw new Error("no 2D canvas context");
-        ctx.clearRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        finish();
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        // Reading a pixel back forces the drawing to complete; two animation frames let the
+        // compositor commit the new picture before the capture.
+        ctx.getImageData(0, 0, 1, 1);
+        requestAnimationFrame(() => requestAnimationFrame(finish));
       })
       .catch((e: unknown) => {
         if (!done) cancelRender(new Error(`Could not rasterize the frame: ${e instanceof Error ? e.message : String(e)}`));
