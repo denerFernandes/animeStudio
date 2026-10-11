@@ -1410,7 +1410,11 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // it is drawn over the upper arms and the sleeves (`under`) whatever their depth: a shoulder
   // turned towards the camera never covers the jaw. A forearm keeps its depth (a phone at the ear,
   // a glass at the mouth).
-  const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: m.headParts.map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v * 0.97)) })) };
+  // It covers the head as drawn, outline included: the drawing is seen nearly level and put back on
+  // the neck (`headAngle`), its chin a little lower than the volume's at the room's pitch — so the
+  // volume grows by the outline and by that difference (the face's depth × the pitch left out).
+  const grow = SW + u * 0.9 * Math.abs(Math.sin(pitch) - Math.sin(pitch * HEAD_PITCH)) + u * 0.02;
+  const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: m.headParts.map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v + grow)) })) };
   // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
   const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map(occluder);
   const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };

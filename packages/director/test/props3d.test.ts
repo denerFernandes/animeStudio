@@ -193,7 +193,7 @@ describe("carried", () => {
 
 describe("walking and running with drawn angles", () => {
   const s = (beats: unknown[]) => ({ blocks: [{ id: "x", set: "s", from: 0, to: 2, cast: [{ id: "kid", at: "a", facing: "right" }], beats }] }) as unknown as Staging;
-  const views = (d: ReturnType<typeof direct>) => (d.scenes.x.script as { at: number; action: string; control?: string; value?: unknown; direction?: string }[]).filter((a) => a.actor === "kid" && ((a.action === "pose" && a.control === "view") || a.action === "face")).map((a) => [a.at, a.action === "face" ? `face:${a.direction}` : a.value] as [number, string]);
+  const views = (d: ReturnType<typeof direct>) => (d.scenes.x.script as { at: number; actor?: string; action: string; control?: string; value?: unknown; direction?: string }[]).filter((a) => a.actor === "kid" && ((a.action === "pose" && a.control === "view") || a.action === "face")).map((a) => [a.at, a.action === "face" ? `face:${a.direction}` : a.value] as [number, string]);
   it("turns through its angles to set off the other way (never flipped at once), and runs in its travel view", () => {
     const d = direct(s([{ line: 1, do: "run", who: "kid", to: { mark: "a", dx: -600 } }]), lines, kit);
     expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
