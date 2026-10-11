@@ -333,7 +333,11 @@ does, wherever it sorts). A cut starts at its moment (one near a block's first l
 on it: no sliver of the live action before it) and comes back to the live action with a straight cut, or with
 `transitionOut`; its `transition` is the way in only (a replay flashes back by default). Between live
 blocks the cut is straight unless the block says otherwise (`transition` on the block: `fade`,
-`flash`, `crossfade`, `iris`, `wipe`). Shots under 0.4 s are merged into their neighbours, and
+`flash`, `crossfade`, `iris`, `wipe`). A crossfade overlaps the shots (the sequence starts the
+shot `duration` early, over the end of the one before), so the director begins that shot that much
+earlier in its scene and makes it that much longer: at the cut the scene is where the cut asked, and
+nothing after it comes early (a scene with no room before the cut gets a shorter crossfade). Shots
+under 0.4 s are merged into their neighbours, and
 `check` reports any shot that would read as a blink and white flashes less than 2 s apart.
 
 A cut with `rewind: { line, word?, offset? }` rewinds the tape instead: what was shown from that

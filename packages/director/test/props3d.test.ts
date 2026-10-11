@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cartoonCharacter, cartoonInfo } from "../../kit/src";
+import { compileSequence } from "../../core/src";
 import { type Kit, type Line, type Staging, check, direct } from "../src";
 
 // A kid sitting on the floor with a candy cigarette on the lips: takes it out, holds it while
@@ -209,5 +210,30 @@ describe("walking and running with drawn angles", () => {
   it("walks in its own view (only a run turns side-on)", () => {
     const d = direct(s([{ line: 1, do: "walk", who: "kid", to: { mark: "a", dx: 600 } }]), lines, kit);
     expect(views(d).map(([, x]) => x)).not.toContain("q64");
+  });
+});
+
+describe("crossfades keep the timeline", () => {
+  it("a shot faded into starts earlier in its scene and lasts longer, so the dialogue after it is not early", () => {
+    const ls: Line[] = [{ i: 0, s: 0.2, e: 1.5, text: "a", speaker: "n" }, { i: 1, s: 3.0, e: 4.5, text: "b", speaker: "n" }, { i: 2, s: 6.0, e: 7.5, text: "c", speaker: "n" }];
+    const s = { blocks: [
+      { id: "x", set: "s", from: 0, to: 1, cast: [{ id: "kid", at: "a" }] },
+      { id: "y", set: "s", from: 1, to: 2, cast: [{ id: "kid", at: "a" }], transition: "crossfade" },
+      { id: "z", set: "s", from: 2, to: 3, cast: [{ id: "kid", at: "a" }], transition: "crossfade" },
+    ] } as unknown as Staging;
+    const d = direct(s, ls, kit);
+    const shots = d.sequence.shots as { scene: string; from: number; duration: number; transition?: { type: string; duration: number } }[];
+    const seq = compileSequence(d.sequence as never, { scenes: Object.fromEntries(Object.entries(d.scenes).map(([id, doc]) => [id, { doc, assets: { characters: kit.characters } }])) } as never);
+    // The second and third shots fade in; each is laid out 0.6 s early, so each starts 0.6 s earlier in its scene.
+    expect(shots[1].transition).toMatchObject({ type: "crossfade", duration: 0.6 });
+    // At the cut (line 1 at 3.0 s), the scene y is at the time the cut asked for: its block started at 3.0 → scene time 0 (+ lead).
+    const y = seq.shots[1], z = seq.shots[2];
+    const cutY = y.start + y.transition.duration, cutZ = z.start + z.transition.duration;
+    expect(cutY).toBeCloseTo(3.0, 2);
+    expect(cutZ).toBeCloseTo(6.0, 2);
+    // The whole sequence ends when the same episode with straight cuts ends.
+    const plain = direct({ blocks: (s.blocks as { transition?: string }[]).map(({ transition, ...b }) => b) } as unknown as Staging, ls, kit);
+    const seqPlain = compileSequence(plain.sequence as never, { scenes: Object.fromEntries(Object.entries(plain.scenes).map(([id, doc]) => [id, { doc, assets: { characters: kit.characters } }])) } as never);
+    expect(seq.shots[seq.shots.length - 1].end).toBeCloseTo(seqPlain.shots[seqPlain.shots.length - 1].end, 2);
   });
 });

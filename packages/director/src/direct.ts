@@ -157,6 +157,8 @@ export const MOODS: Record<string, { grade: string; opacity: number; ambient?: {
 
 /** Lead time: a block (and its camera) starts this much before its first line. */
 const LEAD = 0.25;
+/** A crossfade between blocks (s): the shot faded into begins this early in its scene. */
+const CROSSFADE = 0.6;
 const SLOT = 230;
 /** A limb's angle channels (they turn the short way round; free moves of them may settle). */
 const LIMB = /^bones\.(arm|leg|hand|foot)\w*\.(rotation|turn|spread)$/;
@@ -189,7 +191,10 @@ export class Timeline {
     return t + (w.offset ?? 0);
   }
   blockStart(b: Block) {
-    return b.from <= 0 ? 0 : Math.max(0, this.start(b.from) - LEAD);
+    // (A block faded into needs the crossfade's length before its first line: the shot begins that
+    // early in the scene, so the fade ends on the beat.)
+    const lead = b.transition === "crossfade" ? Math.max(LEAD, CROSSFADE) : LEAD;
+    return b.from <= 0 ? 0 : Math.max(0, this.start(b.from) - lead);
   }
   blockEnd(b: Block) {
     return b.to >= this.lines.length ? this.end : this.start(b.to) - LEAD;
@@ -4388,15 +4393,25 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   }
   const shots = segs
     .filter((s) => s.t1 - s.t0 > 0.02)
-    .map((s) => ({
-      scene: s.scene,
-      from: r3(s.from),
-      duration: r3(s.t1 - s.t0),
-      ...(s.mute ? { muteSpeech: true } : {}),
-      ...(s.speed !== undefined ? { speed: r3(s.speed) } : {}),
-      ...(s.overlay ? { overlay: s.overlay } : {}),
-      ...(s.transition && s.transition !== "cut" ? { transition: { type: s.transition, duration: s.transition === "flash" ? 0.3 : 0.6, ...(s.transition === "flash" ? { color: "#ffffff" } : {}) } } : {}),
-    }));
+    .map((s, i) => {
+      // A crossfade overlaps the shots: the sequence starts this one `duration` early, over the end
+      // of the one before. So that the timeline stays on the dialogue (everything after would come
+      // `duration` early — the mouths before the voices), the shot begins that much earlier in its
+      // scene and lasts that much longer: at the cut its scene time is what the cut asked for. A
+      // scene with no room before the cut gets a shorter crossfade. (The first shot cannot fade in
+      // from a shot before it.)
+      const cross = s.transition === "crossfade" && i > 0 ? Math.min(CROSSFADE, s.from) : 0;
+      const type = cross > 0 || s.transition !== "crossfade" ? s.transition : "cut";
+      return {
+        scene: s.scene,
+        from: r3(s.from - cross),
+        duration: r3(s.t1 - s.t0 + cross),
+        ...(s.mute ? { muteSpeech: true } : {}),
+        ...(s.speed !== undefined ? { speed: r3(s.speed) } : {}),
+        ...(s.overlay ? { overlay: s.overlay } : {}),
+        ...(type && type !== "cut" ? { transition: { type, duration: type === "flash" ? 0.3 : type === "crossfade" ? r3(cross) : 0.6, ...(type === "flash" ? { color: "#ffffff" } : {}) } } : {}),
+      };
+    });
   const sequence = {
     format: "toon-sequence",
     version: 1,
