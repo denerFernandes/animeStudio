@@ -14,11 +14,13 @@ import {
   type Vec2,
   angleOf,
   apply,
+  applyLinear,
   dist,
   distToSegment,
   fromTRS,
   invert,
   matAngle,
+  matScaleX,
   multiply,
   sub,
   wrapAngle,
@@ -319,18 +321,23 @@ const VISEME_FALLBACK: Record<string, string[]> = {
 };
 
 /**
- * Resolves a viseme to a variant (switch part) or shape (morph part) that exists,
- * using fallbacks for smaller mouth sets. Returns undefined when nothing matches
- * (for morph parts this means "base shape").
+ * Resolves a viseme to a variant (switch part) or shape (morph part) that exists, using fallbacks
+ * for smaller mouth sets: the viseme itself, then its fallbacks, then theirs (breadth first, in the
+ * listed order) until one is drawn. Returns undefined when nothing in the chain matches (for morph
+ * parts this means "base shape").
  */
 export function visemeVariant(control: Extract<RigControl, { type: "viseme" }>, part: RigPart, viseme: string): string | undefined {
   if (part.type !== "switch" && part.type !== "morph") return undefined;
   const pool = part.type === "switch" ? part.variants : part.shapes;
-  const has = (v: string | undefined) => v !== undefined && v in pool;
-  const candidates = [viseme, ...(VISEME_FALLBACK[viseme] ?? [])];
-  for (const c of candidates) {
+  const queue = [viseme];
+  const seen = new Set<string>();
+  for (let q = 0; q < queue.length; q++) {
+    const c = queue[q];
+    if (seen.has(c)) continue;
+    seen.add(c);
     const mapped = control.map[c] ?? c;
-    if (has(mapped)) return mapped;
+    if (mapped in pool) return mapped;
+    queue.push(...(VISEME_FALLBACK[c] ?? []));
   }
   return undefined;
 }
@@ -387,14 +394,25 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
     };
     if (setupForm) {
       const from: Vec2 = def.from ?? (parentWorld ? apply(parentWorld, [0, 0]) : [0, 0]);
-      const worldAngle = def.to ? angleOf(sub(def.to, from)) : 0;
-      if (def.to && def.length === undefined) bone.length = dist(from, def.to);
       const local = parentWorld ? apply(invert(parentWorld), from) : from;
       bone.x = local[0];
       bone.y = local[1];
-      const parentAngle = parentWorld && bone.inheritRotation ? matAngle(parentWorld) : 0;
-      const flip = parentWorld && parentWorld[0] * parentWorld[3] - parentWorld[1] * parentWorld[2] < 0 ? -1 : 1;
-      bone.rotation = wrapAngle((worldAngle - parentAngle) * flip);
+      // The tip must land on `to` (world rotation 0 without one), so the direction and length are
+      // measured in the space the bone's matrix is composed in (`composeWorld`): the parent's
+      // (its rest scale, mirroring and rotation included) when the bone inherits both, else the
+      // world's, less the inherited rotation and divided by the inherited scale.
+      const worldDir: Vec2 = def.to && dist(def.to, from) > 1e-9 ? sub(def.to, from) : [1, 0];
+      let dir: Vec2, inheritedScale = 1;
+      if (parentWorld && bone.inheritRotation && bone.inheritScale) dir = applyLinear(invert(parentWorld), worldDir);
+      else {
+        const parentAngle = parentWorld && bone.inheritRotation ? matAngle(parentWorld) : 0;
+        const a = (angleOf(worldDir) - parentAngle) * (Math.PI / 180), l = Math.hypot(worldDir[0], worldDir[1]);
+        dir = [Math.cos(a) * l, Math.sin(a) * l];
+        if (parentWorld && bone.inheritScale) inheritedScale = matScaleX(parentWorld);
+      }
+      // (The bone's own rest `scaleX` stretches its length: a negative one points it the other way.)
+      bone.rotation = wrapAngle(angleOf(dir) + (bone.scaleX < 0 ? 180 : 0));
+      if (def.to && def.length === undefined) bone.length = Math.hypot(dir[0], dir[1]) / (inheritedScale * Math.abs(bone.scaleX || 1));
     }
     const local = boneLocalMatrix(bone);
     bone.setupWorld = composeWorld(bone, parentWorld, local, bone.rotation);
@@ -692,7 +710,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
 
   const colliders = (doc.colliders ?? []).map((c, i) => ({ bone: boneRef(c.bone, `colliders[${i}]`), radius: c.radius }));
 
-  const rig3d = doc.rig3d ? compileRig3d({ bones, boneIndex, partIndex }, doc.rig3d as never) : undefined;
+  const rig3d = doc.rig3d ? compileRig3d({ bones, boneIndex, partIndex, ik }, doc.rig3d as never) : undefined;
   // Morph parts clipped by another morph part (teeth inside the mouth).
   for (const def of doc.parts) {
     if (def.type !== "morph" || !def.clip) continue;

@@ -77,7 +77,8 @@ export function diagnoseFrames(frames: RenderFrame[], times: number[], opts: Dia
         const id = m[1] ?? m[2];
         if (!ids.has(id)) out.push({ frame: i, time, kind: "broken-reference", severity: "error", key: n.key, message: `reference to undefined "#${id}"` });
       }
-      if (/stdDeviation="[^"]*\b0(\s|")/.test(s)) {
+      // A whole token that is zero (`0`, `0.0`, in either axis), not a digit inside another number (`2.0`).
+      if (/stdDeviation="(?:[^"]*[\s,])?0(?:\.0+)?(?:[\s,]|")/.test(s)) {
         out.push({ frame: i, time, kind: "zero-blur-axis", severity: "error", key: n.key, message: "blur with a zero axis (browsers hide the element)" });
       }
     }

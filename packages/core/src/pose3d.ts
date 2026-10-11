@@ -7,13 +7,13 @@
  * IK, the posed 3D skeleton is projected with the view's yaw (the `view` control → `rig3d.views`)
  * and the rig's pitch, and the 2D bones are set to match: their place, their direction and their
  * foreshortening (a squash). Leg IK (feet planted while walking) is solved in the side plane before
- * projecting, so walks foreshorten correctly from the front. Limbs nearer or farther than the body
- * are drawn in front of or behind it (`chains`).
+ * projecting, so walks foreshorten correctly from the front (which chains are legs: `sideIk`).
+ * Limbs nearer or farther than the body are drawn in front of or behind it (`chains`).
  */
 import type { Mat, Vec2 } from "./math";
 import { DEG, apply, clamp, invert, matAngle, wrapAngle } from "./math";
 import type { PoseState } from "./pose";
-import type { Rig, RigPart } from "./rig";
+import type { Rig, RigIk, RigPart } from "./rig";
 import { occluderDepthAt } from "./solid";
 
 export type V3 = [number, number, number];
@@ -29,9 +29,33 @@ export interface CompiledRig3d {
   front?: number;
   back?: number;
   body: number[];
+  /** IK chains (indices into `rig.ik`) solved in the side plane before projecting: the legs. */
+  sideIk: number[];
 }
 
-export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
+/**
+ * The IK chains a 2.5D rig solves in the side plane (`CompiledRig3d.sideIk`): a two-bone chain
+ * of 3D bones that hangs — mostly vertical at rest, pointing down — and ends at the bottom of the
+ * 3D skeleton (its rest tip within a tenth of the skeleton's height of the lowest 3D point): a leg
+ * standing on the ground. Arms hang too but end at the hips; a tail ends behind.
+ */
+function sidePlaneChains(ik: RigIk[], bones: CompiledRig3d["bones"], byIndex: Map<number, number>): number[] {
+  let minY = Infinity, maxY = -Infinity;
+  for (const b of bones) for (const p of [b.from, b.to]) { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
+  const floor = maxY - 0.1 * (maxY - minY);
+  const out: number[] = [];
+  ik.forEach((k, c) => {
+    if (k.bones.length !== 2) return;
+    const ia = byIndex.get(k.bones[0]), ib = byIndex.get(k.bones[1]);
+    if (ia === undefined || ib === undefined) return;
+    const d = sub3(bones[ib].to, bones[ia].from);
+    const hangs = d[1] > 0 && d[1] >= Math.abs(d[0]) && d[1] >= Math.abs(d[2]);
+    if (hangs && bones[ib].to[1] >= floor) out.push(c);
+  });
+  return out;
+}
+
+export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex"> & { ik?: RigIk[] }, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string }[]; front?: string; back?: string; body?: string[] }): CompiledRig3d {
   const listed = new Set(Object.keys(def.bones));
   const bones: CompiledRig3d["bones"] = [];
   const byIndex = new Map<number, number>();
@@ -52,6 +76,7 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     front: def.front ? rig.partIndex.get(def.front) : undefined,
     back: def.back ? rig.partIndex.get(def.back) : undefined,
     body: (def.body ?? ["body", "neck"]).map(bi).filter((x): x is number => x !== undefined),
+    sideIk: sidePlaneChains(rig.ik ?? [], bones, byIndex),
   };
 }
 
@@ -74,7 +99,7 @@ const ry = (a: number): M3 => {
   const c = Math.cos(a), s = Math.sin(a);
   return [c, 0, s, 0, 1, 0, -s, 0, c];
 };
-/** About the forward axis: + swings a hanging limb towards +x. */
+/** About the forward axis (z): + swings a hanging limb towards −x (to the viewer's left in the front view). */
 const rz = (a: number): M3 => {
   const c = Math.cos(a), s = Math.sin(a);
   return [c, -s, 0, s, c, 0, 0, 0, 1];
@@ -104,37 +129,42 @@ export interface Rig3dFrame {
   yaw: number;
   pitch: number;
   off: Vec2;
+  /** The IK chains (indices into `rig.ik`) placed in the side plane this frame: the 2D IK pass skips them. */
+  sideIk: number[];
 }
 
 /**
  * Poses the 3D bones and writes the matching 2D state (offsets, rotations, squash) so that
  * `computeWorld` reproduces the projection. `world` is the current world (for the hips' place).
- * Leg chains with IK on (and no absolute target) are solved in the side plane first; their IK is
- * then switched off for the 2D pass.
+ * Leg chains (`r3.sideIk`) with IK on and no absolute target are solved in the side plane first
+ * and listed in the frame's `sideIk` for the 2D pass to skip; their mix is left as it is (springs
+ * on a placed leg give way). `ikOffset` (the ground under a foot) counts by its vertical part.
  */
-export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat[], ikTargets: Record<string, unknown> | undefined): Rig3dFrame {
+export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat[], ikTargets: Record<string, unknown> | undefined, ikOffset?: Record<string, Vec2>): Rig3dFrame {
   // The view control holds a name or (while blending) weights per name: the heaviest wins.
   const vc = s.controls.view as unknown;
   const view = typeof vc === "string" ? vc : vc && typeof vc === "object" && !Array.isArray(vc) ? Object.entries(vc as Record<string, number>).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "profile" : "profile";
   const yaw = ((r3.views[view] ?? r3.views.profile ?? 0) * Math.PI) / 180;
   const pitch = (r3.pitch * Math.PI) / 180;
   // Leg IK in the side plane (forward = the 2D target's x, down = its y).
-  for (let c = 0; c < rig.ik.length; c++) {
+  const sideIk: number[] = [];
+  for (const c of r3.sideIk) {
     const k = rig.ik[c];
-    if (k.bones.length !== 2 || s.ikMix[c] <= 0 || ikTargets?.[k.id]) continue;
+    if (s.ikMix[c] <= 0 || ikTargets?.[k.id]) continue;
     const [a, b] = k.bones;
-    const ia = r3.byIndex.get(a), ib = r3.byIndex.get(b);
-    if (ia === undefined || ib === undefined || !rig.bones[a].id.startsWith("leg")) continue;
-    const A = r3.bones[ia], B = r3.bones[ib];
+    const A = r3.bones[r3.byIndex.get(a)!], B = r3.bones[r3.byIndex.get(b)!];
     const end: V3 = B.to;
-    // Plane coordinates (z forward, y down), relative to the hip joint.
+    // Plane coordinates (z forward, y down), relative to the hip joint. The ground under the foot
+    // (`ikOffset`: a slope) is a height, which the plane shares with the picture.
     const l1 = Math.hypot(B.from[1] - A.from[1], B.from[2] - A.from[2]), l2 = Math.hypot(end[1] - B.from[1], end[2] - B.from[2]);
-    const tz = end[2] - A.from[2] + s.ikX[c], ty = end[1] - A.from[1] + s.ikY[c];
+    const tz = end[2] - A.from[2] + s.ikX[c], ty = end[1] - A.from[1] + s.ikY[c] + (ikOffset?.[k.id]?.[1] ?? 0);
     const d = clamp(Math.hypot(tz, ty), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
     const base = Math.atan2(ty, tz);
     const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1);
-    // The knee bends forward (towards +z): the thigh turns from the line to the target towards +z.
-    const thigh = base - (k.bend ?? 1) * Math.acos(cosA);
+    // The knee bends forward (towards +z) with the chain's `bend`, or the other way when the
+    // `ik.<id>.bend` channel says so: the thigh turns from the line to the target towards +z.
+    const bend = s.ikBend[c] < 0 ? -k.bend : k.bend;
+    const thigh = base - bend * Math.acos(cosA);
     const knee: [number, number] = [Math.cos(thigh) * l1, Math.sin(thigh) * l1];
     const shin = Math.atan2(ty - knee[1], tz - knee[0]);
     const restThigh = Math.atan2(B.from[1] - A.from[1], B.from[2] - A.from[2]), restShin = Math.atan2(end[1] - B.from[1], end[2] - B.from[2]);
@@ -142,7 +172,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     // In the side plane a rotation + swings the limb backwards: the plane angle grows with it.
     s.brot[a] += wrapAngle((thigh - restThigh) / DEG) * m;
     s.brot[b] += wrapAngle((shin - thigh - (restShin - restThigh)) / DEG) * m;
-    s.ikMix[c] = 0;
+    sideIk.push(c);
   }
   // 3D FK.
   const n = r3.bones.length;
@@ -207,7 +237,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     basis.set(B.index, bm);
     full.set(B.index, [c * sq, sn * sq, -sn / sq, c / sq, o[0], o[1]]);
   }
-  return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off };
+  return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off, sideIk };
 }
 
 /**

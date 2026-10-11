@@ -169,7 +169,10 @@ function RasterFrame({ frame }: { frame: RenderFrame }) {
   return <canvas ref={ref} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />;
 }
 
-/** Bakes rigid bodies asynchronously, holding the render until done. */
+/** A failed bake fails the render (`cancelRender`) instead of leaving the frame blank. */
+const bakeError = (e: unknown) => new Error(`Could not bake the rigid bodies: ${e instanceof Error ? e.message : String(e)}`);
+
+/** Bakes rigid bodies asynchronously, holding the render until done; a failed bake cancels the render. */
 function usePreparedScene(compiled: CompiledScene): CompiledScene | null {
   const needsBake = sceneHasBodies(compiled);
   const [ready, setReady] = useState<CompiledScene | null>(needsBake ? null : compiled);
@@ -180,9 +183,13 @@ function usePreparedScene(compiled: CompiledScene): CompiledScene | null {
     }
     const handle = delayRender("Baking rigid bodies");
     let alive = true;
-    bakeRigidBodies(compiled)
-      .then((s) => alive && setReady(s))
-      .finally(() => continueRender(handle));
+    bakeRigidBodies(compiled).then(
+      (s) => {
+        if (alive) setReady(s);
+        continueRender(handle);
+      },
+      (e: unknown) => cancelRender(bakeError(e)),
+    );
     return () => {
       alive = false;
     };
@@ -190,10 +197,13 @@ function usePreparedScene(compiled: CompiledScene): CompiledScene | null {
   return ready;
 }
 
+/** Frames in a duration: `duration × fps` rounded up, but not for floating-point noise (2.2 × 25 = 55.00…01 is 55 frames, not 56). */
+const frameCount = (duration: number, fps: number) => Math.ceil(duration * fps - 1e-6);
+
 /** Composition metadata derived from a scene (use in `calculateMetadata` or as props). */
 export function toonMetadata(scene: SceneDoc) {
   return {
-    durationInFrames: Math.ceil(scene.duration * scene.fps),
+    durationInFrames: frameCount(scene.duration, scene.fps),
     fps: scene.fps,
     width: scene.width,
     height: scene.height,
@@ -256,9 +266,13 @@ function usePreparedSequence(seq: CompiledSequence): CompiledSequence | null {
     const handle = delayRender("Baking rigid bodies");
     let alive = true;
     const unique = [...new Set(seq.shots.map((s) => s.scene))];
-    Promise.all(unique.map((s) => bakeRigidBodies(s)))
-      .then(() => alive && setReady({ ...seq }))
-      .finally(() => continueRender(handle));
+    Promise.all(unique.map((s) => bakeRigidBodies(s))).then(
+      () => {
+        if (alive) setReady({ ...seq });
+        continueRender(handle);
+      },
+      (e: unknown) => cancelRender(bakeError(e)),
+    );
     return () => {
       alive = false;
     };
@@ -270,7 +284,7 @@ function usePreparedSequence(seq: CompiledSequence): CompiledSequence | null {
 export function toonSequenceMetadata(sequence: SequenceDoc, scenes: Record<string, { doc: SceneDoc }>) {
   const duration = sequenceDuration(sequence, Object.fromEntries(Object.entries(scenes).map(([k, v]) => [k, v.doc])));
   return {
-    durationInFrames: Math.ceil(duration * sequence.fps),
+    durationInFrames: frameCount(duration, sequence.fps),
     fps: sequence.fps,
     width: sequence.width,
     height: sequence.height,

@@ -50,7 +50,8 @@ export function loadEvaluable(path: string): Evaluable {
 export function debugDocument(path: string, from = 0, to?: number): Diagnostic[] {
   const ev = loadEvaluable(path);
   const first = Math.round(from * ev.fps);
-  const last = Math.min(Math.ceil(ev.duration * ev.fps) - 1, to !== undefined ? Math.round(to * ev.fps) : Infinity);
+  // `duration × fps` can land a hair above a whole number (2.2 × 25 = 55.00…01): no extra frame for it.
+  const last = Math.min(Math.ceil(ev.duration * ev.fps - 1e-6) - 1, to !== undefined ? Math.round(to * ev.fps) : Infinity);
   const frames: RenderFrame[] = [];
   const times: number[] = [];
   for (let i = first; i <= last; i++) {
@@ -60,13 +61,17 @@ export function debugDocument(path: string, from = 0, to?: number): Diagnostic[]
   return diagnoseFrames(frames, times).map((d) => ({ ...d, frame: d.frame + first }));
 }
 
-/** Streams decoded video frames (rgb24) through ffmpeg. */
+/** Streams decoded video frames (rgb24) through ffmpeg. Its stderr is read as it comes (a full pipe would stall ffmpeg) and quoted when it fails. */
 async function readFrames(video: string, filter: string, w: number, h: number, onFrame: (img: Raster, index: number) => void) {
   const size = w * h * 3;
   await new Promise<void>((resolvePromise, reject) => {
     const ff = spawn("ffmpeg", ["-v", "error", "-i", video, "-vf", filter, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
     let buf = Buffer.alloc(0);
     let index = 0;
+    let errors = "";
+    ff.stderr.on("data", (chunk: Buffer) => {
+      errors += chunk.toString();
+    });
     ff.stdout.on("data", (chunk: Buffer) => {
       buf = Buffer.concat([buf, chunk]);
       while (buf.length >= size) {
@@ -75,7 +80,7 @@ async function readFrames(video: string, filter: string, w: number, h: number, o
       }
     });
     ff.on("error", (e) => reject(new Error(`ffmpeg is required for "toon doctor" (${e.message})`)));
-    ff.on("close", (code) => (code === 0 ? resolvePromise() : reject(new Error(`ffmpeg exited with ${code}`))));
+    ff.on("close", (code) => (code === 0 ? resolvePromise() : reject(new Error(`ffmpeg exited with ${code}${errors.trim() ? `: ${errors.trim()}` : ""}`))));
   });
 }
 

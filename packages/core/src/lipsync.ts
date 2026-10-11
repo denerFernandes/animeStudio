@@ -149,32 +149,46 @@ export interface AmplitudeCueOptions {
   offset?: number;
 }
 
+/** The least a loudness-driven mouth shape is held (two frames at 30 fps): no flicker. */
+const AMPLITUDE_HOLD = 2 / 30;
+
 /**
  * Generates mouth cues from raw mono PCM samples by loudness — a dependency-free fallback
- * when neither Rhubarb nor timestamps are available.
+ * when neither Rhubarb nor timestamps are available. Loudness is measured per `window`; a mouth
+ * shape is chosen per hold of whole windows at least `AMPLITUDE_HOLD` long (from the hold's mean
+ * level, varied hold by hold), so the variety survives the merge of short cues.
  */
 export function cuesFromAmplitude(samples: Float32Array, sampleRate: number, opts: AmplitudeCueOptions = {}): MouthCue[] {
   const win = Math.max(1, Math.round((opts.window ?? 1 / 30) * sampleRate));
   const silence = opts.silence ?? 0.06;
   const offset = opts.offset ?? 0;
   const rms: number[] = [];
+  let peak = 1e-9;
   for (let i = 0; i < samples.length; i += win) {
     let sum = 0;
     const end = Math.min(samples.length, i + win);
     for (let j = i; j < end; j++) sum += samples[j] * samples[j];
-    rms.push(Math.sqrt(sum / Math.max(1, end - i)));
+    const r = Math.sqrt(sum / Math.max(1, end - i));
+    rms.push(r);
+    if (r > peak) peak = r;
   }
-  const peak = Math.max(1e-9, ...rms);
   // Light smoothing so the mouth doesn't chatter.
   const level = rms.map((_, i) => ((rms[i - 1] ?? rms[i]) + 2 * rms[i] + (rms[i + 1] ?? rms[i])) / 4 / peak);
   const dt = win / sampleRate;
-  const cues: MouthCue[] = level.map((l, i) => {
+  const hold = Math.max(1, Math.ceil(AMPLITUDE_HOLD / dt - 1e-9));
+  const cues: MouthCue[] = [];
+  for (let i = 0, g = 0; i < level.length; i += hold, g++) {
+    const end = Math.min(level.length, i + hold);
+    let l = 0;
+    for (let j = i; j < end; j++) l += level[j];
+    l /= end - i;
     let v: Viseme;
     if (l < silence) v = "X";
-    else if (l < 0.22) v = i % 3 === 0 ? "A" : "B";
-    else if (l < 0.45) v = i % 4 === 1 ? "E" : "C";
-    else v = i % 5 === 2 ? "E" : "D";
-    return { start: offset + i * dt, end: offset + (i + 1) * dt, value: v };
-  });
-  return mergeCues(cues, 2 / 30);
+    else if (l < 0.22) v = g % 3 === 0 ? "A" : "B";
+    else if (l < 0.45) v = g % 4 === 1 ? "E" : "C";
+    else v = g % 5 === 2 ? "E" : "D";
+    cues.push({ start: offset + i * dt, end: offset + end * dt, value: v });
+  }
+  // (Only a trailing remainder is shorter than a hold: it joins the cue before it.)
+  return mergeCues(cues, (hold - 0.5) * dt);
 }

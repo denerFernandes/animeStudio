@@ -51,6 +51,7 @@ import {
   overlayMarkup,
   projectLights,
   shadingMarkup,
+  unknownKeyLight,
 } from "./lighting";
 import { type ClipInstance, type EvaluatedPose, applyPhysicsSample, evaluatePose } from "./pose";
 import { type RenderFrame, type RenderNode, nodeToString, renderCharacter } from "./render";
@@ -66,7 +67,8 @@ export class SceneError extends Error {
   }
 }
 
-const PLACEMENT = ["x", "y", "rotation", "scale", "opacity", "flip"] as const;
+/** Placement channels; `flip` and `z` are stepped (a side, a depth order: nothing in between). */
+const PLACEMENT = ["x", "y", "rotation", "scale", "opacity", "flip", "z"] as const;
 type PlacementProp = (typeof PLACEMENT)[number];
 
 export interface CompiledActor {
@@ -235,20 +237,32 @@ class KeyBuffer {
     return sampleTrack(this.cached, t);
   }
 
-  /** Animates to `value` over [at, at + duration]. */
-  transition(at: number, value: Value, duration: number, ease: Ease): void {
-    const from = this.valueAt(at);
-    // A new change takes over from where the channel is: what was still planned after it is dropped
-    // (a move under way stops there and turns into this one, with no jump).
-    if (this.keys.some((k) => k.t > at + 1e-9)) {
-      this.keys = this.keys.filter((k) => k.t <= at + 1e-9);
-      this.cached = undefined;
-    }
+  /**
+   * A new change at `at` takes over from where the channel is: what was still planned after `at` is
+   * dropped (a move under way stops there and turns into the new one, with no jump), and a stepped
+   * key at that very instant is replaced by it (a key a ramp ends on stays: the ramp still ends
+   * there, then the new change applies). Returns whether anything was dropped.
+   */
+  takeOver(at: number): boolean {
+    const keep = this.keys.filter((k) => k.t < at - 1e-9 || (k.t <= at + 1e-9 && k.ease !== "step"));
+    if (keep.length === this.keys.length) return false;
+    this.keys = keep;
+    this.cached = undefined;
+    return true;
+  }
+
+  /**
+   * Animates to `value` over [at, at + duration] from `from` (default: where the channel is at `at`),
+   * taking over what was planned after `at`. With no duration the value steps in at `at`.
+   */
+  transition(at: number, value: Value, duration: number, ease: Ease, from: Value | undefined = this.valueAt(at)): void {
+    this.takeOver(at);
     if (duration > 0 && from !== undefined) {
       this.keys.push({ t: at, v: from, ease: "linear" });
       this.keys.push({ t: at + duration, v: value, ease });
     } else {
-      if (from !== undefined && !this.keys.length) this.keys.push({ t: 0, v: from, ease: "step" });
+      // Before a later step the channel keeps what it was; a step at the start needs no key before it.
+      if (from !== undefined && !this.keys.length && at > 0) this.keys.push({ t: 0, v: from, ease: "step" });
       this.keys.push({ t: at, v: value, ease: "step" });
     }
     this.cached = undefined;
@@ -296,6 +310,15 @@ function toCues(src: LipsyncDoc | MouthCue[]): MouthCue[] {
   return Array.isArray(src) ? src : src.mouthCues;
 }
 
+/**
+ * Where a cartoon effect goes when it is given no point: screen effects at the centre of the frame
+ * (captions at their look's place), effects at a scene point at the centre of the scene.
+ */
+function fxDefaultPoint(type: FxType, variant: string | undefined, width: number, height: number): Vec2 {
+  if (type === "caption") return variant === "place" ? [70, height - 130] : variant === "impact" ? [width / 2, 200] : [width / 2, height * 0.42];
+  return [width / 2, height / 2];
+}
+
 /** Converts mouth cues to a weight-record track with short cross-fades (smooth mouths). */
 export function cuesToVisemeKeys(cues: MouthCue[], offset: number, blend = 0.06): Key[] {
   const keys: Key[] = [{ t: offset, v: { X: 1 }, ease: "step" }];
@@ -318,7 +341,7 @@ export function cuesToVisemeKeys(cues: MouthCue[], offset: number, blend = 0.06)
 // Compilation
 // ---------------------------------------------------------------------------
 
-function initialPlacement(def: { x?: number; y?: number; rotation?: number; scale?: number | [number, number]; opacity?: number; flip?: boolean }): Record<PlacementProp, Value> {
+function initialPlacement(def: { x?: number; y?: number; rotation?: number; scale?: number | [number, number]; opacity?: number; flip?: boolean; z?: number }): Record<PlacementProp, Value> {
   return {
     x: def.x ?? 0,
     y: def.y ?? 0,
@@ -326,6 +349,7 @@ function initialPlacement(def: { x?: number; y?: number; rotation?: number; scal
     scale: def.scale ?? 1,
     opacity: def.opacity ?? 1,
     flip: def.flip ?? false,
+    z: def.z ?? 0,
   };
 }
 
@@ -447,6 +471,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
   });
 
   const lightingDef = doc.lighting;
+  const badKeyLight = unknownKeyLight(lightingDef);
+  if (badKeyLight) throw new SceneError(badKeyLight, "lighting.shading.light");
   const lightingBuffers = new Map<string, KeyBuffer>();
   const lightingBuffer = (channel: string, path: string): KeyBuffer => {
     if (!lightingDef) throw new SceneError(`lighting channel "${channel}" used but the scene has no "lighting"`, path);
@@ -574,7 +600,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         const duration = a.duration ?? 0;
         const ease = easeOf(a.ease, "sineInOut");
         if ((PLACEMENT as readonly string[]).includes(a.channel)) {
-          buffers.placement[a.channel as PlacementProp].transition(a.at, a.value, a.channel === "flip" ? 0 : duration, ease);
+          buffers.placement[a.channel as PlacementProp].transition(a.at, a.value, a.channel === "flip" || a.channel === "z" ? 0 : duration, ease);
           return;
         }
         const ref = resolveChannel(rig, a.channel);
@@ -599,6 +625,13 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         const x0 = buffers.placement.x.valueAt(a.at) as number;
         const y0 = buffers.placement.y.valueAt(a.at) as number;
         const y1 = a.y ?? y0;
+        // The walk takes over from where the actor is: a move under way (on either axis) stops here.
+        for (const [buf, from] of [
+          [buffers.placement.x, x0],
+          [buffers.placement.y, y0],
+        ] as const) {
+          if (buf.takeOver(a.at)) buf.push({ t: a.at, v: from, ease: "linear" });
+        }
         const distance = Math.hypot(a.x - x0, y1 - y0);
         if (distance < 1e-6) return;
         const duration = a.duration ?? distance / (a.speed ?? 220);
@@ -614,7 +647,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         ] as const) {
           if (Math.abs(to - from) < 1e-9) continue;
           if (a.ease) {
-            buf.transition(a.at, to, duration, a.ease as Ease);
+            buf.transition(a.at, to, duration, a.ease as Ease, from);
             continue;
           }
           buf.push(
@@ -788,7 +821,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
           const depth = typeof a.focus === "string" ? depthOf(a.focus, path) : a.focus;
           cameraBuffers.focus.transition(a.at, depth, moveTime, ease);
         }
-        if (a.punch !== undefined) punches.push({ start: a.at, duration: isRig ? 0.4 : (a.duration ?? 0.4), amount: a.punch });
+        // A punch settles over the move's time; a rig or a cut (`duration: 0`) gives it the default.
+        if (a.punch !== undefined) punches.push({ start: a.at, duration: isRig || !a.duration ? 0.4 : a.duration, amount: a.punch });
         return;
       }
       case "transition": {
@@ -827,6 +861,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
             throw new SceneError(`unknown anchor "${a.anchor}" on actor "${a.actor}". Known anchors: ${Object.keys(rig.anchors).join(", ") || "none"}, origin.`, path);
           }
         }
+        if (a.prop && !propIds.has(a.prop)) throw new SceneError(`unknown prop "${a.prop}". Known props: ${[...propIds].join(", ") || "none"}.`, path);
+        const dflt = fxDefaultPoint(a.type, a.style, doc.width, doc.height);
         fx.push({
           type: a.type,
           start: a.at,
@@ -835,8 +871,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
           anchor: a.anchor,
           ...(a.prop ? { prop: a.prop } : {}),
           offset: a.offset ?? [0, 0],
-          x: a.x ?? 0,
-          y: a.y ?? 0,
+          x: a.x ?? dflt[0],
+          y: a.y ?? dflt[1],
           scale: a.scale ?? 1,
           color: a.color ?? "#1D2833",
           fill: a.fill,
@@ -857,10 +893,8 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
     const buf = channelBuffer(actorId, `controls.${control}`);
     const toWeights = (v: Value | undefined): Record<string, number> =>
       typeof v === "string" ? { [v]: 1 } : v && typeof v === "object" && !Array.isArray(v) ? v : {};
-    const from = toWeights(buf.valueAt(at));
-    const to = toWeights(value);
-    if (duration > 0) buf.push({ t: at, v: from, ease: "linear" }, { t: at + duration, v: to, ease });
-    else buf.push({ t: at, v: to, ease: "step" });
+    // Weights on both sides so the poses cross-fade; it takes over a change under way like `set`.
+    buf.transition(at, toWeights(value), duration, ease, toWeights(buf.valueAt(at)));
   }
 
   // Finalize -----------------------------------------------------------------
@@ -951,11 +985,13 @@ interface Placement {
   scale: [number, number];
   opacity: number;
   flip: boolean;
+  /** Draw order (stepped). */
+  z: number;
 }
 
 function samplePlacement(
   tracks: Partial<Record<PlacementProp, Track>>,
-  def: { x?: number; y?: number; rotation?: number; scale?: number | [number, number]; opacity?: number; flip?: boolean },
+  def: { x?: number; y?: number; rotation?: number; scale?: number | [number, number]; opacity?: number; flip?: boolean; z?: number },
   t: number,
 ): Placement {
   const init = initialPlacement(def);
@@ -968,6 +1004,7 @@ function samplePlacement(
     scale: Array.isArray(scale) ? [scale[0], scale[1]] : [scale as number, scale as number],
     opacity: v("opacity") as number,
     flip: Boolean(v("flip")),
+    z: v("z") as number,
   };
 }
 
@@ -1203,7 +1240,8 @@ function segmentPose(scene: CompiledScene, k: number, t: number, base: CameraPos
 export function viewMatrix(scene: CompiledScene, cam: CameraState, parallax = 1): Mat {
   const cx = lerp(scene.width / 2, cam.x, parallax);
   const cy = lerp(scene.height / 2, cam.y, parallax);
-  const zoom = Math.pow(cam.zoom, parallax) * Math.exp(-(cam.dolly ?? 0) * (1 - parallax));
+  // Screen-fixed items (parallax 0) are not in the scene: the dolly leaves them alone.
+  const zoom = Math.pow(cam.zoom, parallax) * (parallax > 0 ? Math.exp(-(cam.dolly ?? 0) * (1 - parallax)) : 1);
   // A camera roll turns the whole picture alike: rotating each depth by a different angle would
   // shear the scene. Only screen-fixed items (parallax 0) stay upright.
   return multiply(fromTRS(scene.width / 2, scene.height / 2, parallax > 0 ? cam.rotation : 0, zoom, zoom), fromTRS(-cx, -cy, 0));
@@ -1211,19 +1249,24 @@ export function viewMatrix(scene: CompiledScene, cam: CameraState, parallax = 1)
 
 const LOOK_BLEND = 0.35;
 
-function resolveTargetPoint(scene: CompiledScene, target: Value | undefined, t: number): Vec2 | null {
+/**
+ * Scene point of a target: an actor (its head anchor, or its origin), a prop or a scene point.
+ * `posed`: the anchor where the actor's pose puts it (a seated actor's head); otherwise its rest
+ * place, which needs no pose (looks resolved while a pose is evaluated).
+ */
+function resolveTargetPoint(scene: CompiledScene, target: Value | undefined, t: number, posed = false, poses?: Map<string, EvaluatedPose>): Vec2 | null {
   if (target === null || target === undefined) return null;
   if (Array.isArray(target)) return target as Vec2;
   if (typeof target !== "string") return null;
   const actor = scene.actors.find((a) => a.id === target);
   if (actor) {
-    const m = actorPlacement(actor, t);
     const head = actor.rig.anchors.head;
-    return apply(m, head ? head.at : [0, 0]);
+    if (head && posed) return anchorPosition(scene, actor.id, "head", t, poses?.get(actor.id));
+    return apply(actorPlacement(actor, t), head ? head.at : [0, 0]);
   }
   const prop = scene.props.find((p) => p.id === target);
   if (prop) {
-    const p = propPlacement(scene, prop, t);
+    const p = propPlacement(scene, prop, t, poses);
     return [p.x, p.y];
   }
   return null;
@@ -1280,7 +1323,7 @@ function behindRidden(scene: CompiledScene, actor: CompiledActor, t: number): { 
   for (const k of actor.mounts) if (k.t <= t) key = k;
   if (!key?.on || !key.behind) return undefined;
   const ridden = scene.actors.find((a) => a.id === key!.on);
-  return ridden ? { parts: new Set(key.behind), z: ridden.def.z ?? 0 } : undefined;
+  return ridden ? { parts: new Set(key.behind), z: actorPlacementState(ridden, t).z } : undefined;
 }
 
 /** IK chains held on another actor's anchor (pedals, a handlebar) or a scene point, in character space. */
@@ -1321,11 +1364,25 @@ function reachTargets(scene: CompiledScene, actor: CompiledActor, t: number, toC
     const u = key.blend > 0 ? ease(clamp((t - key.t) / key.blend, 0, 1)) : 1;
     const cur = resolve(key);
     const prev = u < 1 ? resolve(keys[idx - 1]) : null;
-    if (cur && prev) out[chain] = { point: apply(toChar, [lerp(prev[0], cur[0], u), lerp(prev[1], cur[1], u)]), weight: 1 };
-    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u, ...(fromOf(key) ? { from: fromOf(key) } : {}) };
-    else if (prev) out[chain] = { point: apply(toChar, prev), weight: 1 - u };
+    // The grip direction blends with the target: between two gripped reaches it turns from one to
+    // the other; between a free and a gripped one it switches halfway, like the engine's other
+    // stepped channels (a bend side has no in-between).
+    const from = blendFrom(prev ? fromOf(keys[idx - 1]) : undefined, cur ? fromOf(key) : undefined, u);
+    if (cur && prev) out[chain] = { point: apply(toChar, [lerp(prev[0], cur[0], u), lerp(prev[1], cur[1], u)]), weight: 1, ...(from ? { from } : {}) };
+    else if (cur) out[chain] = { point: apply(toChar, cur), weight: u, ...(from ? { from } : {}) };
+    else if (prev) out[chain] = { point: apply(toChar, prev), weight: 1 - u, ...(from ? { from } : {}) };
   }
   return out;
+}
+
+/** A grip direction `u` of the way from `a` to `b` (unit vectors; one side without: that side's past halfway). */
+function blendFrom(a: Vec2 | undefined, b: Vec2 | undefined, u: number): Vec2 | undefined {
+  if (!a || !b) return u < 0.5 ? a : b;
+  const v: Vec2 = [lerp(a[0], b[0], u), lerp(a[1], b[1], u)];
+  const len = Math.hypot(v[0], v[1]);
+  // Opposite directions meet at zero: turn through the way `b` is reached from `a`.
+  if (len < 1e-6) return u < 0.5 ? a : b;
+  return [v[0] / len, v[1] / len];
 }
 
 /** Extra IK offsets that plant grounded feet on a sloped surface. */
@@ -1378,13 +1435,36 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
   });
 }
 
+/** Actors whose physics bake is running (a pose of theirs needed meanwhile is taken before physics). */
+const baking = new Set<CompiledActor>();
+
+/**
+ * Lazily computed physics bake of an actor. The bake is the same whichever API first needed it: it
+ * runs with the aim and mount guards as empty as at the start of a render, so what a pose was being
+ * resolved for when it was asked (a rider's seat, a look at the rider) never leaks into the samples.
+ */
 export function actorBake(scene: CompiledScene, actor: CompiledActor): PhysicsBake | undefined {
   if (actor.rig.physics.length === 0) return undefined;
-  actor.bake ??= bakePhysics(actor.rig, {
-    duration: scene.duration,
-    poseAt: (t) => prePhysicsPose(scene, actor, t),
-    placementAt: (t) => actorPlacement(actor, t),
-  });
+  if (actor.bake) return actor.bake;
+  if (baking.has(actor)) return undefined;
+  const aimOuter = [...resolvingAim];
+  const mountOuter = [...resolvingMount];
+  resolvingAim.clear();
+  resolvingMount.clear();
+  baking.add(actor);
+  try {
+    actor.bake = bakePhysics(actor.rig, {
+      duration: scene.duration,
+      poseAt: (t) => prePhysicsPose(scene, actor, t),
+      placementAt: (t) => actorPlacement(actor, t),
+    });
+  } finally {
+    baking.delete(actor);
+    resolvingAim.clear();
+    resolvingMount.clear();
+    for (const a of aimOuter) resolvingAim.add(a);
+    for (const a of mountOuter) resolvingMount.add(a);
+  }
   return actor.bake;
 }
 
@@ -1424,10 +1504,19 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
 
 /**
  * A prop fitted to the body: its first point on the first anchor, turned so its second point points
- * at the second anchor (or, with one point, turning with that anchor's bone).
+ * at the second anchor (or, with one point, turning with that anchor's bone). The points are taken
+ * in the prop's own drawing: scaled, and mirrored when the prop is flipped.
  */
-function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], pose?: EvaluatedPose): { x: number; y: number; rotation: number; scale?: [number, number] } {
+function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], flip: boolean, pose?: EvaluatedPose): { x: number; y: number; rotation: number; scale?: [number, number] } {
   const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })?];
+  const fs = flip ? -1 : 1;
+  /** A prop point as drawn (scaled, mirrored when flipped). */
+  const drawn = (p: Vec2, sc: [number, number]): Vec2 => [p[0] * sc[0] * fs, p[1] * sc[1]];
+  /** Direction from the first point to the second, as drawn. */
+  const axis = (sc: [number, number]): number => {
+    const [ax, ay] = drawn(f1.point, sc), [bx, by] = drawn(f2!.point, sc);
+    return Math.atan2(by - ay, bx - ax);
+  };
   const a1 = anchorPosition(scene, grab.actor, f1.anchor, t, pose);
   // The first anchor's bone: how it turns from rest (scene space) and whether the actor is mirrored.
   const actor = scene.actors.find((a) => a.id === grab.actor)!;
@@ -1440,7 +1529,7 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
   let shortened: [number, number] | undefined;
   if (f2 && "anchor" in f2) {
     const a2 = anchorPosition(scene, grab.actor, f2.anchor, t, pose);
-    rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
+    rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - axis(scale);
   } else if (f2 && "dir" in f2) {
     // A 3D direction seen from the current view (of the body, or of a head turned on its own): it
     // turns and foreshortens as the view turns, then turns with the bone like an angle.
@@ -1460,32 +1549,36 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
     shortened = alongX ? [scale[0] * Math.max(0.2, len), scale[1]] : [scale[0], scale[1] * Math.max(0.2, len)];
     const dir = Math.atan2(v[1], v[0]) + (mirrored ? -boneTurn : boneTurn);
     const world = mirrored ? Math.PI - dir : dir;
-    rot = world - Math.atan2((f2.point[1] - f1.point[1]) * shortened[1], (f2.point[0] - f1.point[0]) * shortened[0]);
+    rot = world - axis(shortened);
   } else if (f2) {
     // A direction in the actor's frame (mirrored when it faces left), turning with the bone.
     const dir = (f2.angle * Math.PI) / 180 + (f2.fixed ? 0 : mirrored ? -boneTurn : boneTurn);
     const world = mirrored ? Math.PI - dir : dir;
-    rot = world - Math.atan2(f2.point[1] - f1.point[1], f2.point[0] - f1.point[0]);
+    rot = world - axis(scale);
   } else rot = boneTurn;
   const c = Math.cos(rot), s = Math.sin(rot);
-  const sc = shortened ?? scale;
-  const px = f1.point[0] * sc[0], py = f1.point[1] * sc[1];
+  const [px, py] = drawn(f1.point, shortened ?? scale);
   void prop;
   return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI, ...(shortened ? { scale: shortened } : {}) };
 }
 
+/**
+ * Placement of a prop: held, in the hand (fitted to the body or on the anchor, turned with it) —
+ * its rigid body, if any, only follows the hand then; free, where its rigid body is, else its tracks
+ * (on its ground surface).
+ */
 export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {
   const base = samplePlacement(prop.placement, prop.def, t);
-  const rigid = scene.rigid?.sample(prop.id, t);
-  if (rigid) return { ...base, x: rigid.x, y: rigid.y, rotation: rigid.rotation };
   const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
-  if (grab?.fit) return { ...base, ...fittedPlacement(scene, prop, grab, t, base.scale, poses?.get(grab.actor)) };
+  if (grab?.fit) return { ...base, ...fittedPlacement(scene, prop, grab, t, base.scale, base.flip, poses?.get(grab.actor)) };
   if (grab) {
     const pose = poses?.get(grab.actor);
     const p = anchorPosition(scene, grab.actor, grab.anchor, t, pose);
     const turn = anchorTurn(scene, grab.actor, grab.anchor, t, pose);
     return { ...base, x: p[0], y: p[1], ...(turn ? { rotation: base.rotation + turn } : {}) };
   }
+  const rigid = scene.rigid?.sample(prop.id, t);
+  if (rigid) return { ...base, x: rigid.x, y: rigid.y, rotation: rigid.rotation };
   if (prop.ground) base.y = surfaceY(prop.ground.surface, base.x) + prop.ground.offset;
   return base;
 }
@@ -1540,17 +1633,14 @@ function cordPath(scene: CompiledScene, c: NonNullable<PropDef["cord"]>, propM: 
   return `M${pts.join(" L")}`;
 }
 
-/** Screen position of an actor (head anchor), prop or scene point at time t. */
+/** Screen position of an actor (its posed head anchor), prop or scene point at time t. */
 export function screenPoint(scene: CompiledScene, target: string | Vec2, t: number): Vec2 {
-  const cam = cameraAt(scene, t);
-  const p = resolveTargetPoint(scene, target, t);
-  return p ? apply(viewMatrix(scene, cam, 1), p) : [scene.width / 2, scene.height / 2];
+  return transitionCenter(scene, cameraAt(scene, t), target, t);
 }
 
-/** Screen point of a transition target (actor head / prop / scene point; default: center). */
-function transitionCenter(scene: CompiledScene, cam: CameraState, target: string | Vec2 | undefined, t: number): Vec2 {
-  if (target === undefined) return [scene.width / 2, scene.height / 2];
-  const p = resolveTargetPoint(scene, target, t);
+/** Screen point of a transition target (posed actor head / prop / scene point; default: center). */
+function transitionCenter(scene: CompiledScene, cam: CameraState, target: string | Vec2 | undefined, t: number, poses?: Map<string, EvaluatedPose>): Vec2 {
+  const p = target === undefined ? null : resolveTargetPoint(scene, target, t, true, poses);
   return p ? apply(viewMatrix(scene, cam, 1), p) : [scene.width / 2, scene.height / 2];
 }
 
@@ -1581,7 +1671,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), placementMatrix(samplePlacement(layer.placement, layer.def, t - dtPrev))) : null;
     items.push({
-      z: layer.def.z ?? -1000,
+      z: p.z,
       order: order++,
       node: {
         kind: "markup",
@@ -1608,7 +1698,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const p = actorPlacementState(actor, t);
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), actorPlacement(actor, t - dtPrev)) : null;
-    const z = actor.def.z ?? 0;
+    const z = p.z;
     const artId = `actor-art-${actor.id}`;
     // Riding: some parts (the far leg…) are drawn just behind the ridden actor.
     const under = behindRidden(scene, actor, t);
@@ -1657,7 +1747,8 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     // (Not there: nothing drawn — a hidden prop's art can be large, e.g. an album's other pages.)
     if (p.opacity <= 0.001) continue;
     const holder = prop.grabs.find((g) => t >= g.start && t < g.end);
-    const holderZ = holder ? scene.actors.find((a) => a.id === holder.actor)?.def.z : undefined;
+    const holderActor = holder ? scene.actors.find((a) => a.id === holder.actor) : undefined;
+    const holderZ = holderActor ? actorPlacementState(holderActor, t).z : undefined;
     const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), placementMatrix(propPlacement(scene, prop, t - dtPrev))) : null;
     if (prop.def.cord) {
@@ -1666,7 +1757,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       if (d) {
         const c = prop.def.cord;
         items.push({
-          z: c.z ?? (holder ? (holderZ ?? 0) - 1e-3 : (prop.def.z ?? 0) - 1e-3),
+          z: c.z ?? (holder ? (holderZ ?? 0) - 1e-3 : p.z - 1e-3),
           order: order++,
           node: { kind: "path", key: `cord-${prop.id}`, d, attrs: { fill: "none", stroke: c.color ?? "#2a2a2a", "stroke-width": Math.round((c.width ?? 3) * Math.hypot(vm[0], vm[1]) * 100) / 100, "stroke-linecap": "round", "stroke-linejoin": "round" } },
         });
@@ -1674,7 +1765,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     }
     items.push({
       // Held: just above its holder (under the holding hand, above the rest of the body).
-      z: holder ? (holderZ ?? 0) + 1e-3 : prop.def.z ?? 0,
+      z: holder ? (holderZ ?? 0) + 1e-3 : p.z,
       order: order++,
       node: {
         kind: "markup",
@@ -1694,10 +1785,8 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     let m: Mat;
     let z = 100;
     if (SCREEN_FX.includes(e.type)) {
-      // Fixed to the frame: x/y are screen coordinates (default: the centre; captions per look).
-      const dflt: Vec2 = e.type === "caption" ? (e.variant === "place" ? [70, scene.height - 130] : e.variant === "impact" ? [scene.width / 2, 200] : [scene.width / 2, scene.height * 0.42]) : [scene.width / 2, scene.height / 2];
-      const px = e.x || e.y ? e.x : dflt[0], py = e.x || e.y ? e.y : dflt[1];
-      m = [e.scale, 0, 0, e.scale, px, py];
+      // Fixed to the frame: x/y are screen coordinates (defaults resolved when compiled).
+      m = [e.scale, 0, 0, e.scale, e.x, e.y];
       z = e.type === "caption" ? 1e6 : e.type === "impactFrame" ? 1e6 + 1 : 999;
     } else if (e.actor) {
       const actor = scene.actors.find((a) => a.id === e.actor)!;
@@ -1716,7 +1805,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       const det = am[0] * am[3] - am[1] * am[2];
       const glyph = e.type === "question" || e.type === "exclaim" || e.type === "zzz" || e.type === "notes";
       m = [det < 0 && !glyph ? -sx : sx, 0, 0, sx, p[0], p[1]];
-      z = (actor.def.z ?? 0) + (BEHIND_FX.includes(e.type) ? -0.01 : 0.5);
+      z = actorPlacementState(actor, t).z + (BEHIND_FX.includes(e.type) ? -0.01 : 0.5);
     } else {
       const v = viewMatrix(scene, cam, 1);
       const pr = e.prop ? scene.props.find((q) => q.id === e.prop) : undefined;
@@ -1744,7 +1833,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       uncovering: tr.mode === "in" || (tr.mode === "outIn" && u > 0.5),
       color: tr.color,
       direction: tr.direction,
-      center: transitionCenter(scene, cam, tr.target, t),
+      center: transitionCenter(scene, cam, tr.target, t, poses),
       width: scene.width,
       height: scene.height,
       id: String(i),
@@ -1764,4 +1853,5 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
 
 /** Frame index → seconds. */
 export const frameTime = (scene: CompiledScene, frame: number): number => frame / scene.fps;
-export const frameCount = (scene: CompiledScene): number => Math.ceil(scene.duration * scene.fps);
+/** Frames in a scene (floating point noise in `duration × fps` does not add one). */
+export const frameCount = (scene: CompiledScene): number => Math.ceil(scene.duration * scene.fps - 1e-6);

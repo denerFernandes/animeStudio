@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { unknownKeyLight } from "../lighting";
 import { compileRig } from "../rig";
 import { compileScene, type SceneAssets } from "../scene";
 import { type SceneDoc, SceneSchema, type SequenceDoc, SequenceSchema, type ToonDoc, ToonSchema } from "./schema";
@@ -66,6 +67,8 @@ export function validateScene(input: unknown, assets?: SceneAssets): ValidationR
       issues.push({ path: `actors[${i}].character`, message: `"${a.character}" is not declared in "characters"`, severity: "error" });
     }
   }
+  const keyLight = unknownKeyLight(doc.lighting);
+  if (keyLight) issues.push({ path: "lighting.shading.light", message: keyLight, severity: "error" });
   if (issues.length) return { ok: false, issues };
   if (assets) {
     try {

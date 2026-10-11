@@ -49,7 +49,6 @@ export function withProportions(base: ToonDoc, p: Proportions): ToonDoc {
     else {
       const parent = byId.get(id)?.parent;
       g = parent ? classify(parent) : "root";
-      if (g === "torso" && byId.get(id)?.parent === "hips" && !id.startsWith("leg")) g = "torso";
     }
     groupOf.set(id, g);
     return g;

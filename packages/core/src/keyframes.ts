@@ -43,8 +43,14 @@ function computeTangents(track: Track, opts: TrackOptions): void {
   const dims = comps[0]?.length ?? 0;
   if (!dims || comps.some((c) => !c || c.length !== dims)) return;
   const loop = opts.loop;
+  // Across the seam only when the last key sits at the end of the loop: a last key before the end
+  // holds its value up to the seam (`sampleTrack` holds past the last key), so the cycle arrives at
+  // and leaves its first key at rest, which the zero end tangents below give.
   const seamless =
-    loop !== undefined && comps[0]!.every((v, d) => Math.abs(v - comps[n - 1]![d]) < 1e-9) && track[0].t <= 1e-9;
+    loop !== undefined &&
+    comps[0]!.every((v, d) => Math.abs(v - comps[n - 1]![d]) < 1e-9) &&
+    track[0].t <= 1e-9 &&
+    (loop.duration === undefined || track[n - 1].t >= loop.duration - 1e-9);
 
   const tangents: number[][] = track.map(() => new Array(dims).fill(0));
   for (let d = 0; d < dims; d++) {
@@ -137,12 +143,18 @@ function hermite(p0: number, p1: number, m0: number, m1: number, span: number, u
 /**
  * Samples a track at time `t`. Returns `undefined` for an empty track.
  * Segments whose arriving key has no `ease` use smooth spline interpolation ("auto");
- * an explicit `ease` (including `linear`) overrides it.
+ * an explicit `ease` (including `linear`) overrides it. Of several keys at the same time the last
+ * one wins at that very instant (a stepped change placed on an existing key — at the first key
+ * as anywhere else).
  */
 export function sampleTrack(track: Track, t: number): Value | undefined {
   const n = track.length;
   if (n === 0) return undefined;
-  if (t <= track[0].t) return track[0].v;
+  if (t <= track[0].t) {
+    let i = 0;
+    while (i + 1 < n && track[i + 1].t === track[0].t) i++;
+    return track[i].v;
+  }
   if (t >= track[n - 1].t) return track[n - 1].v;
   let lo = 0;
   let hi = n - 1;

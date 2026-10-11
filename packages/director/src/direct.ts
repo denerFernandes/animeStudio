@@ -25,7 +25,7 @@ import {
   validateSequence,
 } from "@animestudio/core";
 import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
-import type { Beat, Block, CastMember, Graphic, Directed, Issue, Kit, Line, Overlay, Place, SetDef, Staging, When } from "./types";
+import type { Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
 
 type Action = Record<string, unknown> & { at: number; action: string };
 type Key = [number, number | string | [number, number], string?];
@@ -64,6 +64,18 @@ export function closest(word: string, options: string[]): string {
   return best ? ` (did you mean "${best}"? valid: ${options.join(", ")})` : "";
 }
 
+/**
+ * The cast member a line's `speaker` names — by id, by name or by one of their aliases (case and
+ * accents ignored) — or undefined (a narrator, "sfx", "song", an unknown name). The one resolver for
+ * staging and checks, so both see the same speaker.
+ */
+function speakerId(kit: Kit, speaker: string | undefined): string | undefined {
+  if (!speaker) return undefined;
+  const s = norm(speaker);
+  if (!s) return undefined;
+  return Object.entries(kit.cast).find(([id, c]) => norm(id) === s || norm(c.name) === s || (c.aliases ?? []).some((a) => norm(a) === s))?.[0];
+}
+
 /** Lighting presets for `light { mood }`: grade colour/opacity and the sun's height. */
 export const MOODS: Record<string, { grade: string; opacity: number; ambient?: { color: string; opacity: number } }> = {
   morning: { grade: "#fff0b8", opacity: 0.1 },
@@ -88,15 +100,19 @@ export class Timeline {
     const last = this.lines[this.lines.length - 1];
     return last ? last.e + 0.6 : 0;
   }
-  /** Episode time of a `When`. */
-  at(w: When): number {
+  /**
+   * Episode time of a `When`. An unknown line throws; a word the line does not have (or a line
+   * without word timings) falls back to the line's start (or end) and is reported to `miss`.
+   */
+  at(w: When, miss?: (message: string) => void): number {
     const l = this.lines[w.line];
     if (!l) throw new Error(`line ${w.line} does not exist (${this.lines.length} lines)`);
     let t = w.end ? l.e : l.s;
-    if (w.word && l.words?.length) {
+    if (w.word) {
       const target = norm(w.word);
-      const word = l.words.find((x) => norm(x.w) === target) ?? l.words.find((x) => norm(x.w).startsWith(target));
+      const word = l.words?.find((x) => norm(x.w) === target) ?? l.words?.find((x) => norm(x.w).startsWith(target));
       if (word) t = w.end ? word.e : word.s;
+      else miss?.(l.words?.length ? `line ${w.line} has no word "${w.word}"${closest(w.word, l.words.map((x) => x.w))}: timed on the line's ${w.end ? "end" : "start"} instead` : `line ${w.line} has no word timings for "${w.word}": timed on the line's ${w.end ? "end" : "start"} instead`);
     }
     return t + (w.offset ?? 0);
   }
@@ -202,16 +218,24 @@ class BlockScene {
   private restArms = new Map<string, Rig3dValues>();
   private hung = new Map<string, { actor: string; fit: Record<string, string | number> }>();
   private lastHang = new Map<string, Record<string, string | number>>();
-  /** Limb angles set (time, value) per actor and channel: the next one goes the short way. */
-  private angles = new Map<string, [number, number][]>();
+  /** Limb angles set per actor and channel — [when it is reached, value, when it starts]: the next one goes the short way. */
+  private angles = new Map<string, [number, number, number][]>();
   /** When an arm is moved by a beat (automatic gestures keep out of the way). */
   private armBusy: { actor: string; side: string; t0: number; t1: number }[] = [];
   /** Which hand holds a prop ("F" near / "B" far): it keeps holding when the holder turns round. */
   private handOf = new Map<string, "F" | "B">();
+  /** The hand holding each prop over time (a turn round swaps it), so a later grab finds the right one. */
+  private handLog = new Map<string, [number, "F" | "B"][]>();
+  /** Grabs back into the holding hand at a later moment: their anchor is settled when the block is built. */
+  private regrabs: { action: Action; prop: string; t: number }[] = [];
+  /** Hand-in-hand clips (and their busy windows) that last until the hands let go. */
+  private holdClips: { actor: string; t0: number; clip: Action; busy: { actor: string; t0: number; t1: number } }[] = [];
+  /** `enter` beats staged as the cast entry's entrance (the first per actor), per actor. */
+  private placedEnters = new Map<Beat, Set<string>>();
   /** What a held prop is doing: fitted to the body (its fit, the hand's 3D target) until a moment. */
   private inUse = new Map<string, { actor: string; fit?: Record<string, unknown>[]; target?: [number, number, number]; until: number }>();
   /** Who holds whose hand (a on the left), so a new hold extends the chain instead of breaking it. */
-  private handPairs: { a: string; b: string; t1: number }[] = [];
+  private handPairs: { a: string; b: string; t0: number; t1: number }[] = [];
   private faces: { actor: string; t: number }[] = [];
   /** When each actor started crossing to the far ground (smaller from then on). */
   private crossed = new Map<string, number>();
@@ -274,11 +298,31 @@ class BlockScene {
   issue(severity: Issue["severity"], message: string) {
     this.issues.push({ severity, where: `block ${this.block.id}`, message });
   }
+  /** Episode time of a `When` (a word the line does not have is reported and timed on the line). */
+  when(w: When): number {
+    return this.time.at(w, (m) => this.issue("warning", m));
+  }
   member(id: string): CastMember | undefined {
     return this.kit.cast[id];
   }
   scaleOf(id: string) {
     return this.member(id)?.scale ?? 1;
+  }
+  /** A cast member's speed (scene px/s, at their scale): from the cast entry, else the defaults. */
+  speedOf(id: string, mode: "walk" | "run" | "fly" = "walk") {
+    const def = mode === "run" ? 380 : mode === "fly" ? 360 : 170;
+    return (this.member(id)?.speed?.[mode] ?? def) * this.scaleOf(id);
+  }
+  /**
+   * The set mark a place refers to — a mark name or `{ mark, dx }` (its x moved by `dx`) — with its
+   * `y` (a place on the far ground, a seat) and the rest of the mark; undefined for someone or a prop.
+   */
+  markOf(p: Place | undefined): Mark | undefined {
+    if (p === undefined) return undefined;
+    if (typeof p === "string") return this.present.includes(p) || this.propStates.has(p) ? undefined : this.setDef.marks[p];
+    if (!("mark" in p)) return undefined;
+    const m = this.setDef.marks[p.mark];
+    return m ? { ...m, x: m.x + (p.dx ?? 0) } : undefined;
   }
   /** Smallest distance between two characters standing side by side, `a` left of `b`, so that
    *  neither covers the other: what `a` reaches to the right plus what `b` reaches to the left. */
@@ -338,30 +382,86 @@ class BlockScene {
     this.spaceOut(entries.map((c) => c.id), xs, entries);
     for (const c of entries) {
       const x = xs.get(c.id)!;
-      // An "enter" beat is the same as an `enter` on the cast entry.
-      const eb = (this.block.beats ?? []).find((b) => b.do === "enter" && (b.who === c.id || (Array.isArray(b.who) && b.who.includes(c.id))));
-      const enter = c.enter ?? (eb ? { line: eb.line, word: eb.word, from: (eb.from as "left" | "right" | "top") ?? "left", run: !!eb.run, fly: !!eb.fly } : undefined);
-      // Coming in from beyond the set's edge (past what any camera on it can show), by a door when the
-      // set has one on that side (a mark with `door`).
-      const W = this.kit.width ?? 1920, [bx0, , bx1] = this.setDef.bounds ?? [-400, 0, W + 400, 0];
-      const half = ((this.member(c.id)?.rig.extent.front ?? 100) + 60) * this.scaleOf(c.id);
-      const door = enter && enter.from !== "top" ? Object.values(this.setDef.marks).find((mk) => mk.door === enter.from) : undefined;
-      const startX = !enter ? x : door ? door.x : enter.from === "left" ? Math.min(-400, bx0) - half : enter.from === "right" ? Math.max(W + 400, bx1) + half : x + (x > W / 2 ? 650 : -650);
+      // An "enter" beat is the same as an `enter` on the cast entry: the first one per actor is the
+      // entrance (a later one, after an `exit`, is a re-entrance staged as a beat).
+      const ebs = (this.block.beats ?? []).filter((b) => b.do === "enter" && (b.who === c.id || (Array.isArray(b.who) && b.who.includes(c.id))));
+      const eb = ebs.map((b) => ({ b, t: this.safeAt(b) })).filter((e): e is { b: Beat; t: number } => e.t !== undefined).sort((p, q) => p.t - q.t)[0]?.b;
+      if (eb && !c.enter) (this.placedEnters.get(eb) ?? this.placedEnters.set(eb, new Set()).get(eb)!).add(c.id);
+      let enter = c.enter ?? (eb ? this.enterSpec(eb) : undefined);
+      const at = enter ? this.safeAt(enter, `${c.id}'s enter`) : undefined;
+      if (enter && at === undefined) enter = undefined;
+      const startX = enter ? this.entryX(c.id, x, enter.from) : x;
       const flip = c.facing ? c.facing === "left" : enter ? enter.from === "right" : x > this.mark("center").x + 120;
       this.addActor(c.id, startX, { flip, emotion: c.emotion });
       if (c.wear) this.wear(c.id, c.wear, this.t0);
-      // Until they come in, those who enter later are invisible (whatever the camera frames).
-      if (enter) {
-        const show = this.t(this.time.at(enter));
+      if (enter && at !== undefined) {
+        // Until they come in, those who enter later are invisible (whatever the camera frames).
+        const show = this.t(at);
         if (show > 0.02) this.tracks[`actors.${c.id}.opacity`] = [[0, 0], [r3(show - 0.001), 0], [show, 1]];
-      }
-      if (enter?.fly) {
-        this.flyIn(c.id, x, this.time.at(enter), enter.from);
-      } else if (enter) {
-        const at = this.time.at(enter);
-        this.walk(c.id, x, at, Math.abs(x - startX) / ((this.member(c.id)?.speed?.[enter.run ? "run" : "walk"] ?? (enter.run ? 380 : 170)) * this.scaleOf(c.id)), { clip: enter.run ? "run" : "walk" });
+        this.entrance(c.id, x, enter, at, true);
       }
     }
+  }
+  /** Episode time of a `When`, or undefined (reported) when its line does not exist. */
+  private safeAt(w: When, what?: string): number | undefined {
+    try {
+      return this.when(w);
+    } catch (e) {
+      this.issue("error", `${what ?? `line ${w.line}`}: ${(e as Error).message}`);
+      return undefined;
+    }
+  }
+  /** An `enter` beat as a cast entry's `enter` (its moment, side and manner). */
+  private enterSpec(b: Beat): NonNullable<CastEntry["enter"]> {
+    return { line: b.line, word: b.word, end: b.end, offset: b.offset, from: (b.from as "left" | "right" | "top") ?? "left", run: !!b.run, fly: !!b.fly };
+  }
+  /**
+   * Where someone coming in from a side starts: beyond the set's edge (past what any camera on it
+   * can show), or at a door when the set has one on that side (a mark with `door`); from the top,
+   * right above where they land.
+   */
+  private entryX(actor: string, x: number, from: "left" | "right" | "top"): number {
+    if (from === "top") return x;
+    const W = this.kit.width ?? 1920, [bx0, , bx1] = this.setDef.bounds ?? [-400, 0, W + 400, 0];
+    const half = ((this.member(actor)?.rig.extent.front ?? 100) + 60) * this.scaleOf(actor);
+    const door = Object.values(this.setDef.marks).find((mk) => mk.door === from);
+    return door ? door.x : from === "left" ? Math.min(-400, bx0) - half : Math.max(W + 400, bx1) + half;
+  }
+  /**
+   * Comes in to `x` at `at`: flying (`fly`), dropping in from above the frame (`from: "top"`), or
+   * walking / running in from the side. `placed`: they stand at the entry point from the block's
+   * start (the cast entry); else they are put there at `at` (a re-entrance after an `exit`).
+   */
+  private entrance(actor: string, x: number, enter: { from: "left" | "right" | "top"; run?: boolean; fly?: boolean }, at: number, placed: boolean) {
+    const startX = this.entryX(actor, x, enter.from);
+    if (!placed) this.jump(actor, startX, at);
+    if (enter.fly) return this.flyIn(actor, x, at, enter.from);
+    if (enter.from === "top") return this.dropIn(actor, at, placed);
+    this.walk(actor, x, at, Math.abs(x - startX) / this.speedOf(actor, enter.run ? "run" : "walk"), { clip: enter.run ? "run" : "walk" });
+  }
+  /** Put somewhere at once (off screen, to come in from there); a walk under way ends there and then. */
+  private jump(actor: string, x: number, at: number) {
+    const t = Math.max(this.t0, at - 0.001);
+    const here = this.xAt(actor, t);
+    for (const w of this.walks) if (w.actor === actor && w.t0 < t && w.t1 > t) [w.x1, w.t1] = [here, t];
+    this.walks.push({ actor, t0: t, t1: t, x0: here, x1: x });
+    this.set(actor, "x", Math.round(x), t, 0);
+  }
+  /** Drops in from above the frame (no wings): falls to the floor and lands with a little squash. */
+  private dropIn(actor: string, at: number, placed: boolean) {
+    const s = this.scaleOf(actor);
+    const floor = this.groundY(actor, at);
+    const y0 = Math.min(floor - (this.kit.height ?? 1080) * 0.65, -250);
+    const from = placed ? this.t0 : Math.max(this.t0, at - 0.001);
+    this.set(actor, "y", Math.round(y0), from, 0);
+    // (The shadow stays on the floor while they are up there.)
+    if (this.groundOf(actor)) this.set(actor, "bones.ground.y", r3((floor - y0) / s), from, 0);
+    const fall = 0.55;
+    this.set(actor, "y", Math.round(floor), at, fall, "easeIn");
+    if (this.groundOf(actor)) this.set(actor, "bones.ground.y", 0, at, fall, "easeIn");
+    this.busy.push({ actor, t0: at, t1: at + fall + 0.3 });
+    this.touchDown(actor, at + fall);
+    this.sfx("land", at + fall);
   }
   /** Distance to the next character so heads never overlap (facing right). */
   private spacing(id: string) {
@@ -411,10 +511,16 @@ class BlockScene {
   }
 
   // -------------------------------------------------- primitive actions
-  walk(actor: string, x: number, abs: number, dur: number, o: { clip?: string; y?: number; ease?: string } = {}) {
+  /**
+   * Walks to x from `abs` for `dur` seconds (at least 0.4 s). A walk asked for before the block
+   * starts (an approach back-dated from a beat) starts when the block does, at the same pace, and
+   * one asked for while still walking starts when that walk arrives: the arrival is returned, and
+   * whatever waits for it (a grab, a seat) happens then. With `until` (episode time) the walk ends
+   * there whenever it starts.
+   */
+  walk(actor: string, x: number, abs: number, dur: number, o: { clip?: string; y?: number; ease?: string; until?: number } = {}): number {
     // Sitting or lying: stand up first.
-    const rest = this.rests.find((l) => l.actor === actor && l.t0 < abs && l.t1 === Infinity);
-    if (rest) this.getUp(actor, Math.max(rest.t0 + 0.1, abs - 0.6));
+    this.standUp(actor, abs, 0.6);
     // Still on the way somewhere: this walk starts when that one arrives (two walks at once would
     // pull the body both ways: walking backwards).
     const going = this.walks.filter((w) => w.actor === actor && w.t0 < abs && w.t1 > abs + 0.05).sort((a, b) => b.t1 - a.t1)[0];
@@ -422,14 +528,28 @@ class BlockScene {
       this.issue("warning", `${actor} is told to walk at ${abs.toFixed(2)} s while still walking (until ${going.t1.toFixed(2)} s): the walk starts when the first one arrives`);
       abs = going.t1;
     }
+    // Nothing moves before the scene starts: the walk begins with the block (the arrival moves on).
+    abs = Math.max(abs, this.t0);
     const x0 = this.xAt(actor, abs);
-    const d = Math.max(0.4, dur);
+    const d = Math.max(0.4, o.until !== undefined ? o.until - abs : dur);
     this.walks.push({ actor, t0: abs, t1: abs + d, x0, x1: x });
     this.busy.push({ actor, t0: abs, t1: abs + d });
     // Walking, one looks where one goes: the gaze and a head turned on its own come back ahead.
     if (Object.values((this.kit.characters[this.characterOf(actor)]?.controls ?? {}) as Record<string, { type: string }>).some((c) => c.type === "aim")) this.push({ at: this.t(abs), actor, action: "lookAt", target: null });
     if (this.hasControl(actor, "head")) this.push({ at: this.t(abs), actor, action: "pose", control: "head", value: null, duration: 0 });
     this.push({ at: this.t(abs), actor, action: "walkTo", x: Math.round(x), duration: r3(d), ...(o.y !== undefined ? { y: Math.round(o.y) } : {}), ...(o.clip ? { clip: o.clip } : {}), ...(o.ease ? { ease: o.ease } : {}) });
+    return abs + d;
+  }
+  /**
+   * Someone sitting, lying or down after a fall at `at` stands up first, `lead` seconds before
+   * (never before they settled: a rest begun inside the lead is still closed). True if they were.
+   */
+  private standUp(actor: string, at: number, lead: number): boolean {
+    const rest = this.restAt(actor, at);
+    // (One already getting up then needs no second getting up.)
+    if (!rest || rest.t1 !== Infinity) return false;
+    this.getUp(actor, Math.max(rest.t0 + 0.1, at - lead));
+    return true;
   }
   hasClip(actor: string, clip: string) {
     return !!this.kit.characters[this.characterOf(actor)]?.clips?.[clip];
@@ -488,7 +608,7 @@ class BlockScene {
       const key = `${actor}|${channel}`, hist = (this.angles.get(key) ?? this.angles.set(key, []).get(key)!);
       const prev = [...hist].filter((h) => h[0] <= abs + 1e-6).sort((a, b) => a[0] - b[0]).pop();
       if (prev) value = r3(value + 360 * Math.round((prev[1] - value) / 360));
-      hist.push([abs + dur, value as number]);
+      hist.push([abs + dur, value as number, abs]);
     }
     this.push({ at: this.t(abs), actor, action: "set", channel, value, duration: r3(dur), ...(ease ? { ease } : {}) });
   }
@@ -532,6 +652,11 @@ class BlockScene {
     const from = this.viewAt(actor, abs);
     this.views.push({ actor, t: abs, view: v });
     if (!this.hasControl(actor, "view")) return this.issue("warning", `${actor} has no "view" control`);
+    const drawn = Object.keys((this.kit.characters[this.characterOf(actor)]?.controls?.view as { poses?: Record<string, unknown> } | undefined)?.poses ?? {});
+    if (drawn.length && !drawn.includes(v)) {
+      this.views.pop();
+      return this.issue("warning", `${actor} has no "${v}" view (draws ${drawn.join(", ")}): keeps the current one`);
+    }
     const order = this.viewOrder(actor);
     if (turn && order && order.includes(from) && order.includes(v)) {
       // Through every drawing in between, on twos.
@@ -663,7 +788,8 @@ class BlockScene {
     // from it — lifted a little as it turns (taller).
     (a.flips ?? []).forEach((f, k) => {
       if (k + 1 >= n) return this.issue("error", `album "${a.id}": flip ${k + 1} but only ${n} spreads`);
-      const t = this.time.at(f), half = turn / 2;
+      const t = this.safeAt(f, `album "${a.id}" flip ${k + 1}`), half = turn / 2;
+      if (t === undefined) return;
       key(`${a.id}-r${k}`, "scale", t, [1, 1]);
       key(`${a.id}-r${k}`, "scale", t + half, [0.02, 1.04], "sineIn");
       key(`${a.id}-r${k}`, "opacity", t + half, 1);
@@ -677,9 +803,10 @@ class BlockScene {
       if (k + 2 < n) key(`${a.id}-r${k + 2}`, "opacity", t + half, 1);
       this.sfx("page", t);
     });
-    if (a.close) {
+    const close = a.close ? this.safeAt(a.close, `album "${a.id}" close`) : undefined;
+    if (close !== undefined) {
       // Closing: every left side folds over to the spine; the cover comes down over the right side.
-      const t = this.time.at(a.close), half = turn / 2;
+      const t = close, half = turn / 2;
       for (let k = 0; k < n; k++) {
         key(`${a.id}-l${k}`, "scale", t, [1, 1]);
         key(`${a.id}-l${k}`, "scale", t + half, [0.02, 1.04], "sineIn");
@@ -715,7 +842,9 @@ class BlockScene {
     const make = this.kit.graphics?.[g.art];
     if (!make && !g.art.trim().startsWith("<")) return this.issue("error", `unknown graphic "${g.art}"${closest(g.art, Object.keys(this.kit.graphics ?? {}))} (kit.graphics, or SVG markup)`);
     const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080;
-    const t0 = g.from ? this.time.at(g.from) : this.t0, t1 = g.until ? this.time.at(g.until) : this.t1;
+    const from = g.from ? this.safeAt(g.from, `graphic "${g.id}" from`) : this.t0, until = g.until ? this.safeAt(g.until, `graphic "${g.id}" until`) : this.t1;
+    if (from === undefined || until === undefined) return;
+    const t0 = from, t1 = until;
     const s = g.scale ?? 1, rot = g.rotation ?? 0;
     const [x, y] = g.at;
     const art = make ? make({ color: g.color }) : g.art;
@@ -778,10 +907,11 @@ class BlockScene {
     else if (g.exit === "fade") { key("opacity", tOut, 1); key("opacity", t1, 0); }
     else if (g.exit === "drop") { key("y", tOut, y); key("y", t1, H * 1.4, "easeIn"); }
     else if (g.exit) { const o = off[g.exit]; key("x", tOut, x); key("y", tOut, y); key("x", t1, x + o[0], "backIn"); key("y", t1, y + o[1], "backIn"); }
-    // Fully there until it goes (a fade-out has its own keys).
+    // Fully there until it goes (a fade-out has its own keys); gone after `until` — with an exit
+    // once it is done, without one a cut.
     if (g.exit && g.exit !== "fade") key("opacity", t1, 1);
     if (g.idle !== "twinkle" && g.exit !== "fade") key("opacity", tOut, 1);
-    if (g.exit) key("opacity", t1 + 0.001, 0);
+    if (g.exit || g.until) key("opacity", t1 + 0.001, 0);
     for (const [c, keys] of Object.entries(ch)) if (keys.length) this.tracks[`props.${g.id}.${c}`] = keys.sort((a, b) => a[0] - b[0]);
   }
   /** Scene y of a prop at a moment (its last key, else where it was put). */
@@ -806,8 +936,7 @@ class BlockScene {
       if (Array.isArray(p)) q = [p[0], p[1]];
       else if (p === "offLeft" || p === "offRight") q = [p === "offLeft" ? -300 : W + 300, prev[1]];
       else {
-        const mk = typeof p === "string" ? this.setDef.marks[p] : undefined;
-        q = [this.placeX(p as Place, at), mk?.y ?? prev[1]];
+        q = [this.placeX(p as Place, at), this.markOf(p as Place)?.y ?? prev[1]];
       }
       pts.push(q);
       prev = q;
@@ -885,12 +1014,17 @@ class BlockScene {
     const st = this.propStates.get(prop);
     if (!st) return this.issue("error", `unknown prop "${prop}"`);
     st.heldBy.push({ actor, t0: abs, t1: Infinity });
-    this.handOf.set(prop, "F");
+    this.setHand(prop, "F", abs);
     this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: "hand" });
   }
-  /** The anchor and chain of the hand holding a prop. */
-  private hand(prop: string) {
-    const side = this.handOf.get(prop) ?? "F";
+  /** Which hand holds a prop from a moment on. */
+  private setHand(prop: string, side: "F" | "B", abs: number) {
+    this.handOf.set(prop, side);
+    (this.handLog.get(prop) ?? this.handLog.set(prop, []).get(prop)!).push([abs, side]);
+  }
+  /** The anchor and chain of the hand holding a prop (now, or at a moment of the block). */
+  private hand(prop: string, abs?: number) {
+    const side = abs === undefined ? (this.handOf.get(prop) ?? "F") : ([...(this.handLog.get(prop) ?? [])].filter((h) => h[0] <= abs + 1e-6).sort((a, b) => a[0] - b[0]).pop()?.[1] ?? this.handOf.get(prop) ?? "F");
     return { side, anchor: side === "F" ? "hand" : "handB", chain: `hand${side}`, part: `hand${side}` };
   }
   /**
@@ -901,10 +1035,17 @@ class BlockScene {
     for (const [id, st] of this.propStates) {
       if (!st.heldBy.some((h) => h.actor === actor && h.t0 <= abs && h.t1 > abs) || this.hung.get(id)?.actor === actor) continue;
       const old = this.hand(id);
-      this.handOf.set(id, old.side === "F" ? "B" : "F");
+      this.setHand(id, old.side === "F" ? "B" : "F", abs);
       const now = this.hand(id);
       const use = this.inUse.get(id);
       const active = use && use.actor === actor && use.until > abs;
+      // Grabs planned for later go into the hand that holds it then.
+      for (const g of this.regrabs) if (g.prop === id && g.t > abs) g.action.anchor = this.hand(id, g.t).anchor;
+      // The arm doing the holding is the other one from now on (the old one is free again).
+      if (active && use) {
+        for (const b of this.armBusy) if (b.actor === actor && b.side === old.side && b.t0 <= abs && b.t1 > abs) b.t1 = abs;
+        this.armBusy.push({ actor, side: now.side, t0: abs, t1: use.until });
+      }
       // Fitted to one side of the head (an ear), it stays on that ear: now the other side of the drawing.
       const other: Record<string, string> = { ear: "earB", earB: "ear", hand: "handB", handB: "hand" };
       const fit = active && use.fit ? use.fit.map((f) => ("anchor" in f && other[f.anchor as string] ? { ...f, anchor: other[f.anchor as string] } : f)) : undefined;
@@ -1015,7 +1156,11 @@ class BlockScene {
       this.push({ at: t1, actor, action: "reach", chain: "handF", target: null, duration: 0.3 });
     }
     this.push({ at: t1, action: "release", actor, prop });
-    this.push({ at: t1, action: "grab", actor, prop, anchor: this.hand(prop).anchor });
+    // Back into the holding hand — the one holding it then (a turn round in between swaps hands):
+    // settled when the block is built.
+    const back: Action = { at: t1, action: "grab", actor, prop, anchor: this.hand(prop).anchor };
+    this.push(back);
+    this.regrabs.push({ action: back, prop, t: until });
   }
   /**
    * A 2.5D rig's near arm (F) reached in 3D to a body-space point, arriving at `at` after `dur`
@@ -1058,6 +1203,7 @@ class BlockScene {
    * turns into it smoothly).
    */
   private cutArm(actor: string, side: "F" | "B", from: number, until = Infinity) {
+    // The same window for the script and the angle history: every move starting in [from, until).
     const t = this.t(from), u = until === Infinity ? Infinity : this.t(until);
     const re = new RegExp(`^bones\\.arm${side}[12]\\.(rotation|turn|spread)$`);
     for (let i = this.script.length - 1; i >= 0; i--) {
@@ -1066,7 +1212,7 @@ class BlockScene {
       // (A move under way when this one starts is taken over smoothly by the scene.)
       if (a.at >= t - 1e-6 && a.at < u - 1e-6) this.script.splice(i, 1);
     }
-    for (const [k, hist] of this.angles) if (k.startsWith(`${actor}|bones.arm${side}`)) this.angles.set(k, hist.filter((h) => h[0] <= from + 1e-6 || h[0] > until + 1e-6));
+    for (const [k, hist] of this.angles) if (k.startsWith(`${actor}|bones.arm${side}`)) this.angles.set(k, hist.filter((h) => !(h[2] >= from - 1e-6 && h[2] < until - 1e-6)));
   }
   /** A 2.5D rig's arm channels as last set by a moment (else at rest). */
   private armNow(actor: string, side: "F" | "B", t: number): Rig3dValues {
@@ -1207,8 +1353,8 @@ class BlockScene {
 
   // -------------------------------------------------- beats
   beat(b: Beat) {
-    const at = this.time.at(b);
-    const until = b.until ? this.time.at(b.until) : undefined;
+    const at = this.when(b);
+    const until = b.until ? this.when(b.until) : undefined;
     const all = (b.who === undefined ? [] : Array.isArray(b.who) ? b.who : [b.who]) as string[];
     // The camera can frame anything in the scene (cast, fixtures, vehicles, props); the other
     // actions are for the cast present in the block.
@@ -1240,21 +1386,27 @@ class BlockScene {
         }
         for (const w of who) {
           const x = dest.get(w) ?? this.placeX(b.to as Place, at, w);
-          const speed = (this.member(w)?.speed?.[b.do as "walk" | "run"] ?? (b.do === "run" ? 380 : 170)) * this.scaleOf(w);
-          this.walk(w, x, at, until ? until - at : Math.abs(x - this.xAt(w, at)) / speed, { clip: b.do });
+          this.walk(w, x, at, Math.abs(x - this.xAt(w, at)) / this.speedOf(w, b.do), { clip: b.do, ...(until !== undefined ? { until } : {}) });
         }
         break;
       }
       case "enter":
-        break; // handled when the cast is placed
+        // The first entrance of an actor is staged with the cast; a later one (back in after an
+        // `exit`) comes in again, to `to` (default: where they stood before leaving).
+        for (const w of who) {
+          if (this.placedEnters.get(b)?.has(w)) continue;
+          const gone = [...this.walks].filter((k) => k.actor === w && k.t1 <= at + 1e-6).sort((p, q) => p.t1 - q.t1).pop();
+          const x = b.to !== undefined ? this.placeX(b.to as Place, at, w) : (gone?.x0 ?? this.x0[w] ?? this.mark("center").x);
+          this.entrance(w, x, this.enterSpec(b), at, false);
+        }
+        break;
       case "exit": {
         for (const w of who) {
           // Out beyond the set's edge (past what any camera on it shows).
           const W = this.kit.width ?? 1920, [bx0, , bx1] = this.setDef.bounds ?? [-400, 0, W + 400, 0];
           const half = ((this.member(w)?.rig.extent.front ?? 100) + 60) * this.scaleOf(w);
           const x = b.to === "left" ? Math.min(-500, bx0) - half : Math.max(W + 500, bx1) + half;
-          const speed = (b.run ? 380 : 170) * this.scaleOf(w);
-          this.walk(w, x, at, Math.abs(x - this.xAt(w, at)) / speed, { clip: b.run ? "run" : "walk" });
+          this.walk(w, x, at, Math.abs(x - this.xAt(w, at)) / this.speedOf(w, b.run ? "run" : "walk"), { clip: b.run ? "run" : "walk" });
         }
         break;
       }
@@ -1384,7 +1536,13 @@ class BlockScene {
         if (one) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, actor: one, ...(b.type === "dust" ? { anchor: "origin" } : {}) });
         else if (b.prop) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, prop: b.prop, scale: (b.scale as number | undefined) ?? 1.2 });
         else if (Array.isArray(b.at)) this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: (b.at as number[])[0], y: (b.at as number[])[1], scale: (b.scale as number | undefined) ?? 1.4 });
-        else this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: this.placeX((b.at as Place) ?? "center", at), y: 380, scale: 1.4 });
+        else {
+          // At a mark: at its height when it has one (a place on the far ground, a window), else in
+          // the air above the near ground.
+          const place = (b.at as Place | undefined) ?? "center";
+          const y = this.markOf(place)?.y ?? this.setDef.ground.near - Math.round((this.kit.height ?? 1080) * 0.48);
+          this.push({ at: this.t(at - 0.05), action: "fx", type: b.type, x: this.placeX(place, at), y, scale: (b.scale as number | undefined) ?? 1.4 });
+        }
         break;
       case "view":
         for (const w of who) this.view(w, b.value as string, at);
@@ -1395,29 +1553,35 @@ class BlockScene {
           if (one) this.holdProp(one, b.prop as string, at, until);
         } else this.hold(who, at, (b.view as "profile" | "back") ?? "profile");
         break;
-      case "release":
-        for (const w of who) this.releaseHands(w, at);
-        this.stepApart(who, at);
+      case "release": {
+        // Whoever held their hand lets go too, and steps back with them.
+        const freed = new Set(who);
+        for (const w of who) for (const p of this.releaseHands(w, at)) freed.add(p);
+        this.stepApart([...freed], at);
         break;
+      }
       case "cross":
         this.cross(who, b.to as string, at, until ?? at + 8);
         break;
       case "pick": {
         const prop = b.prop as string;
         const px = this.propX(prop, at);
+        let t = at;
         if (Math.abs(px - this.xAt(one, at)) > 60 * this.scaleOf(one)) {
+          // Walks over beforehand (as far as the block allows: else the grab waits for the arrival).
           const side = px > this.xAt(one, at) ? -1 : 1;
-          const dur = Math.abs(px + side * 50 - this.xAt(one, at)) / (170 * this.scaleOf(one));
-          this.walk(one, px + side * 50, at - dur, dur);
+          const dur = Math.abs(px + side * 50 - this.xAt(one, at)) / this.speedOf(one, "walk");
+          t = Math.max(at, this.walk(one, px + side * 50, at - dur, dur));
         }
-        this.grab(one, prop, at);
+        this.grab(one, prop, t);
         break;
       }
       case "drop": {
         const prop = b.prop as string;
-        const x = this.xAt(one, at) + 60 * this.scaleOf(one);
+        // Put down in front (the way they face).
+        const x = this.xAt(one, at) + (this.facing(one, at) ? 1 : -1) * 60 * this.scaleOf(one);
         this.release(prop, at);
-        this.propKeys(prop, [[at, x, this.setDef.ground.near - this.propStates.get(prop)!.radius, 1]]);
+        this.propKeys(prop, [[at, x, this.groundY(one, at) - this.propStates.get(prop)!.radius, 1]]);
         break;
       }
       case "throw":
@@ -1439,7 +1603,7 @@ class BlockScene {
         break;
       }
       case "camera":
-        this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string, to: b.to as string | undefined, duration: until !== undefined ? until - at : (b.duration as number | undefined), amount: b.amount as number | undefined }, at);
+        this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string | undefined, to: b.to as string | undefined, duration: until !== undefined ? until - at : (b.duration as number | undefined), amount: b.amount as number | undefined }, at);
         break;
       case "light": {
         const d = r3(until ? until - at : 2);
@@ -1551,7 +1715,7 @@ class BlockScene {
     const x0 = this.propX(prop, at);
     const x1 = this.placeX(to, at);
     const near = this.setDef.ground.near - st.radius;
-    const markY = typeof to === "string" ? this.setDef.marks[to]?.y : undefined;
+    const markY = this.markOf(to)?.y;
     const far = markY !== undefined && this.setDef.ground.far !== undefined && Math.abs(markY - this.setDef.ground.far) < Math.abs(markY - this.setDef.ground.near);
     const ds = this.setDef.depthScale ?? 0.6;
     const T = Math.max(0.8, until - at);
@@ -1615,8 +1779,11 @@ class BlockScene {
     const speed = v.speed ?? 950;
     const dur = Math.abs(x1 - x0) / speed;
     const start = at - 0.3;
-    const laneY = b.lane === "far" && this.setDef.marks.farLane ? this.setDef.marks.farLane.y! : (this.setDef.marks.nearLane?.y ?? this.setDef.ground.near - 16);
-    this.addActor(id, x0, { character: v.character, y: laneY, scale: v.scale * (b.lane === "far" ? (this.setDef.depthScale ?? 0.6) : 1), z: b.lane === "far" ? 0.3 : 1, flip: !leftToRight, palette: b.color ? { paint: b.color as string } : undefined });
+    // The lanes: the set's `nearLane` / `farLane` marks (with a `y`), else just above the near
+    // ground, or the far ground for the far lane (smaller there, by the set's depth scale).
+    const far = b.lane === "far", ds = this.setDef.depthScale ?? 0.6;
+    const laneY = far ? (this.setDef.marks.farLane?.y ?? (this.setDef.ground.far !== undefined ? this.setDef.ground.far - 16 * ds : this.setDef.ground.near - 16)) : (this.setDef.marks.nearLane?.y ?? this.setDef.ground.near - 16);
+    this.addActor(id, x0, { character: v.character, y: laneY, scale: v.scale * (far ? ds : 1), z: far ? 0.3 : 1, flip: !leftToRight, palette: b.color ? { paint: b.color as string } : undefined });
     this.push({ at: this.t(start), actor: id, action: "walkTo", x: Math.round(x1), duration: r3(dur), clip: "drive", ease: "linear" });
     this.tracks[`actors.${id}.opacity`] = [[0, 0], [this.t(start) - 0.001 > 0 ? this.t(start) - 0.001 : 0, 0], [this.t(start), 1], [this.t(start + dur), 1], [this.t(start + dur) + 0.001, 0]];
   }
@@ -1634,7 +1801,8 @@ class BlockScene {
         }
     }
     const order = [...group].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
-    this.gather(order, at, view);
+    // (With no time to step together before the beat, the hands meet when everyone is there.)
+    at = Math.max(at, this.gather(order, at, view));
     for (const id of order) this.face(id, "right", at);
     for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at, view);
   }
@@ -1659,14 +1827,15 @@ class BlockScene {
     const reach = shoulders + (A.armLength.F * sa + B.armLength.B * sb) * 0.94 * 1.3;
     return Math.max(60, Math.min(apart, reach));
   }
-  /** Neighbours step together (around their centre) to holding distance, ending at `at`. */
-  private gather(order: string[], at: number, view: "profile" | "back") {
+  /** Neighbours step together (around their centre) to holding distance, ending at `at`; returns when the last one is there. */
+  private gather(order: string[], at: number, view: "profile" | "back"): number {
     const xs = [0];
     for (let i = 1; i < order.length; i++) xs.push(xs[i - 1] + this.holdGap(order[i - 1], order[i], view));
     const centre = order.reduce((s, id) => s + this.xAt(id, at - 0.6), 0) / order.length;
     const mid = xs.reduce((s, x) => s + x, 0) / xs.length;
     // As the block opens (no time to step together before it), they are there already.
     const opening = at - 0.6 < this.t0 + 0.05;
+    let there = at;
     order.forEach((id, i) => {
       const x = centre - mid + xs[i];
       if (Math.abs(this.xAt(id, at - 0.6) - x) <= 6) return;
@@ -1674,8 +1843,9 @@ class BlockScene {
       if (opening && actor && !this.walks.some((w) => w.actor === id)) {
         actor.x = Math.round(x);
         this.x0[id] = x;
-      } else this.walk(id, x, at - 0.6, 0.6);
+      } else there = Math.max(there, this.walk(id, x, at - 0.6, 0.6));
     });
+    return there;
   }
   /** Hand in hand, computed in scene space so each character uses its own scale. */
   private holdPair(a: string, b: string, at: number, view: "profile" | "back") {
@@ -1709,20 +1879,59 @@ class BlockScene {
       for (const bone of arm.bones) this.set(arm.actor, `bones.${bone}.squash`, Math.min(0.6, stretch), at, 0.45, "sineInOut");
       const already = this.holds.some((h) => h.actor === arm.actor && h.t1 === Infinity);
       this.holds.push({ actor: arm.actor, t0: at, t1: Infinity });
-      if (!already) this.play(arm.actor, "hold", at, 60, { fadeIn: 0.4 });
+      if (!already) {
+        // The holding clip (and its busy window) last until the hands let go: settled when the block is built.
+        const n = this.script.length;
+        this.play(arm.actor, "hold", at, 60, { fadeIn: 0.4 });
+        if (this.script.length > n) this.holdClips.push({ actor: arm.actor, t0: at, clip: this.script[n], busy: this.busy[this.busy.length - 1] });
+      }
     }
     for (const p of this.handPairs) if (p.a === a && p.b === b && p.t1 === Infinity) p.t1 = at;
-    this.handPairs.push({ a, b, t1: Infinity });
+    this.handPairs.push({ a, b, t0: at, t1: Infinity });
     // Whoever holds something in the near hand passes it to the other hand (a "heldHand" switch: near | far).
     const ca = this.kit.characters[this.characterOf(a)];
     if ((ca?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(a, "parts.heldHand.variant", "far", at);
   }
-  releaseHands(actor: string, at: number) {
+  /**
+   * Lets go of every hand held: the actor's arms come back, and so does the hand of each partner
+   * that held theirs (a partner still holding someone else keeps that hand). Returns the partners.
+   */
+  releaseHands(actor: string, at: number): string[] {
+    const partners: string[] = [];
+    for (const p of this.handPairs) {
+      if ((p.a !== actor && p.b !== actor) || p.t1 !== Infinity) continue;
+      p.t1 = at;
+      const partner = p.a === actor ? p.b : p.a;
+      partners.push(partner);
+      // The partner's hand in this pair (the left one holds with the near hand, the right one with the far).
+      this.freeHand(partner, p.a === actor ? "handB" : "handF", at);
+      if (!this.handPairs.some((q) => (q.a === partner || q.b === partner) && q.t1 === Infinity)) for (const h of this.holds) if (h.actor === partner && h.t1 === Infinity) h.t1 = at;
+    }
     for (const h of this.holds) if (h.actor === actor && h.t1 === Infinity) h.t1 = at;
-    for (const p of this.handPairs) if ((p.a === actor || p.b === actor) && p.t1 === Infinity) p.t1 = at;
-    for (const c of ["handF", "handB"]) this.set(actor, `ik.${c}.mix`, 0, at, 0.4, "sineInOut");
-    for (const bone of ["armF1", "armF2", "armB1", "armB2"]) this.set(actor, `bones.${bone}.squash`, 0, at, 0.4);
+    this.freeHand(actor, "handF", at);
+    this.freeHand(actor, "handB", at);
     if ((this.kit.characters[this.characterOf(actor)]?.parts as { id: string }[] | undefined)?.some((p) => p.id === "heldHand")) this.set(actor, "parts.heldHand.variant", "near", at);
+    return partners;
+  }
+  /** An arm held out to someone's hand comes back (its IK off, its stretch gone). */
+  private freeHand(actor: string, chain: "handF" | "handB", at: number) {
+    this.set(actor, `ik.${chain}.mix`, 0, at, 0.4, "sineInOut");
+    for (const bone of [`arm${chain === "handF" ? "F" : "B"}1`, `arm${chain === "handF" ? "F" : "B"}2`]) this.set(actor, `bones.${bone}.squash`, 0, at, 0.4);
+  }
+  /** Hand-in-hand clips last until the hands let go (the end of the block at most). */
+  private settleHolds() {
+    for (const h of this.holdClips) {
+      // The actor keeps holding while any pair of theirs begun by then is still open.
+      let end = h.t0;
+      for (let guard = 0; guard < 64; guard++) {
+        const open = this.handPairs.filter((p) => (p.a === h.actor || p.b === h.actor) && p.t0 <= end + 1e-6 && p.t1 > end + 1e-6);
+        if (!open.length) break;
+        end = Math.max(...open.map((p) => p.t1));
+      }
+      end = Math.min(end, this.t1);
+      h.clip.duration = r3(Math.max(0.1, end - h.t0));
+      h.busy.t1 = end;
+    }
   }
 
   /** After letting go, neighbours who stood hand in hand step back to their usual spacing. */
@@ -1795,15 +2004,27 @@ class BlockScene {
     });
   }
   /** Gets on a vehicle: walks to it, sits on its `seat`, feet on the pedals, hands on the handlebar. */
-  mountOn(rider: string, vehicle: string | undefined, at: number) {
-    if (!vehicle || !this.vehicleOf.has(vehicle)) return this.issue("error", `${rider} cannot mount "${vehicle ?? ""}": not a vehicle of block "${this.block.id}"${closest(vehicle ?? "", [...this.vehicleOf.keys()])} (declare it in the block's "vehicles")`);
+  /** Someone carried on another's back (a `carry`), if so: the ride whose "vehicle" is a cast member. */
+  private carriedAt(actor: string, abs: number) {
+    const r = this.ridingAt(actor, abs);
+    return r && !this.vehicleOf.has(r.vehicle) ? r : undefined;
+  }
+  /**
+   * Gets on a vehicle: walks to it, sits on its `seat`, feet on the pedals, hands on the handlebar.
+   * Returns when they are on it (later than `at` when the walk over cannot fit before it), or
+   * undefined when they cannot.
+   */
+  mountOn(rider: string, vehicle: string | undefined, at: number): number | undefined {
+    if (!vehicle || !this.vehicleOf.has(vehicle)) return void this.issue("error", `${rider} cannot mount "${vehicle ?? ""}": not a vehicle of block "${this.block.id}"${closest(vehicle ?? "", [...this.vehicleOf.keys()])} (declare it in the block's "vehicles")`);
     const doc = this.kit.characters[this.characterOf(vehicle)];
     const anchors = (doc?.anchors ?? {}) as Record<string, { at: [number, number] }>;
-    if (!anchors.seat) return this.issue("error", `"${vehicle}" cannot be ridden: its rig has no "seat" anchor`);
-    if (this.ridingAt(rider, at)) return;
+    if (!anchors.seat) return void this.issue("error", `"${vehicle}" cannot be ridden: its rig has no "seat" anchor`);
+    const carried = this.carriedAt(rider, at);
+    if (carried) return void this.issue("error", `${rider} cannot mount "${vehicle}": carried by ${carried.vehicle} then (set them down first: carry … until)`);
+    if (this.ridingAt(rider, at)) return at;
     const other = this.rides.find((r) => r.vehicle === vehicle && r.t0 <= at && r.t1 > at);
-    if (other) return this.issue("error", `${rider} cannot mount "${vehicle}": ${other.rider} is riding it`);
-    if (this.restAt(rider, at - 1.6)) this.getUp(rider, at - 1.6);
+    if (other) return void this.issue("error", `${rider} cannot mount "${vehicle}": ${other.rider} is riding it`);
+    this.standUp(rider, at, 1.6);
     const s = this.vehicleOf.get(vehicle)!.scale;
     // A fallen vehicle is lifted back up first.
     if (this.fallen.has(vehicle)) {
@@ -1814,7 +2035,7 @@ class BlockScene {
       this.fallen.delete(vehicle);
     }
     const bx = this.xAt(vehicle, at);
-    if (Math.abs(this.xAt(rider, at - 0.8) - bx) > 30) this.walk(rider, bx, at - 0.8, 0.7);
+    if (Math.abs(this.xAt(rider, at - 0.8) - bx) > 30) at = Math.max(at, this.walk(rider, bx, at - 0.8, 0.7) + 0.1);
     this.face(rider, this.facing(vehicle, at) ? "right" : "left", at);
     const rig = this.member(rider)?.rig;
     const hip = rig?.hip ?? [0, -Math.round((rig?.height ?? 200) * 0.4)];
@@ -1830,11 +2051,13 @@ class BlockScene {
     const pedals = ["pedalF", "pedalB"].filter((p) => anchors[p]).map((p) => Math.hypot(anchors[p].at[0] - anchors.seat.at[0], anchors[p].at[1] - anchors.seat.at[1]) * s);
     if (legs && pedals.length && Math.max(...pedals) > legs * 1.02)
       this.issue("error", `${rider}'s legs (${Math.round(legs)} px) do not reach the pedals of "${vehicle}" (${Math.round(Math.max(...pedals))} px from the seat): make kit.vehicles.${this.vehicleOf.get(vehicle)!.kind}.scale smaller`);
+    return at;
   }
   /** Gets off and stands next to the vehicle, facing the same way. */
   dismount(rider: string, at: number) {
     const r = this.ridingAt(rider, at);
     if (!r) return this.issue("error", `${rider} cannot dismount: not riding anything then`);
+    if (!this.vehicleOf.has(r.vehicle)) return this.issue("error", `${rider} cannot dismount: carried by ${r.vehicle} then (set them down with carry … until)`);
     r.t1 = at;
     this.letGo(rider, r.vehicle, at, 0.4);
     const dir = this.facing(r.vehicle, at) ? 1 : -1;
@@ -1844,14 +2067,38 @@ class BlockScene {
     this.push({ at: this.t(at), actor: rider, action: "mount", on: null, duration: dur });
     for (const g of this.grips(rider, vehicle)) this.reach(rider, g.chain, null, at, Math.min(dur, 0.3));
   }
+  /**
+   * Off whatever they ride — a vehicle or someone's back — at `at`: the ride ends, the mount is
+   * undone and every hand or foot held on it lets go. Returns the ride, or undefined.
+   */
+  private dropOff(rider: string, at: number, dur = 0.4) {
+    const r = this.ridingAt(rider, at);
+    if (!r) return undefined;
+    r.t1 = at;
+    // (Carried, their own place did not follow the carrier: it is the carrier's now.)
+    if (!this.vehicleOf.has(r.vehicle)) this.jump(rider, this.xAt(r.vehicle, at), at);
+    this.push({ at: this.t(at), actor: rider, action: "mount", on: null, duration: dur });
+    // (Whatever the rider holds on the ridden one: pedals, a handlebar, a neck, hands.)
+    const chains = new Set<string>();
+    for (const g of this.grips(rider, r.vehicle)) chains.add(g.chain);
+    for (const chain of new Set(this.reachLog.filter((x) => x.actor === rider).map((x) => x.chain))) {
+      const last = this.reachBefore(rider, chain, at) as { actor?: string } | null;
+      if (last && typeof last === "object" && last.actor === r.vehicle) chains.add(chain);
+    }
+    for (const chain of chains) this.reach(rider, chain, null, at, Math.min(dur, 0.3));
+    return r;
+  }
   /** Rides to a place (mounting first if needed); `wobble` 0..1 rocks the vehicle like a beginner. */
   ride(rider: string, b: Beat, at: number, until?: number) {
     let start = at;
+    const carried = this.carriedAt(rider, at);
+    if (carried) return this.issue("error", `${rider} cannot ride: carried by ${carried.vehicle} then (set them down first: carry … until)`);
     if (!this.ridingAt(rider, at)) {
       // Without "vehicle": the one they rode last.
-      const last = [...this.rides].reverse().find((r) => r.rider === rider)?.vehicle;
-      this.mountOn(rider, (b.vehicle as string | undefined) ?? last, at);
-      start = at + 0.45;
+      const last = [...this.rides].reverse().find((r) => r.rider === rider && this.vehicleOf.has(r.vehicle))?.vehicle;
+      const on = this.mountOn(rider, (b.vehicle as string | undefined) ?? last, at);
+      if (on === undefined) return;
+      start = on + 0.45;
     }
     const r = this.ridingAt(rider, start);
     if (!r) return;
@@ -1886,6 +2133,13 @@ class BlockScene {
     const r = this.ridingAt(rider, at);
     if (!r) return this.issue("error", `${rider} cannot fall off: not riding anything then`);
     const vehicle = r.vehicle;
+    if (!this.vehicleOf.has(vehicle)) {
+      // Carried on someone's back: slips off it and lands behind the carrier.
+      const dir = this.facing(vehicle, at) ? 1 : -1;
+      this.dropOff(rider, at, 0.3);
+      this.knockDown(rider, at, side, dir, 0.45, -(this.member(vehicle)?.rig.extent.back ?? 60) * this.scaleOf(vehicle) - 0.25 * (this.member(rider)?.rig.height ?? 200) * this.scaleOf(rider));
+      return;
+    }
     if (this.walks.some((w) => w.actor === vehicle && w.t0 < at && w.t1 > at + 0.05))
       this.issue("warning", `${rider} falls while "${vehicle}" is still moving: end the ride ("until") at the fall`);
     r.t1 = at + 0.2;
@@ -1984,7 +2238,9 @@ class BlockScene {
    */
   hit(attacker: string, target: string, at: number, o: { ko?: boolean; until?: number } = {}) {
     if (!this.present.includes(target)) return this.issue("error", `${attacker} cannot hit "${target}": not in block "${this.block.id}"${closest(target, this.present)}`);
-    const xa = this.xAt(attacker, at), xv = this.xAt(target, at);
+    // (Carried on someone's back, the target is where the carrier is.)
+    const carried = this.carriedAt(target, at);
+    const xa = this.xAt(attacker, at), xv = carried ? this.xAt(carried.vehicle, at) : this.xAt(target, at);
     const dir = xv >= xa ? 1 : -1;
     const A = this.member(attacker)!.rig, V = this.member(target)!.rig;
     const sa = this.scaleOf(attacker), sv = this.scaleOf(target);
@@ -2005,6 +2261,10 @@ class BlockScene {
     this.sfx("hit", hitT);
     this.push({ at: this.t(hitT), action: "fx", type: "burst", actor: target, duration: 0.35, scale: 1.2 });
     this.push({ at: this.t(hitT), action: "shake", duration: 0.8, amount: 20, frequency: 22 });
+    // Sitting, lying, down already or riding: knocked off that first (never thrown while still on a
+    // seat, nor one fall stacked on another).
+    this.dropOff(target, hitT, 0.3);
+    this.standUp(target, hitT, 0.4);
     if (this.hasClip(target, "knocked")) this.play(target, "knocked", hitT, 0.6, { fadeIn: 0.02 });
     if (this.hasControl(target, "emotion")) this.push({ at: this.t(hitT), actor: target, action: "pose", control: "emotion", value: "scared", duration: 0.05 });
     // Thrown back, spinning, onto the back — kept inside the set.
@@ -2142,9 +2402,13 @@ class BlockScene {
     const cAnchors = Object.keys((this.kit.characters[this.characterOf(carrier)]?.anchors ?? {}) as Record<string, unknown>);
     for (const [foot, hand] of [["footF", "hand"], ["footB", "handB"]] as const)
       if (this.hasChain(rider, foot) && cAnchors.includes(hand)) this.reach(rider, foot, { actor: carrier, anchor: hand }, at + 0.2, 0.3);
-    const actor = this.actors.find((x) => x.id === rider) as { z?: number } | undefined;
+    // Drawn behind the carrier while carried (a stepped depth track: back to its own when set down).
+    const riderZ = (this.actors.find((x) => x.id === rider) as { z?: number } | undefined)?.z ?? 2;
     const carrierZ = (this.actors.find((x) => x.id === carrier) as { z?: number } | undefined)?.z ?? 2;
-    if (actor && (actor.z ?? 2) >= carrierZ) actor.z = carrierZ - 0.05;
+    if (riderZ >= carrierZ) {
+      this.set(rider, "z", carrierZ - 0.05, at);
+      if (until !== undefined) this.set(rider, "z", riderZ, until);
+    }
     this.holds.push({ actor: rider, t0: at, t1: until ?? Infinity });
     if (this.hasControl(rider, "emotion")) this.push({ at: this.t(at + 0.4), actor: rider, action: "pose", control: "emotion", value: "joy", duration: 0.3 });
     this.sfx("jump", at);
@@ -2159,7 +2423,7 @@ class BlockScene {
 
   // -------------------------------------------------- hiding
   /** Who hides behind what, and when (the check does not report their covered face then). */
-  private hidings: { actor: string; behind: string; t0: number; t1: number; crouch: number }[] = [];
+  private hidings: { actor: string; behind: string; t0: number; t1: number; crouch: number; lean: number }[] = [];
   /** Top (scene y) of a placed rig's drawing at a scene x (the shapes over that x). */
   private drawnTop(id: string, atX: number) {
     return this.drawnSpan(id, atX)[0];
@@ -2199,9 +2463,12 @@ class BlockScene {
       this.walk(actor, x, at, dur);
       t = at + dur;
     }
-    // Drawn under what they hide behind (for the whole block: depth is not animated).
-    const me = this.actors.find((x) => x.id === actor) as { z?: number } | undefined;
-    if (me && (me.z ?? 2) >= (target.z ?? 0)) me.z = (target.z ?? 0) - 0.05;
+    // Drawn under what they hide behind while hiding (a stepped depth track).
+    const meZ = (this.actors.find((x) => x.id === actor) as { z?: number } | undefined)?.z ?? 2;
+    if (meZ >= (target.z ?? 0)) {
+      this.set(actor, "z", (target.z ?? 0) - 0.05, t);
+      if (until !== undefined) this.set(actor, "z", meZ, until);
+    }
     // Behind something lower than the head (a table, a bush, a car): crouch until the head is below
     // its top — the hips go down, the feet stay on the floor (knees bend), the back bends forward.
     const rig = this.member(actor)?.rig, s = this.scaleOf(actor);
@@ -2211,7 +2478,7 @@ class BlockScene {
     const headTop = this.groundY(actor, at) + (headY !== undefined ? headY - (rig?.height ?? 300) * 0.16 : -(rig?.height ?? 300)) * s;
     const [objTop, objBottom] = this.drawnSpan(behind, x);
     const need = objTop + 24 - headTop; // scene px the head must go down (with a margin for tall hair)
-    let crouch = 0;
+    let crouch = 0, lean = 0;
     if (need > 0 && Number.isFinite(need)) {
       // The hips stay above the object's lower edge (under a tablecloth or a car the floor shows).
       const hipUp = Math.abs(this.hipOf(actor)[1]) * s;
@@ -2220,8 +2487,8 @@ class BlockScene {
       const room = Number.isFinite(objBottom) && objBottom < floor ? hipUp - (floor - objBottom) - (rig?.height ?? 300) * s * 0.1 : hipUp;
       crouch = Math.max(0, Math.min(need, (rig?.legLength?.F ?? 100) * s * 0.95, room));
       this.set(actor, "bones.hips.y", r3(crouch / s), t, 0.3, "easeOut");
-      const lean = need > crouch ? Math.min(60, ((need - crouch) / ((rig?.height ?? 300) * s * 0.4)) * 70) : 0;
-      if (lean) this.set(actor, "bones.body.rotation", r3(lean), t, 0.3, "easeOut");
+      lean = need > crouch ? r3(Math.min(60, ((need - crouch) / ((rig?.height ?? 300) * s * 0.4)) * 70)) : 0;
+      if (lean) this.set(actor, "bones.body.rotation", lean, t, 0.3, "easeOut");
       // Arms folded in front, around the knees (hanging, they would show under the object).
       const arms: [string, number][] = [["armF1", -70], ["armF2", -80], ["armB1", -60], ["armB2", -80]];
       for (const [bone, deg] of arms) this.set(actor, `bones.${bone}.rotation`, deg, t, 0.3, "easeOut");
@@ -2231,7 +2498,7 @@ class BlockScene {
         for (const [bone] of arms) this.set(actor, `bones.${bone}.rotation`, 0, until, 0.3, "easeOut");
       }
     }
-    this.hidings.push({ actor, behind, t0: at, t1: until ?? Infinity, crouch });
+    this.hidings.push({ actor, behind, t0: at, t1: until ?? Infinity, crouch, lean });
     if (until !== undefined && this.hasControl(actor, "emotion")) this.push({ at: this.t(until), actor, action: "pose", control: "emotion", value: "happy", duration: 0.3 });
     void t;
   }
@@ -2240,12 +2507,16 @@ class BlockScene {
     const h = this.hidings.find((x) => x.actor === actor && x.t0 <= at && x.t1 > at);
     if (!h) return this.issue("error", `${actor} cannot peek: not hiding then (use "hide" first)`);
     const back = until ?? at + 1.2;
-    // Crouching behind something low: the head pops up over its top, then ducks back down.
+    // Crouching behind something low: the head pops up over its top (the back straight), then ducks
+    // back down into the same crouch — unless the hiding is over by then (they stand up for good).
     if (h.crouch > 0) {
       const s = this.scaleOf(actor);
       this.set(actor, "bones.hips.y", 0, at, 0.25, "easeOut");
-      this.set(actor, "bones.body.rotation", 0, at, 0.25, "easeOut");
-      this.set(actor, "bones.hips.y", r3(h.crouch / s), back, 0.25, "easeIn");
+      if (h.lean) this.set(actor, "bones.body.rotation", 0, at, 0.25, "easeOut");
+      if (back < h.t1) {
+        this.set(actor, "bones.hips.y", r3(h.crouch / s), back, 0.25, "easeIn");
+        if (h.lean) this.set(actor, "bones.body.rotation", h.lean, back, 0.25, "easeIn");
+      }
       return;
     }
     // Behind something tall: leans out past its edge, then back.
@@ -2334,11 +2605,11 @@ class BlockScene {
   /** Flies to a place (crouches, takes off, glides, lands) or away out of the frame ("offLeft", "offRight", "up"). */
   fly(actor: string, to: Place | "offLeft" | "offRight" | "up", at: number, until?: number) {
     if (!this.canFly(actor)) return this.issue("error", `${actor} cannot fly (no "fly" clip nor meta.canFly on the rig)`);
-    if (this.restAt(actor, at)) this.getUp(actor, at - 0.6);
+    this.standUp(actor, at, 0.6);
     const s = this.scaleOf(actor);
     const floor = this.groundY(actor, at);
     const x0 = this.xAt(actor, at);
-    const speed = (this.member(actor)?.speed?.fly ?? 360) * s;
+    const speed = this.speedOf(actor, "fly");
     // Crouch before the jump into the air.
     this.set(actor, "scale", [r3(s * 1.08), r3(s * 0.9)], at - 0.18, 0.15, "easeOut");
     this.set(actor, "scale", s, at, 0.2, "easeOut");
@@ -2370,7 +2641,7 @@ class BlockScene {
         continue;
       }
       // Standing on its mark's floor line (e.g. a sofa against the back wall), else the near ground.
-      const y = (typeof f.at === "string" ? this.setDef.marks[f.at]?.y : undefined) ?? this.setDef.ground.near;
+      const y = this.markOf(f.at)?.y ?? this.setDef.ground.near;
       this.addActor(f.id, this.placeX(f.at ?? "center", this.t0), { character: def.character, scale: def.scale, y, z: 1.9, flip: f.facing === "left", palette: f.color ? { paint: f.color } : undefined });
       // A blanket (`meta.cover`: its own rig, drawn over whoever lies there), hidden until then.
       const cover = (this.kit.characters[def.character]?.meta as { cover?: { character: string } } | undefined)?.cover;
@@ -2491,7 +2762,7 @@ class BlockScene {
     if (rest?.kind === "sit" && rest.on === on) return;
     const place = this.restPlace(actor, on, "sit");
     if (!place) return;
-    if (rest) this.getUp(actor, at - 1.6);
+    this.standUp(actor, at, 1.6);
     const rig = this.member(actor)?.rig;
     const s = this.scaleOf(actor);
     const hip = this.hipOf(actor);
@@ -2506,15 +2777,17 @@ class BlockScene {
     // Facing the audience (a sofa in front of the TV, a school desk): thighs towards the camera.
     // A 2.5D rig sits in 3D and is drawn from whatever angle the seat is turned to.
     const front = !d3 && (seatView === "front" || seatView === "half");
-    // Someone already sitting there: the next seat (furniture `seat2`, `seat3`…; along a set seat).
-    const taken = on && on !== "ground" ? this.rests.filter((r) => r.kind === "sit" && r.on === on && r.t0 <= at && r.t1 > at).length : 0;
+    // Someone already sitting there (or settling there, their walk over still under way): the next
+    // seat (furniture `seat2`, `seat3`…; along a set seat).
+    const taken = on && on !== "ground" ? this.rests.filter((r) => r.kind === "sit" && r.on === on && r.t1 > at).length : 0;
     let sitX: number, seatY: number, floor: number, dir: number;
     if ("furniture" in place) {
       const anchor = taken ? `seat${taken + 1}` : "seat";
       const seat = this.furniturePoint(place.furniture, anchor);
       if (!seat) return this.issue("error", taken ? `"${place.furniture}" has no free seat for ${actor} (anchor "${anchor}" missing)` : `"${place.furniture}" has no "seat" anchor to sit on`);
       dir = seatYaw !== undefined ? (seatYaw < 0 ? -1 : 1) : this.facing(place.furniture, at) ? 1 : -1;
-      if (Math.abs(this.xAt(actor, at - 0.9) - seat[0]) > 30) this.walk(actor, seat[0], at - 0.9, 0.8);
+      // (Walks over first; with no time for that before the beat, sits on arriving.)
+      if (Math.abs(this.xAt(actor, at - 0.9) - seat[0]) > 30) at = Math.max(at, this.walk(actor, seat[0], at - 0.9, 0.8) + 0.1);
       this.face(actor, dir > 0 ? "right" : "left", at);
       if (front || (d3 && seatView)) this.view(actor, seatView!, at);
       // Facing the camera the body sinks a little into the cushion (`meta.sitFront.sink`).
@@ -2526,7 +2799,7 @@ class BlockScene {
       [sitX, seatY, floor] = [seat[0], seat[1], this.furnitureOf.get(place.furniture)!.y];
     } else {
       const x = place.x !== undefined ? place.x + taken * this.spacing(actor) * (front ? 0.7 : 1) : this.xAt(actor, at);
-      if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) this.walk(actor, x, at - 0.9, 0.8);
+      if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) at = Math.max(at, this.walk(actor, x, at - 0.9, 0.8) + 0.1);
       dir = this.facing(actor, at) ? 1 : -1;
       if (front || (d3 && seatView)) this.view(actor, seatView!, at);
       floor = this.groundY(actor, at);
@@ -2559,6 +2832,33 @@ class BlockScene {
   private nearestView(actor: string, yaw: number): string {
     const views = (this.kit.characters[this.characterOf(actor)] as { rig3d?: { views: Record<string, number> } }).rig3d!.views;
     return Object.entries(views).sort((a, b) => Math.abs(a[1] - yaw) - Math.abs(b[1] - yaw))[0][0];
+  }
+  /** Which side of the body's middle a leg's hip is on (−1: −x, +1: +x) in the rig's 3D build; the near leg at −x when they share it. */
+  private hipSide(actor: string, side: "F" | "B"): -1 | 1 {
+    const hip = (this.kit.characters[this.characterOf(actor)] as { rig3d?: { bones?: Record<string, { from: [number, number, number] }> } } | undefined)?.rig3d?.bones?.[`leg${side}1`]?.from[0] ?? 0;
+    return hip < 0 ? -1 : hip > 0 ? 1 : side === "F" ? -1 : 1;
+  }
+  /**
+   * A leg's channels opened outwards by `deg` in a pose: the knee away from the body's middle, on
+   * its hip's side. Found on the rig's own forward kinematics (`rig3dPose`): `spread` (about the
+   * forward axis) swings a hanging limb sideways, `turn` (about the vertical) a raised one —
+   * whichever moves the knee out the most, with the sign that does; nothing when neither does.
+   */
+  private legOut(actor: string, values: Rig3dValues, side: "F" | "B", deg: number): NonNullable<Rig3dValues[string]> {
+    const doc = this.kit.characters[this.characterOf(actor)] as unknown as Parameters<typeof rig3dPose>[0];
+    const bone = `leg${side}1`, cur = { ...(values[bone] ?? {}) };
+    const base = doc?.rig3d?.bones?.[bone] ? rig3dPose(doc, values)[bone] : undefined;
+    if (!base) return cur;
+    const away = this.hipSide(actor, side);
+    let best = cur, gain = 0;
+    for (const ch of ["spread", "turn"] as const)
+      for (const sign of [1, -1]) {
+        const v = { ...cur, [ch]: (cur[ch] ?? 0) + sign * deg };
+        const knee = rig3dPose(doc, { ...values, [bone]: v })[bone].to;
+        const g = (knee[0] - base.to[0]) * away;
+        if (g > gain) [best, gain] = [v, g];
+      }
+    return best;
   }
   /**
    * Sitting in 3D (a 2.5D rig): thighs forward (knees up when the seat is low), shins down to the
@@ -2598,19 +2898,21 @@ class BlockScene {
   private sitFloor3d(actor: string, at: number, legs: string) {
     const set = (ch: string, v: number) => this.set(actor, ch, v, at, 0.5, "easeOut");
     for (const side of ["F", "B"]) if (this.hasChain(actor, `foot${side}`)) this.set(actor, `ik.foot${side}.mix`, 0, at, 0.3);
-    const out = (side: string) => (side === "F" ? -1 : 1);
+    const out = (side: string) => this.hipSide(actor, side as "F" | "B");
     const v: Rig3dValues = { body: { rotation: legs === "straight" ? 16 : legs === "hug" ? -8 : 0 } };
     for (const side of ["F", "B"]) {
       if (legs === "hug") {
-        v[`leg${side}1`] = { rotation: -138, spread: out(side) * 4 };
+        v[`leg${side}1`] = { rotation: -138 };
         v[`leg${side}2`] = { rotation: 128 };
       } else {
-        v[`leg${side}1`] = { rotation: -86, spread: out(side) * 6 };
+        v[`leg${side}1`] = { rotation: -86 };
         v[`leg${side}2`] = { rotation: 4 };
         // Toes up (a foot stays level with the body unless turned).
         if (this.hasBone(actor, `foot${side}`)) set(`bones.foot${side}.rotation`, -70);
       }
     }
+    // The legs a little apart: each knee out, away from the body's middle.
+    for (const side of ["F", "B"] as const) v[`leg${side}1`] = this.legOut(actor, v, side, legs === "hug" ? 4 : 6);
     for (const [b, val] of Object.entries(v)) if (b.startsWith("leg")) for (const [k, x] of Object.entries(val)) set(`bones.${b}.${k}`, x!);
     set("bones.body.rotation", v.body.rotation!);
     this.pose3d.set(actor, v);
@@ -2651,9 +2953,9 @@ class BlockScene {
         return [hip[0] * 2.6, hip[1] + rr, hip[2] - thighLen * 0.8];
       },
     };
-    for (const side of ["F", "B"]) {
+    for (const side of ["F", "B"] as const) {
       if (!bones[`arm${side}1`] || !bones[`arm${side}2`]) continue;
-      const out = side === "F" ? -1 : 1;
+      const out = this.hipSide(actor, side);
       const sol = reach3d(doc, `arm${side}1`, `arm${side}2`, pick(P, side), values, pole?.(side) ?? [out * 0.6, 0.15, -1]);
       this.restArms.set(actor, { ...(this.restArms.get(actor) ?? {}), ...sol });
       for (const [b, val] of Object.entries(sol)) for (const [k, x] of Object.entries(val)) this.set(actor, `bones.${b}.${k}`, x!, at, 0.5, "easeOut");
@@ -2734,18 +3036,18 @@ class BlockScene {
     }
     const place = this.restPlace(actor, on, "lie");
     if (!place) return;
-    if (rest) this.getUp(actor, at - 1.6);
+    this.standUp(actor, at, 1.6);
     // Characters that tuck in (a turtle into its shell, a hedgehog curling up) do that instead.
     if (this.tucks(actor)) {
       if ("furniture" in place) {
         const anchor = this.furniturePoint(place.furniture, "bed") ? "bed" : "seat";
         const bed = this.furniturePoint(place.furniture, anchor);
         if (!bed) return this.issue("error", `"${place.furniture}" has no "bed" or "seat" anchor to lie on`);
-        if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
+        if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) at = Math.max(at, this.walk(actor, bed[0], at - 0.9, 0.8) + 0.1);
         this.push({ at: this.t(at), actor, action: "mount", on: place.furniture, anchor, point: [0, 0], duration: 0.5 });
         this.coverUp(place.furniture, at);
       } else {
-        if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) this.walk(actor, place.x, at - 0.9, 0.8);
+        if (place.x !== undefined && Math.abs(this.xAt(actor, at - 0.9) - place.x) > 30) at = Math.max(at, this.walk(actor, place.x, at - 0.9, 0.8) + 0.1);
         if (place.h) this.set(actor, "y", Math.round(this.groundY(actor, at) - place.h), at, 0.5, "sineInOut");
       }
       this.push({ at: this.t(at + 0.2), actor, action: "pose", control: "tuck", value: "in", duration: 0.4 });
@@ -2766,7 +3068,7 @@ class BlockScene {
       const bed = this.furniturePoint(place.furniture, anchor);
       if (!bed) return this.issue("error", `"${place.furniture}" has no "bed" or "seat" anchor to lie on`);
       const dir = this.facing(place.furniture, at) ? 1 : -1;
-      if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) this.walk(actor, bed[0], at - 0.9, 0.8);
+      if (Math.abs(this.xAt(actor, at - 0.9) - bed[0]) > 30) at = Math.max(at, this.walk(actor, bed[0], at - 0.9, 0.8) + 0.1);
       this.face(actor, dir > 0 ? "right" : "left", at);
       const g = this.lying(actor, dir, "back");
       this.set(actor, "rotation", g.rotation, at, 0.6, "sineInOut");
@@ -2782,7 +3084,7 @@ class BlockScene {
       // Rotated about the feet, the back (at the hips) must land on the place.
       if (place.x !== undefined) {
         const x = place.x - g.offset[0];
-        if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) this.walk(actor, x, at - 0.9, 0.8);
+        if (Math.abs(this.xAt(actor, at - 0.9) - x) > 30) at = Math.max(at, this.walk(actor, x, at - 0.9, 0.8) + 0.1);
         this.face(actor, dir > 0 ? "right" : "left", at);
       }
       const y = this.groundY(actor, at);
@@ -2903,75 +3205,87 @@ class BlockScene {
     if (this.setDef.ground.far === undefined) return this.issue("error", `set "${this.block.set}" has no far ground to cross to`);
     const ds = this.setDef.depthScale ?? 0.6;
     const target = this.mark(to).x;
-    // Hand in hand from behind: neighbours first step to holding distance (back-view shoulders).
+    // Hand in hand from behind: neighbours first step to holding distance (back-view shoulders);
+    // with no time for that before the beat, the crossing starts when they are together.
     const order = [...who].sort((a, b) => this.xAt(a, at) - this.xAt(b, at));
-    if (order.length > 1) this.gather(order, at - 0.15, "back");
+    if (order.length > 1) at = Math.max(at, this.gather(order, at - 0.15, "back") + 0.15);
     const centre = who.reduce((a, w) => a + this.xAt(w, at), 0) / who.length;
     for (const w of who) {
       this.crossed.set(w, at);
       this.view(w, "back", at - 0.15);
       const s0 = this.scaleOf(w);
       const x1 = target + (this.xAt(w, at) - centre) * ds;
-      this.walk(w, x1, at, until - at, { clip: this.hasClip(w, "walkDepth") ? "walkDepth" : "walk", y: this.setDef.ground.far, ease: "linear" });
-      this.set(w, "scale", r3(s0 * ds), at, until - at, "linear");
+      this.walk(w, x1, at, until - at, { clip: this.hasClip(w, "walkDepth") ? "walkDepth" : "walk", y: this.setDef.ground.far, ease: "linear", until });
+      this.set(w, "scale", r3(s0 * ds), at, Math.max(0.4, until - at), "linear");
       this.push({ at: this.t(at), actor: w, action: "lookAt", target: null });
     }
     for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at - 0.15, "back");
-    this.camera({ type: "cross", who }, at);
+    this.camera({ type: "cross", who, mark: to }, at);
   }
 
   // -------------------------------------------------- camera
   camera(c: { type: string; who?: string | string[]; mark?: string; to?: string; duration?: number; amount?: number }, at: number) {
-    const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w));
+    // What the camera may frame: the cast present, scenery and vehicles (actors), and props.
+    const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w) || this.propStates.has(w));
     const abs = this.t(at);
-    // Nobody to frame (an insert of graphics, an empty set): the camera stays on the set.
-    if (!who.length && c.type !== "shake" && c.type !== "on") {
-      this.push({ at: abs, action: "camera", x: Math.round((this.kit.width ?? 1920) / 2), y: Math.round((this.kit.height ?? 1080) / 2), zoom: 1 });
+    const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080;
+    // Nobody to frame (an insert of graphics, an empty set): the camera stays on the set — on the
+    // beat's mark when it has one (as tight as the shot asks), else on the middle.
+    if (!who.length && !["shake", "on", "reveal", "cross", "push-in", "pull-out"].includes(c.type)) {
+      const zoom = c.mark ? ({ close: 2.2, crash: 2.2, whip: 1.8, "two-shot": 1.6, medium: 1.6 } as Record<string, number>)[c.type] ?? 1 : 1;
+      const mk: Mark = c.mark ? this.mark(c.mark) : { x: W / 2 };
+      // (Tight on a mark: looking a little above its ground line, where what stands there is.)
+      const y = zoom > 1 ? (mk.y ?? this.setDef.ground.near) - (H / zoom) * 0.35 : H / 2;
+      this.push({ at: abs, action: "camera", x: Math.round(mk.x), y: Math.round(y), zoom, ...(c.duration !== undefined ? { duration: r3(c.duration), ease: "sineInOut" } : {}) });
       return;
     }
+    // (Faces are framed on cast and scenery; a prop has no face anchor.)
+    const face = (ids: string[]) => (ids.some((id) => this.propStates.has(id)) ? {} : { on: "face" });
     switch (c.type) {
       case "follow":
-        if (who[0] && !this.present.includes(who[0]) || (c.who === undefined && !who.length)) {
-          // Following an object (ball, car): frame it together with the cast, nobody is cut off.
-          const subject = Array.isArray(c.who) ? c.who : c.who ? [c.who] : [];
-          this.push({ at: abs, action: "camera", frame: [...subject.filter((s) => this.propStates.has(s) || this.actors.some((a) => a.id === s)), ...this.present], padding: 200, minZoom: 1, maxZoom: 1.1, blend: 1 });
+        if (!this.present.includes(who[0])) {
+          // Following an object (a ball, a car, a prop in flight): framed together with the cast, so
+          // nobody is cut off.
+          this.push({ at: abs, action: "camera", frame: [...new Set([...who, ...this.present])], padding: 200, minZoom: 1, maxZoom: 1.1, blend: 1 });
         } else this.push({ at: abs, action: "camera", follow: who[0], offset: [120, -40], lag: 0.6, axes: "x", blend: 0.8 });
         break;
       // Close-ups frame the faces (they follow a character who sits, leans or moves).
       case "close":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.8 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.8 });
         break;
       case "two-shot":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), on: "face", padding: 150, minZoom: 1.3, maxZoom: 2.4, blend: 1 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), ...face(who.slice(0, 2)), padding: 150, minZoom: 1.3, maxZoom: 2.4, blend: 1 });
         break;
       // A crash zoom: snapped in on a face, with a jolt and focus lines.
       case "crash":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.05 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.05 });
         this.push({ at: abs, action: "shake", duration: 0.45, amount: 7, frequency: 22 });
         this.push({ at: abs, action: "fx", type: "focusLines", duration: 1.1 });
         this.sfx("crash", at);
         break;
       // A whip pan to someone: a fast swing with speed lines.
       case "whip":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), on: "face", padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.05 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.05 });
         this.push({ at: abs, action: "fx", type: "speedLines", duration: 0.3 });
         this.sfx("whip", at);
         break;
       case "reveal": {
         // Pan towards a mark, but never so far that the cast leaves the frame.
-        const W = this.kit.width ?? 1920;
         const zoom = 1.05;
         const half = (W / 2 - 170) / zoom;
         const xs = this.present.map((p) => this.xAt(p, at));
         let x = this.mark(c.mark ?? "center").x;
         if (xs.length) x = Math.min(Math.max(x, Math.max(...xs) - half), Math.min(...xs) + half);
-        this.push({ at: abs, action: "camera", x: Math.round(x), y: 520, zoom, duration: 2.5, ease: "sineInOut" });
+        // (A little below the middle: the ground in the lower part of the picture.)
+        this.push({ at: abs, action: "camera", x: Math.round(x), y: Math.round(H * 0.48), zoom, duration: 2.5, ease: "sineInOut" });
         break;
       }
       case "cross": {
-        const x = this.mark("crossing").x;
-        this.push({ at: abs, action: "camera", x, y: 640, zoom: 1.25, duration: 3, ease: "sineInOut" });
-        this.push({ at: r3(abs + 3), action: "camera", x, y: 600, zoom: 1.6, duration: 6, ease: "sineInOut" });
+        // Onto the mark they cross to, closing in as they go: the far ground sits above the middle
+        // of the picture, so the camera looks a little below it.
+        const x = this.mark(c.mark ?? "center").x;
+        this.push({ at: abs, action: "camera", x, y: Math.round(H * 0.593), zoom: 1.25, duration: 3, ease: "sineInOut" });
+        this.push({ at: r3(abs + 3), action: "camera", x, y: Math.round(H * 0.556), zoom: 1.6, duration: 6, ease: "sineInOut" });
         break;
       }
       case "medium": {
@@ -2988,7 +3302,7 @@ class BlockScene {
           bottom = Math.max(bottom, hip + hipH * (rest?.kind === "sit" ? 0.55 : 0.45));
         }
         const pad = (bottom - top) * 0.08;
-        this.push({ at: abs, action: "camera", frame: cast, padding: 140, minZoom: 1, maxZoom: 2.4, blend: 1.2, ...(Number.isFinite(top) ? { band: [Math.round(top - pad), Math.round(bottom + pad)] } : {}) });
+        this.push({ at: abs, action: "camera", frame: cast.length ? cast : who, padding: 140, minZoom: 1, maxZoom: 2.4, blend: 1.2, ...(Number.isFinite(top) ? { band: [Math.round(top - pad), Math.round(bottom + pad)] } : {}) });
         break;
       }
       // Onto an album, a photo of it or its cover (by id): framed with a margin, a slow glide there.
@@ -2999,7 +3313,6 @@ class BlockScene {
           this.issue("error", `camera on "${id}": no album, photo or cover with that id${closest(String(id), [...this.photoSpots.keys()])}`);
           break;
         }
-        const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080;
         const zoom = Math.min(W / (spot.w * 1.25), H / (spot.h * 1.25));
         this.push({ at: abs, action: "camera", x: Math.round(spot.x), y: Math.round(spot.y), zoom: r3(zoom), duration: r3(c.duration ?? 1.2), ease: "sineInOut" });
         break;
@@ -3010,10 +3323,11 @@ class BlockScene {
       case "pull-out": {
         const dur = c.duration ?? 4;
         const to = c.to ?? (c.type === "push-in" ? "medium" : "wide");
-        if (c.type === "pull-out") this.camera({ type: c.to === "wide" || !c.to ? "close" : "medium", who: c.who }, at);
+        if (c.type === "pull-out") this.camera({ type: c.to === "wide" || !c.to ? "close" : "medium", who: c.who, mark: c.mark }, at);
         const n = this.script.length;
-        this.camera({ type: to, who: c.type === "pull-out" && to === "wide" ? undefined : c.who }, c.type === "pull-out" ? at + 0.05 : at);
-        for (const a of this.script.slice(n)) if ((a as { action: string }).action === "camera") Object.assign(a, { blend: r3(dur), lag: r3(dur * 0.35) });
+        this.camera({ type: to, who: c.type === "pull-out" && to === "wide" ? undefined : c.who, mark: c.mark, duration: dur }, c.type === "pull-out" ? at + 0.05 : at);
+        // (A framing blends over the move; a fixed camera on a mark glides there over `duration`.)
+        for (const a of this.script.slice(n)) if (a.action === "camera" && (a.frame !== undefined || a.follow !== undefined)) Object.assign(a, { blend: r3(dur), lag: r3(dur * 0.35) });
         break;
       }
       // A jolt (an impact, a scream).
@@ -3194,12 +3508,15 @@ class BlockScene {
     }
     this.face(baby, this.facing(adult, at) ? "right" : "left", at);
     this.push({ at: this.t(at), actor: baby, action: "mount", on: adult, anchor: "hand", point: this.hipOf(baby), duration: 0.5, facing: "own" });
-    const a = this.actors.find((x) => x.id === adult) as { z?: number } | undefined, c = this.actors.find((x) => x.id === baby) as { z?: number } | undefined;
-    if (c) c.z = (a?.z ?? 0) + 0.5;
+    // Drawn in front of the adult while held (the depth is a stepped track: back to its own after).
+    const adultZ = (this.actors.find((x) => x.id === adult) as { z?: number } | undefined)?.z ?? 0;
+    const babyZ = (this.actors.find((x) => x.id === baby) as { z?: number } | undefined)?.z ?? 0;
+    this.set(baby, "z", adultZ + 0.5, at);
     this.shadow(baby, at, { hide: true }, 0.3);
     if (until !== undefined) {
       this.push({ at: this.t(until), actor: baby, action: "mount", on: null, duration: 0.5 });
       for (const side of ["F", "B"] as const) this.armRest(adult, until, 0.45, side);
+      this.set(baby, "z", babyZ, until + 0.5);
       for (const side of ["F", "B"]) {
         this.set(baby, `bones.leg${side}1.rotation`, 0, until, 0.4);
         this.set(baby, `bones.leg${side}2.rotation`, 0, until, 0.4);
@@ -3252,7 +3569,7 @@ class BlockScene {
   }
   private speakerOf(l: Line): string[] {
     if (l.song || norm(l.speaker) === "song") return [...this.present];
-    const id = Object.entries(this.kit.cast).find(([id, c]) => norm(c.name) === norm(l.speaker) || norm(id) === norm(l.speaker))?.[0];
+    const id = speakerId(this.kit, l.speaker);
     return id && this.present.includes(id) ? [id] : [];
   }
   private addressed(l: Line, speaker: string): string | undefined {
@@ -3351,7 +3668,12 @@ class BlockScene {
       if (same) same.who = [...list(same.who), ...list(b.who)];
       else beats.push({ ...b });
     }
-    for (const b of [...beats].sort((a, b) => this.time.at(a) - this.time.at(b))) {
+    // In time order; a beat on a line that does not exist is reported and skipped (never a throw).
+    const timed = beats.flatMap((b) => {
+      const t = this.safeAt(b, `line ${b.line} "${b.do}"`);
+      return t === undefined ? [] : [{ b, t }];
+    });
+    for (const { b } of timed.sort((p, q) => p.t - q.t)) {
       try {
         this.beat(b);
       } catch (e) {
@@ -3359,6 +3681,10 @@ class BlockScene {
       }
       if (b.do === "look" || b.do === "face") noTurn.add(b.line);
     }
+    // What was left open by the beats: hand-in-hand clips end when the hands let go; a prop goes
+    // back into the hand that holds it when its use ends.
+    this.settleHolds();
+    for (const g of this.regrabs) g.action.anchor = this.hand(g.prop, g.t).anchor;
     this.ridePoses();
     this.snores();
     this.dialogue(noTurn);
@@ -3410,6 +3736,8 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const scenes: Record<string, SceneDoc> = {};
   const starts: Record<string, number> = {};
   const blocks = [...staging.blocks].sort((a, b) => a.from - b.from);
+  // The live action (not the inserts): the first live block starts the episode.
+  const live = blocks.filter((b) => !b.insert);
   const ids = new Set<string>();
   for (const b of blocks) {
     if (ids.has(b.id)) issues.push({ severity: "error", where: `block ${b.id}`, message: "duplicate block id" });
@@ -3420,7 +3748,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const build = (block: Block) => {
     if (scenes[block.id] || building.has(block.id)) return;
     building.add(block.id);
-    const bs = new BlockScene(block, kit, time, issues, blocks[0] === block, photo);
+    const bs = new BlockScene(block, kit, time, issues, live[0] === block, photo);
     scenes[block.id] = bs.build();
     starts[block.id] = bs.t0;
   };
@@ -3437,8 +3765,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
     return (f.background ? `<rect width="${f.width}" height="${f.height}" fill="${f.background}"/>` : "") + (f.defs ? `<defs>${f.defs}</defs>` : "") + f.nodes.map(nodeToString).join("");
   };
   for (const block of blocks) build(block);
-  // Coverage: the live blocks (not inserts) must follow each other.
-  const live = blocks.filter((b) => !b.insert);
+  // Coverage: the live blocks must follow each other.
   for (let i = 1; i < live.length; i++) if (live[i].from !== live[i - 1].to) issues.push({ severity: "warning", where: `block ${live[i].id}`, message: `starts at line ${live[i].from}, the previous block ends at ${live[i - 1].to}` });
 
   // Timeline: live blocks, with replay cuts spliced in.
@@ -3455,16 +3782,18 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
     if (Math.abs(time.end - t) < 0.7) return time.end;
     return t;
   };
+  // (A word a line does not have is reported; the moment falls on the line.)
+  const at = (w: When, where: string) => time.at(w, (message) => issues.push({ severity: "warning", where, message }));
   for (const c of [...(staging.cuts ?? [])].sort((a, b) => a.line - b.line)) {
-    const t0 = snap(time.at(c));
-    const t1 = snap(c.until ? time.at(c.until) : time.at({ line: c.line, end: true }));
+    const t0 = snap(at(c, `cut at line ${c.line}`));
+    const t1 = snap(c.until ? at(c.until, `cut at line ${c.line}`) : time.at({ line: c.line, end: true }));
     // Back to the live action: a straight cut unless the cut says how (`transitionOut`).
     const back = c.transitionOut;
     if (c.rewind) {
       // The tape rewinds: what was shown from the target up to the cut plays backwards, fast.
-      const gT = time.at(c.rewind as When);
+      const gT = at(c.rewind as When, `cut at line ${c.line}`);
       if (gT >= t0) {
-        issues.push({ severity: "error", where: `cut at line ${c.line}`, message: "rewind goes back to a moment before the cut" });
+        issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `rewind must go back to a moment before the cut (line ${c.rewind.line} is not before line ${c.line})` });
         continue;
       }
       const spd = (t0 - gT) / Math.max(0.1, t1 - t0);
@@ -3519,7 +3848,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
       issues.push({ severity: "error", where: `cut at line ${c.line}`, message: `unknown block "${replay.block}"` });
       continue;
     }
-    const from = time.at(replay) - starts[src.id];
+    const from = at(replay, `cut at line ${c.line}`) - starts[src.id];
     const cut: Seg = { t0, t1, scene: src.id, from: Math.max(0, from), mute: true, transition: c.transition ?? "flash" };
     const out: Seg[] = [];
     for (const s of segs) {
@@ -3575,7 +3904,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const overlays: Overlay[] = [];
   for (const t of staging.texts ?? []) {
     const from = time.at({ line: t.line });
-    const to = t.until ? time.at(t.until) : Math.max(time.at({ line: t.line, end: true }), from + 1.6);
+    const to = t.until ? at(t.until, `text "${t.text}"`) : Math.max(time.at({ line: t.line, end: true }), from + 1.6);
     overlays.push({ text: t.text, from: r3(from), to: r3(to), row: 0 });
   }
   overlays.sort((a, b) => a.from - b.from);
@@ -3591,8 +3920,12 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   }
   // Music beds: full when nobody speaks, ducked under the dialogue (songs keep it up).
   const end = time.end;
-  const music = (staging.music ?? []).map((m) => {
-    const start = m.from ? time.at(m.from) : 0, stop = m.until ? time.at(m.until) : end;
+  const music = (staging.music ?? []).flatMap((m) => {
+    const start = m.from ? time.at(m.from, (msg) => issues.push({ severity: "warning", where: `music ${m.src}`, message: msg })) : 0, stop = m.until ? time.at(m.until, (msg) => issues.push({ severity: "warning", where: `music ${m.src}`, message: msg })) : end;
+    if (stop <= start) {
+      issues.push({ severity: "error", where: `music ${m.src}`, message: `ends (until, ${stop.toFixed(2)} s) before it starts (from, ${start.toFixed(2)} s): not played` });
+      return [];
+    }
     const vol = m.volume ?? 0.5, duck = m.duck ?? 0.15, fade = m.fade ?? 1;
     const speech = lines.filter((l) => l.text && !l.song && norm(l.speaker) !== "song" && norm(l.speaker) !== "sfx" && l.e > start && l.s < stop);
     // Spans of speech (lines closer than a second are one span: the music does not pump between them).
@@ -3622,14 +3955,14 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
       }
       sorted.push([r3(t), v]);
     }
-    return { src: m.src, start: r3(start), end: r3(stop), volume: sorted };
+    return [{ src: m.src, start: r3(start), end: r3(stop), volume: sorted }];
   });
   return { sequence, scenes, overlays, issues, music };
 }
 
 /** Episode time where a block's scene starts (the first block starts at 0). */
 function blocks0(staging: Staging, time: Timeline, block: Block) {
-  const first = [...staging.blocks].sort((a, b) => a.from - b.from)[0];
+  const first = staging.blocks.filter((b) => !b.insert).sort((a, b) => a.from - b.from)[0];
   return block === first ? 0 : time.blockStart(block);
 }
 
@@ -3672,7 +4005,7 @@ export function check(staging: Staging, lines: Line[], kit: Kit, opts: CheckOpti
   // Every speaking cast member is in the block where they speak.
   const time = new Timeline(lines);
   for (const l of lines) {
-    const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
+    const id = speakerId(kit, l.speaker);
     if (!id) continue;
     const block = staging.blocks.find((b) => !b.insert && l.i >= b.from && l.i < b.to);
     const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
@@ -3682,7 +4015,7 @@ export function check(staging: Staging, lines: Line[], kit: Kit, opts: CheckOpti
   const W = kit.width ?? 1920, H = kit.height ?? 1080;
   const compiled = new Map<string, ReturnType<typeof compileScene>>();
   for (const l of lines) {
-    const id = Object.entries(kit.cast).find(([, c]) => norm(c.name) === norm(l.speaker))?.[0];
+    const id = speakerId(kit, l.speaker);
     const block = staging.blocks.find((b) => !b.insert && l.i >= b.from && l.i < b.to);
     if (!id || !block || !block.cast.some((c) => c.id === id) || !out.scenes[block.id]) continue;
     const replayed = staging.cuts?.some((c) => time.at(c) <= l.s && (c.until ? time.at(c.until) : time.at({ line: c.line, end: true })) >= l.e);
@@ -3746,10 +4079,7 @@ function motionIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: Ki
     return pts.some(([x, y]) => x > -20 && x < W + 20 && y > -20 && y < H + 20);
   };
   const FACE_CLIPS = ["think", "facepalm", "cry", "drink", "phone", "smoke", "scared", "laugh"];
-  const speaking = (id: string) => {
-    const name = kit.cast[id]?.name;
-    return time.lines.filter((l) => l.s >= t0 && l.s < t0 + sc.duration && (norm(l.speaker) === norm(id) || (name !== undefined && norm(l.speaker) === norm(name))));
-  };
+  const speaking = (id: string) => time.lines.filter((l) => l.s >= t0 && l.s < t0 + sc.duration && speakerId(kit, l.speaker) === id);
   for (const actor of sc.actors.filter((a) => cast.has(a.id))) {
     const height = kit.cast[actor.id]?.rig?.height ?? 300;
     const bones = actor.rig.bones.filter((b) => /^(arm|leg)[FB][12]$/.test(b.id));
@@ -3933,10 +4263,7 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
   // Covered faces count only when it matters: standing still behind something for more than half a
   // second, or speaking while covered. Walking past behind a tree, a car or a post is fine.
   const coveredFor = new Map<string, number>();
-  const speaking = (id: string, t: number) => {
-    const name = kit.cast[id]?.name;
-    return time.lines.some((l) => l.s <= t0 + t && l.e >= t0 + t && (norm(l.speaker) === norm(id) || (name !== undefined && norm(l.speaker) === norm(name))));
-  };
+  const speaking = (id: string, t: number) => time.lines.some((l) => l.s <= t0 + t && l.e >= t0 + t && speakerId(kit, l.speaker) === id);
   const moving = (actor: (typeof sc.actors)[number], t: number) => Math.abs(actorPlacement(actor, t + 0.4)[4] - actorPlacement(actor, t - 0.4)[4]) > 6;
   // Hiding on purpose ("hide" beats, until `until` or the end of the block): a covered face is the point.
   const hides = (block.beats ?? []).filter((b) => b.do === "hide").flatMap((b) => {

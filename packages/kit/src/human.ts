@@ -10,6 +10,7 @@ import type { ToonDoc } from "@animestudio/core";
 import { frontView } from "./humanFront";
 import { withProportions } from "./proportions";
 import { type P, characterClips, emotions, handShapes, limbBones, limbIk, mouthShapes } from "./rig";
+import { aimForward, shade } from "./util";
 
 const INK = "#1d1a2b";
 const SW = 4;
@@ -41,12 +42,6 @@ export interface HumanLook {
   /** Broader shoulders and chest (villains, adults). */
   bulk?: number;
 }
-
-const shade = (hex: string, k: number) => {
-  const n = parseInt(hex.slice(1), 16);
-  const c = (s: number) => Math.max(0, Math.min(255, Math.round(((n >> s) & 255) * k)));
-  return `#${((c(16) << 16) | (c(8) << 8) | c(0)).toString(16).padStart(6, "0")}`;
-};
 
 // ------------------------------------------------------------------ face (profile)
 
@@ -273,6 +268,22 @@ export function humanCharacter(look: HumanLook): ToonDoc {
   const flowParts = (z: "back" | "front") =>
     flowing.filter((f) => f.z === z).map((f) => ({ id: f.id, type: "skinned", path: f.d, bones: [`${f.id}1`, `${f.id}2`], fill: f.color, stroke: "palette(ink)", strokeWidth: 3.5, attrs: { "stroke-linejoin": "round" } }));
 
+  const skeleton = [
+    { id: "root" },
+    { id: "ground" },
+    { id: "hips", parent: "root", from: [0, -200], to: [0, -210], mass: 2 },
+    { id: "body", parent: "hips", from: [0, -200], to: [8, -330], mass: 2 },
+    { id: "neck", parent: "body", from: [12, -330], to: [16, -360], mass: 1, limits: { rotation: [-25, 25] } },
+    { id: "head", parent: "neck", from: [16, -360], to: [30, -456], mass: 1.4, limits: { rotation: [-40, 40] } },
+    { id: "pupils", parent: "head", from: [EYE[0], EYE[1]] },
+    ...extraBones,
+    ...limbBones({
+      shoulderF: [16, -322], elbowF: [22, -262], handF: [24, -200],
+      shoulderB: [-6, -324], elbowB: [-10, -264], handB: [-8, -202],
+      hipF: [12, -200], kneeF: [17, -104], footF: [12, -12], toeF: 26,
+      hipB: [-8, -200], kneeB: [-3, -104], footB: [-8, -12], toeB: 26,
+    }),
+  ] as { id: string; from?: P; to?: P; parent?: string }[];
   const doc = {
     format: "toon",
     version: 1,
@@ -330,22 +341,7 @@ export function humanCharacter(look: HumanLook): ToonDoc {
       eyeShine: eye.shine,
       iris: eye.iris,
     },
-    skeleton: [
-      { id: "root" },
-      { id: "ground" },
-      { id: "hips", parent: "root", from: [0, -200], to: [0, -210], mass: 2 },
-      { id: "body", parent: "hips", from: [0, -200], to: [8, -330], mass: 2 },
-      { id: "neck", parent: "body", from: [12, -330], to: [16, -360], mass: 1, limits: { rotation: [-25, 25] } },
-      { id: "head", parent: "neck", from: [16, -360], to: [30, -456], mass: 1.4, limits: { rotation: [-40, 40] } },
-      { id: "pupils", parent: "head", from: [EYE[0], EYE[1]] },
-      ...extraBones,
-      ...limbBones({
-        shoulderF: [16, -322], elbowF: [22, -262], handF: [24, -200],
-        shoulderB: [-6, -324], elbowB: [-10, -264], handB: [-8, -202],
-        hipF: [12, -200], kneeF: [17, -104], footF: [12, -12], toeF: 26,
-        hipB: [-8, -200], kneeB: [-3, -104], footB: [-8, -12], toeB: 26,
-      }),
-    ],
+    skeleton,
     parts: [
       { id: "shadow", type: "rigid", bone: "ground", art: `<ellipse cx="4" cy="2" rx="${r(66 * b)}" ry="10" fill="#000" opacity="0.2"/>` },
       ...flowParts("back"),
@@ -354,7 +350,7 @@ export function humanCharacter(look: HumanLook): ToonDoc {
       { id: "armB", type: "hose", bones: ["armB1", "armB2"], width: [r(21 * b), 17], fill: sleeveFar, stroke: "palette(ink)", strokeWidth: SW },
       { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
       { id: "sleeveB", type: "rigid", bone: "armB1", art: "sleeveB" },
-      ...extraParts.filter((p) => (p as { id: string }).id !== "front"),
+      ...extraParts,
       { id: "hairBack", type: "rigid", bone: "head", art: "hairBack" },
       { id: "legF", type: "hose", bones: ["legF1", "legF2"], width: [r(32 * b), 24], fill: "palette(pants)", stroke: "palette(ink)", strokeWidth: SW },
       { id: "shoeF", type: "rigid", bone: "footF", art: "shoe", space: "bone" },
@@ -385,7 +381,9 @@ export function humanCharacter(look: HumanLook): ToonDoc {
     physics,
     controls: {
       mouth: { type: "viseme", part: "mouth" },
-      look: { type: "aim", targets: [{ bone: "head", forward: -80, maxAngle: 14, weight: 0.35 }, { bone: "pupils", mode: "translate", radius: 3 }] },
+      // The face looks along +x (a profile facing right): `forward` turns the head bone's rest
+      // direction (up the neck) there.
+      look: { type: "aim", targets: [{ bone: "head", forward: aimForward(skeleton, "head"), maxAngle: 14, weight: 0.35 }, { bone: "pupils", mode: "translate", radius: 3 }] },
       emotion: emotions({
         dead: { "parts.eyes.variant": "dead", "parts.mouth.morph.D": 0.6, "bones.head.rotation": 10 },
         determined: { "parts.eyes.variant": "half", "parts.mouth.morph.frown": 0.4, "parts.brows.morph.cross": 1, "bones.head.rotation": 2 },

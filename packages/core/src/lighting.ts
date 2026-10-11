@@ -32,7 +32,7 @@ export interface LightState {
 export interface LightingState {
   ambient: { color: string; opacity: number };
   lights: LightState[];
-  shading: { light?: string; color: string; opacity: number; rim: string; rimOpacity: number; offset: number; inset: number; crowd?: number; minHeight: number };
+  shading: { light?: string; color: string; opacity: number; /** Rim light colour; unset: the key light's colour. */ rim?: string; rimOpacity: number; offset: number; inset: number; crowd?: number; minHeight: number };
   grade: { color: string; opacity: number; blend: string };
   vignette: { color: string; opacity: number };
 }
@@ -70,7 +70,7 @@ export function baseLighting(def: LightingDef): LightingState {
       light: def.shading?.light,
       color: def.shading?.color ?? "#2A2152",
       opacity: def.shading?.opacity ?? (def.shading ? 0.28 : 0),
-      rim: def.shading?.rim ?? "#FFF1C9",
+      ...(def.shading?.rim !== undefined ? { rim: def.shading.rim } : {}),
       rimOpacity: def.shading?.rimOpacity ?? (def.shading ? 0.45 : 0),
       offset: def.shading?.offset ?? 9,
       inset: def.shading?.inset ?? 3.5,
@@ -93,7 +93,13 @@ export function lightingChannelDefault(def: LightingDef, channel: string): Value
     return l[seg[2] as (typeof LIGHT_PROPS)[number]];
   }
   if (seg[0] === "lighting" && seg.length === 3 && SECTION_PROPS[seg[1]]?.includes(seg[2])) {
-    return (base as unknown as Record<string, Record<string, Value>>)[seg[1]][seg[2]];
+    const v = (base as unknown as Record<string, Record<string, Value | undefined>>)[seg[1]][seg[2]];
+    // An unset rim colour is the key light's colour (what the rim is painted with).
+    if (v === undefined && seg[1] === "shading" && seg[2] === "rim") {
+      const key = base.lights.find((l) => l.id === base.shading.light) ?? base.lights[0];
+      return key?.color ?? "#FFFFFF";
+    }
+    return v as Value;
   }
   throw new Error(
     `unknown lighting channel "${channel}". Use lights.<id>.(${LIGHT_PROPS.join("|")}) or ` +
@@ -144,9 +150,18 @@ export interface ScreenLight extends LightState {
   sr: number;
 }
 
-/** Key light used for character shading. */
+/** Key light used for character shading: `shading.light`, or the first light. */
 export function keyLight(state: LightingState, lights: ScreenLight[]): ScreenLight | undefined {
   return lights.find((l) => l.id === state.shading.light) ?? lights[0];
+}
+
+/** The error for a `shading.light` naming no light of the scene (undefined when it is unset or fine). */
+export function unknownKeyLight(def: LightingDef | undefined): string | undefined {
+  const id = def?.shading?.light;
+  if (id === undefined) return undefined;
+  const ids = (def?.lights ?? []).map((l) => l.id);
+  if (ids.includes(id)) return undefined;
+  return `unknown key light "${id}". Known lights: ${ids.join(", ") || "none"}.`;
 }
 
 /**
@@ -214,7 +229,7 @@ export function shadingMarkup(
     const r = (sh.inset + sh.offset * 0.5) * scale;
     out +=
       `<mask id="rim-${actorId}" ${box}>${use(inner)}${use("toon-black", -dir[0] * r, -dir[1] * r)}</mask>` +
-      `<rect ${area} fill="${esc(key.color)}" opacity="${f(sh.rimOpacity * Math.min(1, strength))}" mask="url(#rim-${actorId})" style="mix-blend-mode:screen"/>`;
+      `<rect ${area} fill="${esc(sh.rim ?? key.color)}" opacity="${f(sh.rimOpacity * Math.min(1, strength))}" mask="url(#rim-${actorId})" style="mix-blend-mode:screen"/>`;
   }
   return out;
 }

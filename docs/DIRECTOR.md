@@ -25,8 +25,8 @@ The soundtrack, already timed (seconds), one entry per line:
   "words": [{ "w": "Higher?", "s": 80.0, "e": 80.5 }, …], "song": false }
 ```
 
-`speaker` is a cast name (or alias), a narrator, `"sfx"`, or `"song"` / `song: true` (everybody
-present sings). Lip sync comes from the word timings; the last word lasts until `voiceEnd` (when
+`speaker` is a cast id, name or alias (case and accents ignored — `direct` and `check` resolve it
+the same way), a narrator, `"sfx"`, or `"song"` / `song: true` (everybody present sings). Lip sync comes from the word timings; the last word lasts until `voiceEnd` (when
 the voice really stops, measured from the line's audio) or, without it, until the line end minus
 its usual trailing silence (0.22 s), because aligners tend to end drawn-out last words early.
 
@@ -62,7 +62,9 @@ a pose control (like `view`: poses that set `parts.<id>.opacity`), e.g. `outfit`
 ## Staging
 
 Times are always **relative to a line**: `{ "line": 25 }` (its start), `{ "line": 25, "word":
-"goes" }`, `{ "line": 25, "end": true }`, plus an optional `offset` (s). Places are **set marks**
+"goes" }`, `{ "line": 25, "end": true }`, plus an optional `offset` (s). A line that does not exist
+is an error on that beat (the rest of the block is still staged); a `word` the line does not have
+(or a line without word timings) is a warning and the moment falls on the line's start (or end). Places are **set marks**
 (`"kerb"`, `{ "mark": "kerb", "dx": -300 }`) or **someone** (`{ "near": "ana", "side": "left" }`),
 never coordinates.
 
@@ -100,8 +102,8 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | Action | Fields | Effect |
 |---|---|---|
 | `walk`, `run` | `who`, `to`, `until?` | Walk/run to a place (speed from the cast, or over `until`). Several going to the same place at the same moment (one beat with a list, or separate beats) stand side by side around it, keeping their left → right order; `near` stops beside someone, never on top |
-| `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?` | Same as `enter` on the cast entry: comes in from off screen (invisible until then, whatever the camera frames); `fly: true` comes through the air from above the frame and lands |
-| `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame |
+| `enter` | `who`, `from` (`left`, `right`, `top`), `run?`, `fly?`, `to?` | Same as `enter` on the cast entry (the beat's moment, `word`, `end` and `offset` included): comes in from off screen (invisible until then, whatever the camera frames); from the top drops in and lands, `fly: true` comes through the air. A second `enter` after an `exit` comes in again, to `to` (default: where they stood before leaving) |
+| `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame, at the cast's walk (or run) speed |
 | `face` | `who`, `direction` | Turns around. A rig drawn at in-between angles turns through them towards the camera (or away from it, seen from behind), flips while symmetric and turns back — a hand-drawn turn instead of a flip |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze |
 | `emotion` | `who`, `value` | Emotion pose |
@@ -115,29 +117,29 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `carry` | `who` (carrier), `target`, `until?` | Piggyback: the target runs over and climbs on the carrier's back (arms around the neck, legs held by the carrier's hands), carried along until set down beside them |
 | `hide` | `who`, `behind` (a fixture, furniture, vehicle or cast member), `until?` | Hides on purpose: walks behind it if needed and is drawn under it; behind something lower than the head (a table, a bush, a car) crouches — hips down with the feet on the floor, back bent forward, arms folded — until the head is below its top, keeping the hips above its lower edge (under a tablecloth only the feet show); stands up at `until` |
 | `use` | `who`, `prop` (held), `at` (`{ propPoint: anchor }`, one or two; the second may be an angle), `until?`, `hands?` | With `hands: false` the prop hangs on the body with no hand (a cigarette on the lips: `at: { tip: "mouth", ponta: 22 }`) until `take`n. On a 2.5D rig an angle from a point of the head (degrees down from straight ahead) becomes a 3D direction seen from the head's angle: the prop turns and foreshortens with the head. Otherwise it fits the held prop to the body: its first contact point on the first anchor, turned so the second points at the second anchor (a phone `{ ear: "ear", mouth: "mouth" }`), following the head every frame; the hand holds it by its `grip` point, the forearm coming from `kit.props.<kind>.gripFrom` (degrees in the holder's frame, default 70: below and a little forward, the elbow down). The prop kind declares its points (`kit.props.<kind>.points`). The `phone`, `smoke` and `drink` gestures do it by themselves when the held prop has the points (`ear`/`mouth`, `tip`, `lip`/`bottom`) and the rig the anchors (`ear`, `mouth`, `top`) |
-| `peek` | `who` (hiding), `until?` | Peeks out and back (default 1.2 s): from a crouch the head pops up over the top; behind something taller it slides out past the edge |
-| `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
-| `fx` | `type`, `who`, `prop` (following it), or `at` (a mark or a scene point `[x, y]`), `scale?` | Cartoon effect |
-| `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
+| `peek` | `who` (hiding), `until?` | Peeks out and back (default 1.2 s): from a crouch the back straightens and the head pops up over the top, then ducks back into the same crouch (not when the hide's `until` has passed by then: they stay up); behind something taller it slides out past the edge |
+| `hit` | `who` (attacker), `target`, `ko?` | A punch: the attacker dashes in (speed lines) and punches (`punch` clip); impact frames, a burst, a jolt; the target — knocked off a seat, a bed, the ground or whatever they ride first — is thrown back spinning and lands on the back inside the set, dizzy — with `ko`, a "K.O." caption, the `dead` (else `sleep`) emotion and a ghost floating up |
+| `fx` | `type`, `who`, `prop` (following it), or `at` (a mark — at its `y` when it has one, else in the air above the ground — or a scene point `[x, y]`), `scale?` | Cartoon effect |
+| `view` | `who`, `value` (`profile`/`front`/`back`, or any view the rig draws) | Front = looking at the camera (gaze cleared). A view the rig does not draw is a warning and the current one stays. A rig drawn at in-between angles (`meta.views.order`) turns through every drawing in between, one every two frames |
 | (2.5D rigs) | | The `phone`, `smoke` and `drink` gestures with a held prop bring the near hand up in 3D to the ear or the mouth (no 2D clip: its arm swing would go round the front), the 2D reach only placing the grip |
-| `cradle` | `who` (the adult), `target` (a baby: a small rig), `until?` | Holds the little one in both arms in front of the belly (arms reached in 3D; the baby sits on them, drawn in front), until `until`, then puts them down |
+| `cradle` | `who` (the adult), `target` (a baby: a small rig), `until?` | Holds the little one in both arms in front of the belly (arms reached in 3D; the baby sits on them, drawn in front while held: its `z` is a stepped track, back to its own after), until `until`, then puts them down |
 | `take` | `who`, `prop` (hung on `who` by `use … hands: false`) | 2.5D rigs: the near hand goes to where it hangs (the mouth: `rig3d.points`), takes it by its `grip` (else a third of the way along it) and brings it in front of the chest (`points.chest`), standing up between the fingers — the arm reached in 3D, so it never crosses the body, sitting (sofa, floor) or standing |
 | `hold` | `who`, `prop`, `until?` | With a prop: held up in front of the chest (taken from the body first if it hangs there) until `until`, then the arm goes back to where it rests |
 | `putBack` | `who`, `prop` | The prop back where it hung (the same fit as its `use … hands: false`), the hand lets go and the arm goes back to rest (the knees, the floor behind, hanging) |
-| `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character; as the block opens, with no time to step, they start there) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing |
-| `cross` | `who`, `to` (mark), `until` | Cross to the far ground: back view, hand in hand, foreshortened walk, smaller with depth, camera goes along |
-| `pick`, `drop` | `who`, `prop` | Walks to the prop if needed and takes it / puts it down |
+| `hold` / `release` | `who` (left → right) | Hand in hand: they step to holding distance (heads side by side, each arm scaled by its own character; as the block opens, with no time to step, they start there) and the hands meet between them; held objects change hands. Holding someone already hand in hand with another extends the chain (everyone steps together). On `release` they step back to their usual spacing — whoever held the hand of someone released lets go of that hand too (keeping any other), and the holding clip ends there |
+| `cross` | `who`, `to` (mark), `until` | Cross to the far ground: back view (a rig without a `back` drawing — `humanCharacter` — keeps its profile), hand in hand, foreshortened walk, smaller with depth, the camera closing in on `to` as they go |
+| `pick`, `drop` | `who`, `prop` | Walks to the prop if needed (at the cast's speed, beforehand when the block has the time; else from its start, taking it on arrival) and takes it / puts it down in front, the way they face |
 | `throw` | `who`, `prop`, `to?` | Throws it up; it lands in front (or at `to`) |
 | `roll` | `prop`, `to`, `until` | Rolls with small bounces; reaches the far ground if `to` is there |
 | `dribble` | `who`, `prop`, `until` | Bounces the prop in sync with the hand of the `dribble` clip |
-| `vehicle` | `kind`, `lane` (`near`/`far`), `color`, `dir?` | Drives through and leaves (invisible before and after); ids are `<kind><n>` |
+| `vehicle` | `kind`, `lane` (`near`/`far`), `color`, `dir?` | Drives through and leaves (invisible before and after); ids are `<kind><n>`. Lanes are the set marks `nearLane` / `farLane` (their `y`), else just above the near ground, and for the far lane the far ground (`ground.far`, smaller by `depthScale`) |
 | `fixture` | `id`, `value` | Changes a fixture (traffic light `red`/`green`) |
-| `camera` | `type` (`wide`, `group`, `medium` (from the top of the heads to just below the knees of the seated, or the thighs of the standing — use it after the `sit`), `two-shot`, `close`, `crash`, `whip`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `close` and `two-shot` frame the faces (the posed `face` anchor, else `head`: they follow someone sitting or leaning); `crash` snaps in on a face with a jolt and focus lines; `whip` swings fast to a face with speed lines. `follow` of an object (ball, car) frames it with the cast; `reveal` pans towards a mark without losing the cast. `push-in` moves slowly in from the current framing to `to` (default `medium`, or `close`) on `who`, `pull-out` slowly out from a close-up to `to` (default `wide`), both over `until` (or `duration`, default 4 s); `shake` jolts the camera (`amount`, `duration`) |
+| `camera` | `type` (`wide`, `group`, `medium` (from the top of the heads to just below the knees of the seated, or the thighs of the standing — use it after the `sit`), `two-shot`, `close`, `crash`, `whip`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `close` and `two-shot` frame the faces (the posed `face` anchor, else `head`: they follow someone sitting or leaning); `crash` snaps in on a face with a jolt and focus lines; `whip` swings fast to a face with speed lines. `follow` of an object (a prop, a vehicle, a fixture) frames it with the cast (`close`, `two-shot`… on a prop frame the prop); `reveal` pans towards a mark without losing the cast. With nobody present, a shot with a `mark` stays on the mark (`medium`, `close`… tighter on it; `push-in` / `pull-out` glide there over `until`). `push-in` moves slowly in from the current framing to `to` (default `medium`, or `close`) on `who`, `pull-out` slowly out from a close-up to `to` (default `wide`), both over `until` (or `duration`, default 4 s); `shake` jolts the camera (`amount`, `duration`) |
 | `light` | `mood` (`morning`, `day`, `afternoon`, `evening`, `night`) or `channel` + `value`, `until?` | Lighting change; fixtures that show the time of day follow it |
 | `mount` / `dismount` | `who`, `vehicle` (a block vehicle) | Gets on (walks to it, sits on the seat, feet on the pedals, hands on the handlebar) / gets off and stands beside it |
 | `ride` | `who`, `to`, `until?`, `vehicle?`, `wobble?` (0..1) | Rides to a place (mounts first if needed; `vehicle` defaults to the last one ridden). Pedals turn in step with the ground (`drive` clip `stride`). `wobble` rocks it like a beginner |
-| `fall` | `who`, `side?` (`back` default, `front`) | Riding: the vehicle tips and lies on its side, the rider is thrown clear and lands on the back (or face down). Standing: trips and falls. Stars over the head; until `getUp` |
-| `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`), `view?` (`"front"`), `legs?` (on the ground: `"straight"` / `"hug"`), `hands?` (`"knees"` / `"lap"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground. A 2.5D rig (`rig3d`, e.g. `cartoonCharacter`) sits in 3D — thighs forward (knees up on a low seat), shins down, the body a little back, facing the way the seat is turned, hands on the knees (`hands: "knees"`) or in the lap (`"lap"`) — the arms reached in 3D (`reach3d`), so the hands land there whatever the build; on a low seat the knees rise a little and the shins slope forward to the floor (feet out, not knees up); on the floor (`on: "ground"`) `legs` is `"straight"` (legs out in front, toes up, leaning back on the hands) or `"hug"` (knees up, arms around the shins, hands clasped in front) — and is drawn from the view nearest to the seat's angle (`meta.seat.yaw`); getting up undoes the pose. For other rigs, a seat drawn for a room camera chooses the view by itself: facing the camera (under 15°) `front`, turned (under 60°) `half` (three-quarter, towards the side it is turned to), else the profile sit. `view: "front"` sits facing the audience (sofa in front of the TV, school desk): thighs foreshortened towards the camera, shins hanging; a rig with a `seat` pose control and drawn knees (`meta.sitFront.knees`) shows its seated drawing (the hips on the cushion, the thighs, the knees, a skirt over them): the shins hang straight from the drawn knees to the floor, the body sinks `meta.sitFront.sink` into the cushion, the hands rest on the knees (`hands: "knees"`, default) or in the lap (`"lap"`). Without a drawing, `meta.sitFront: { thigh, spread }` says how much of the squashed thigh shows (default 0.4) and how far apart the knees and feet are (default 1). The next one on the same furniture takes `seat2`, `seat3`…; on a set seat they sit side by side. **Crossed legs are not supported**: `legs: "crossed"` gives a warning and the character sits with the legs apart |
+| `fall` | `who`, `side?` (`back` default, `front`) | Riding: the vehicle tips and lies on its side, the rider is thrown clear and lands on the back (or face down). Carried on someone's back: slips off and lands behind the carrier. Standing: trips and falls. Stars over the head; until `getUp`. Riding or mounting a vehicle while carried is an error (set them down first: `carry … until`) |
+| `sit` | `who`, `on?` (furniture id, set mark with `seat`, or `"ground"`), `view?` (`"front"`), `legs?` (on the ground: `"straight"` / `"hug"`), `hands?` (`"knees"` / `"lap"`) | Walks there if needed and sits: hips on the seat, feet on the floor (dangling when the seat is too high), knees up on the ground. A 2.5D rig (`rig3d`, e.g. `cartoonCharacter`) sits in 3D — thighs forward (knees up on a low seat), shins down, the body a little back, facing the way the seat is turned, hands on the knees (`hands: "knees"`) or in the lap (`"lap"`) — the arms reached in 3D (`reach3d`), so the hands land there whatever the build; on a low seat the knees rise a little and the shins slope forward to the floor (feet out, not knees up); on the floor (`on: "ground"`) `legs` is `"straight"` (legs out in front, toes up, leaning back on the hands) or `"hug"` (knees up, arms around the shins, hands clasped in front), each knee a little out, away from the body's middle (found on the rig's own 3D build, whatever its channel signs) — and is drawn from the view nearest to the seat's angle (`meta.seat.yaw`); getting up undoes the pose. For other rigs, a seat drawn for a room camera chooses the view by itself: facing the camera (under 15°) `front`, turned (under 60°) `half` (three-quarter, towards the side it is turned to), else the profile sit. `view: "front"` sits facing the audience (sofa in front of the TV, school desk): thighs foreshortened towards the camera, shins hanging; a rig with a `seat` pose control and drawn knees (`meta.sitFront.knees`) shows its seated drawing (the hips on the cushion, the thighs, the knees, a skirt over them): the shins hang straight from the drawn knees to the floor, the body sinks `meta.sitFront.sink` into the cushion, the hands rest on the knees (`hands: "knees"`, default) or in the lap (`"lap"`). Without a drawing, `meta.sitFront: { thigh, spread }` says how much of the squashed thigh shows (default 0.4) and how far apart the knees and feet are (default 1). The next one on the same furniture takes `seat2`, `seat3`… (seats are given in the order the beats sit: someone still walking over to `seat` keeps it); on a set seat they sit side by side. **Crossed legs are not supported**: `legs: "crossed"` gives a warning and the character sits with the legs apart |
 | `lie` | `who`, `on?` (furniture id, set mark with `seat` and `lie`, or `"ground"`) | Lies face up, head towards the back of the furniture (on its `pillow`); the ground shadow hides |
 | `sleep` | `who`, `on?` (as `lie`) | Lies down (or tucks in) with the eyes closed (`sleep` emotion) and Zzz floating up until `getUp` |
 | `fly` (a prop) | `prop`, `path` (places: `[x, y]` scene points, marks, `offLeft` / `offRight`) or `to`, `until?`, `bob?` (px), `sway?` (degrees), `hang?` | The prop flies along the path (from `at` to `until`, else at its own speed), bobbing and swaying; `hang`: on a string going up out of the picture (a cheap flying saucer). `look` can follow it |
@@ -226,7 +228,7 @@ declared in the scene's `audio` (id = src), so the scene validates; a src can be
 logical id (`"sfx:jump"`) that the pipeline resolves. Music goes in
 `staging.music: [{ src, from?, until?, volume? (0.5), duck? (0.15), fade? (1 s) }]`: `direct`
 returns `music` with a volume envelope that fades in and out and ducks under the dialogue (not
-under songs; lines less than a second apart are one span) — play it with
+under songs; lines less than a second apart are one span; a bed whose `until` is before its `from` is an error and is not played) — play it with
 `<Audio volume={(f) => volumeAt(m.volume, m.start + f / fps)}>` starting at `m.start`.
 
 ### Automatic (never written in a staging)
@@ -247,7 +249,10 @@ and says so (warnings), and `check` lists what still shows wrong in the picture:
 
 - **Walking**: one walks facing where one goes, looking ahead (a head turned to a speaker comes back);
   a `face` the other way while walking waits for the walk to end; a second walk while still walking
-  starts when the first arrives.
+  starts when the first arrives (with `until`, it still ends there). Nothing moves before the block
+  starts: a walk over that a beat needs beforehand (`pick`, `sit`, `lie`, `mount`, a `hold`) and
+  that cannot fit before it starts with the block, at the cast's pace, and the beat happens on
+  arrival.
 - **Coming in and going out**: `enter` starts beyond the set's `bounds` (past what any camera on it
   shows), or at a door (a mark with `door: "left" | "right"`); `exit` goes beyond them; the camera
   never frames someone not there yet.
@@ -267,7 +272,8 @@ A cut (`cuts: [{ line, word?, until?, transition? … }]`) shows a window of an 
 Use them for cold opens, recaps and songs.
 
 A block's shot starts on its first line (its lead before that line is inside the scene, not on
-screen early: cuts land on the beat). A cut starts at its moment (one near a block's first line is
+screen early: cuts land on the beat); the first live block starts the episode (an insert never
+does, wherever it sorts). A cut starts at its moment (one near a block's first line is
 on it: no sliver of the live action before it) and comes back to the live action with a straight cut, or with
 `transitionOut`; its `transition` is the way in only (a replay flashes back by default). Between live
 blocks the cut is straight unless the block says otherwise (`transition` on the block: `fade`,
@@ -313,7 +319,7 @@ markup around its origin), at: [x, y] (screen px), from?, until? (lines/words; d
 enter?, idle?, exit?, scroll?: [vx, vy] (px/s: a background pattern rolling), scale?, rotation?,
 color?, z? }`. Entrances: `pop` (overshoot and settle), `drop` (from above, bouncing), `stamp` (big
 to its size in a snap), `spin` / `flyIn` (from deep behind, turning), `fade`, `slideLeft` / `Right` /
-`Up` / `Down`; idle: `wobble`, `float`, `twinkle`, `pulse`; exits: `pop`, `fade`, `drop`, the slides.
+`Up` / `Down`; idle: `wobble`, `float`, `twinkle`, `pulse`; exits: `pop`, `fade`, `drop`, the slides (with `until` and no exit, a cut at `until`).
 A logo assembling is its pieces as graphics with staggered `from`s; stickers popping, an icon per
 verse, letters flying in — all the same presets, on any block or insert.
 
@@ -338,7 +344,7 @@ evaluated), unknown ids (with the closest valid one),
 unknown actions/marks/props/vehicles/fixtures/furniture, riding or sitting problems (not a
 vehicle of the block, no `seat` anchor, legs that do not reach the pedals, a mark without `seat`,
 dismount/fall when not riding, feet dangling from a high seat as a warning), unknown wardrobe controls or poses (and `view` /
-`emotion` given as wardrobe), a speaker missing from the block where they
+`emotion` given as wardrobe), a speaker (by id, name or alias) missing from the block where they
 speak, blocks that do not follow each other, overlapping texts (one at a time; two only during a
 replay cut), and every
 `validateScene` / `validateSequence` issue.

@@ -44,8 +44,12 @@ export interface CastEntry {
    * Every block starts from the rig's defaults; only what is listed here changes.
    */
   wear?: Record<string, string>;
-  /** They enter later instead of being there from the start. */
-  enter?: { line: number; word?: string; from: "left" | "right" | "top"; run?: boolean; fly?: boolean };
+  /**
+   * They enter later instead of being there from the start: at that moment (a `When`: line, word,
+   * end, offset), from a side (beyond the set's edge, or through its door) or from the top (dropping
+   * in, or flying in with `fly`).
+   */
+  enter?: When & { from: "left" | "right" | "top"; run?: boolean; fly?: boolean };
 }
 
 export interface VehicleEntry {

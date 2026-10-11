@@ -157,12 +157,27 @@ const cache = new Map<string, SolidPath[]>();
 const CACHE_SIZE = 256;
 
 /**
+ * Cache key of a drawing: everything the output depends on, at full precision — the grid step, each
+ * body's colours and style and its posed shapes. Two poses that differ by any amount get different
+ * keys, so a frame is the same drawing whatever was drawn before it (`pose = f(doc, t)`; parallel
+ * renders match byte for byte).
+ */
+function cacheKey(bodies: SolidBody[], posed: ViewShape[][], step: number): string {
+  const body = (b: SolidBody) => [b.fill ?? "", b.shade ?? "", b.stroke ?? "", b.strokeWidth, b.blend, b.seamless ? 1 : 0].join("\u0001");
+  const shape = (s: ViewShape): string => {
+    const nums = s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m, ...s.h, s.kind === "box" ? s.round : -1];
+    return s.kind + ":" + nums.join(",");
+  };
+  return step + "|" + bodies.map((b, i) => body(b) + "\u0002" + posed[i].map(shape).join(";")).join("/");
+}
+
+/**
  * The paths drawing a solid for this frame (character space). Deterministic, and cached: a pose
  * held still (sitting through a dialogue) is drawn once.
  */
 export function drawSolid(bodies: SolidBody[], step: number, r3: CompiledRig3d, frame: Rig3dFrame): SolidPath[] {
   const posed = bodies.map((b) => poseShapes(b, r3, frame));
-  const key = step + "|" + posed.map((ss, i) => i + ":" + ss.map((s) => (s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m.map((v) => v * 100), ...s.h, s.kind === "box" ? s.round : -1]).map((v) => Math.round(v * 2)).join(",")).join(";")).join("/");
+  const key = cacheKey(bodies, posed, step);
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);

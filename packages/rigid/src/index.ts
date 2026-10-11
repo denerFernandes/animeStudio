@@ -1,5 +1,6 @@
 import RAPIER from "@dimforge/rapier2d-deterministic-compat";
 import {
+  type CompiledProp,
   type CompiledScene,
   type RigidBodySampler,
   type SceneAssets,
@@ -7,7 +8,6 @@ import {
   type Vec2,
   actorPlacement,
   actorPose,
-  anchorPosition,
   apply,
   compileScene,
   multiply,
@@ -26,14 +26,33 @@ export function initRapier(): Promise<void> {
 
 export const sceneHasBodies = (scene: CompiledScene): boolean => scene.props.some((p) => p.def.body);
 
+/** Degrees → radians. */
+const rad = (deg: number) => (deg * Math.PI) / 180;
+
+/** The shortest signed difference `b − a` between two angles in degrees, in (−180, 180]. */
+const angleDelta = (a: number, b: number): number => ((((b - a) % 360) + 540) % 360) - 180;
+
+/** Where a held prop was at a time, as the scene places it in the hand. */
+interface HeldSample {
+  t: number;
+  x: number;
+  y: number;
+  rotation: number;
+}
+
 /**
  * Simulates all rigid bodies of a scene with deterministic Rapier at a fixed rate and attaches
- * the results (`scene.rigid`). Grabs make bodies kinematic and follow the actor's anchor;
- * releases hand them back to the simulation with the anchor's velocity (or the given one).
+ * the results (`scene.rigid`). Grabs make bodies kinematic and follow the scene's own held
+ * placement (the anchor, `fit` and the anchor's `turn` included); releases hand them back to
+ * the simulation with the hand's velocity (or the given one). Sample `i` is the state at time
+ * `i / rate` for every body, held or free, like the character colliders.
  */
 export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledScene> {
   if (!sceneHasBodies(scene)) return scene;
   await initRapier();
+  // The bake reads the scene's own placements (tracks, hands); a sampler left by an earlier bake
+  // would feed them its stale samples instead.
+  delete scene.rigid;
   const world = scene.doc.world ?? {};
   const rate = world.rate ?? 120;
   const dt = 1 / rate;
@@ -59,20 +78,17 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
     }
   }
 
+  const scriptedType = (def: NonNullable<CompiledProp["def"]["body"]>) =>
+    def.type === "dynamic" ? RAPIER.RigidBodyType.Dynamic : def.type === "kinematic" ? RAPIER.RigidBodyType.KinematicPositionBased : RAPIER.RigidBodyType.Fixed;
   const bodies = scene.props
     .filter((p) => p.def.body)
     .map((prop) => {
       const def = prop.def.body!;
       const p0 = propPlacement(scene, prop, 0);
-      const desc =
-        def.type === "dynamic"
-          ? RAPIER.RigidBodyDesc.dynamic()
-          : def.type === "kinematic"
-            ? RAPIER.RigidBodyDesc.kinematicPositionBased()
-            : RAPIER.RigidBodyDesc.fixed();
-      desc.setTranslation(p0.x / PPM, p0.y / PPM).setRotation((p0.rotation * Math.PI) / 180);
+      const desc = new RAPIER.RigidBodyDesc(scriptedType(def));
+      desc.setTranslation(p0.x / PPM, p0.y / PPM).setRotation(rad(p0.rotation));
       if (def.velocity) desc.setLinvel(def.velocity[0] / PPM, def.velocity[1] / PPM);
-      if (def.angularVelocity) desc.setAngvel((def.angularVelocity * Math.PI) / 180);
+      if (def.angularVelocity) desc.setAngvel(rad(def.angularVelocity));
       const body = physics.createRigidBody(desc);
       const shape =
         "circle" in def.shape
@@ -83,8 +99,28 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
         .setFriction(def.friction ?? 0.5)
         .setDensity(def.density ?? 1);
       physics.createCollider(shape, body);
-      return { prop, def, body, samples: [] as number[], held: false, lastAnchor: null as Vec2 | null };
+      // `trail`: the last few held placements, oldest first (the hand's velocity at a release).
+      return { prop, def, body, samples: [] as number[], held: false, trail: [] as HeldSample[] };
     });
+  type Body = (typeof bodies)[number];
+
+  const isHeld = (prop: CompiledProp, time: number) => prop.grabs.some((g) => time >= g.start && time < g.end);
+  /** A held placement to move the body to; remembered for the release velocity. */
+  const holdAt = (b: Body, time: number): HeldSample => {
+    const p = propPlacement(scene, b.prop, time);
+    const sample = { t: time, x: p.x, y: p.y, rotation: p.rotation };
+    const last = b.trail[b.trail.length - 1];
+    if (!last || time > last.t) b.trail = [...b.trail.slice(-3), sample];
+    return sample;
+  };
+  /** The hand's velocity (px/s) and spin (deg/s) over the last held placements. */
+  const handVelocity = (trail: HeldSample[]): { v: Vec2; w: number } => {
+    const first = trail[0];
+    const last = trail[trail.length - 1];
+    const span = last && first ? last.t - first.t : 0;
+    if (!(span > 0)) return { v: [0, 0], w: 0 };
+    return { v: [(last.x - first.x) / span, (last.y - first.y) / span], w: angleDelta(first.rotation, last.rotation) / span };
+  };
 
   // Character colliders: kinematic capsules that follow the animated bones.
   const boneSegment = (actor: CompiledScene["actors"][number], bone: number, t: number) => {
@@ -118,36 +154,43 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
     }),
   );
 
+  // Each iteration samples the state at `t` and then steps the world to `t + dt`: kinematic
+  // targets (hands, scripted props, colliders) are therefore set for `t + dt`.
   const steps = Math.ceil(scene.duration * rate) + 1;
   for (let n = 0; n < steps; n++) {
     const t = n * dt;
     for (const b of bodies) {
-      // Grabs: follow the anchor kinematically.
       const grab = b.prop.grabs.find((g) => t >= g.start && t < g.end);
       if (grab) {
-        const p = anchorPosition(scene, grab.actor, grab.anchor, t);
         if (!b.held) {
+          // Taken: into the hand right now, so this sample is already held.
+          const p = holdAt(b, t);
           b.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
-          b.body.setTranslation({ x: p[0] / PPM, y: p[1] / PPM }, true);
+          b.body.setTranslation({ x: p.x / PPM, y: p.y / PPM }, true);
+          b.body.setRotation(rad(p.rotation), true);
           b.held = true;
         }
-        b.body.setNextKinematicTranslation({ x: p[0] / PPM, y: p[1] / PPM });
-        b.lastAnchor = p;
-      } else if (b.held) {
-        const released = b.prop.grabs.find((g) => g.end <= t && g.end > t - dt * 1.5);
-        b.body.setBodyType(b.def.type === "dynamic" ? RAPIER.RigidBodyType.Dynamic : RAPIER.RigidBodyType.Fixed, true);
-        let v: Vec2 = [0, 0];
-        if (released?.releaseVelocity) v = released.releaseVelocity;
-        else if (released && b.lastAnchor) {
-          const prev = anchorPosition(scene, released.actor, released.anchor, Math.max(0, t - dt * 4));
-          v = [(b.lastAnchor[0] - prev[0]) / (dt * 3), (b.lastAnchor[1] - prev[1]) / (dt * 3)];
-        }
-        b.body.setLinvel({ x: v[0] / PPM, y: v[1] / PPM }, true);
-        b.held = false;
-      } else if (b.def.type === "kinematic") {
-        const p = propPlacement(scene, b.prop, t);
+        // Where the hand is at the next sample; a grab that ends within the step keeps its last position.
+        const p = holdAt(b, isHeld(b.prop, t + dt) ? t + dt : t);
         b.body.setNextKinematicTranslation({ x: p.x / PPM, y: p.y / PPM });
-        b.body.setNextKinematicRotation((p.rotation * Math.PI) / 180);
+        b.body.setNextKinematicRotation(rad(p.rotation));
+      } else if (b.held) {
+        // Released: back to its scripted type (simulated, scripted or fixed), thrown with the hand's velocity.
+        const released = b.prop.grabs.filter((g) => g.end <= t).sort((g1, g2) => g2.end - g1.end)[0];
+        b.body.setBodyType(scriptedType(b.def), true);
+        if (b.def.type === "dynamic") {
+          const hand = handVelocity(b.trail);
+          const v = released?.releaseVelocity ?? hand.v;
+          b.body.setLinvel({ x: v[0] / PPM, y: v[1] / PPM }, true);
+          b.body.setAngvel(rad(hand.w), true);
+        }
+        b.held = false;
+        b.trail = [];
+      }
+      if (!grab && b.def.type === "kinematic") {
+        const p = propPlacement(scene, b.prop, t + dt);
+        b.body.setNextKinematicTranslation({ x: p.x / PPM, y: p.y / PPM });
+        b.body.setNextKinematicRotation(rad(p.rotation));
       }
       // Impulses are velocity changes in px/s.
       for (const imp of b.prop.impulses) {
@@ -174,7 +217,9 @@ export async function bakeRigidBodies(scene: CompiledScene): Promise<CompiledSce
       const j = Math.min(i + 1, count - 1);
       const f = u - i;
       const lerp = (k: number) => s[i * 3 + k] + (s[j * 3 + k] - s[i * 3 + k]) * f;
-      return { x: lerp(0), y: lerp(1), rotation: lerp(2) };
+      // Rapier reports angles in (−180, 180]: interpolate the short way round across the seam.
+      const rotation = s[i * 3 + 2] + angleDelta(s[i * 3 + 2], s[j * 3 + 2]) * f;
+      return { x: lerp(0), y: lerp(1), rotation };
     },
   };
   physics.free();

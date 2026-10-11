@@ -96,9 +96,14 @@ export function compileSequence(doc: SequenceDoc, assets: SequenceAssets): Compi
   return { doc, width: doc.width, height: doc.height, fps: doc.fps, duration: shots[shots.length - 1].end, shots };
 }
 
-function shotFrame(shot: CompiledShot, t: number): RenderFrame {
+/** Scene time a shot shows at global time t: from its `from` at its `speed`, held at its ends. */
+function shotSceneTime(shot: CompiledShot, t: number): number {
   const local = Math.max(0, Math.min(shot.duration, t - shot.start));
-  const frame = evaluateScene(shot.scene, Math.max(0, Math.min(shot.scene.duration, shot.from + local * shot.speed)));
+  return Math.max(0, Math.min(shot.scene.duration, shot.from + local * shot.speed));
+}
+
+function shotFrame(shot: CompiledShot, t: number): RenderFrame {
+  const frame = evaluateScene(shot.scene, shotSceneTime(shot, t));
   if (shot.overlay !== "vhs") return frame;
   return { ...frame, nodes: [...frame.nodes, { kind: "markup", key: `vhs-${shot.index}`, markup: vhsOverlay(t, frame.width, frame.height) }] };
 }
@@ -154,14 +159,20 @@ export function evaluateSequence(seq: CompiledSequence, t: number): RenderFrame 
 
   const frame = shotFrame(shot, t);
   // Through-color transitions: the second half covers the start of this shot, the first half
-  // covers the end of the previous one.
+  // covers the end of the previous one. A transition belongs to the shot it leads into: its
+  // `target` is an id of that shot's scene (FORMAT §4), sampled at the scene time the shot shows —
+  // closing, where the target will be when the shot opens, so the iris closes and opens on the same
+  // point; an id the incoming scene does not have is looked up in the outgoing one.
   const overlays: string[] = [];
-  const add = (owner: CompiledShot, tr: CompiledShot["transition"], mode: "in" | "out", u: number) => {
+  const has = (sc: CompiledScene, id: string) => sc.actors.some((a) => a.id === id) || sc.props.some((p) => p.id === id);
+  const add = (into: CompiledShot, outOf: CompiledShot | undefined, mode: "in" | "out", u: number) => {
+    const tr = into.transition;
     if (tr.type === "cut" || tr.type === "crossfade" || tr.duration <= 0) return;
-    const center: Vec2 =
-      typeof tr.target === "string"
-        ? screenPoint(owner.scene, tr.target, owner.from + (t - owner.start))
-        : tr.target ?? [seq.width / 2, seq.height / 2];
+    let center: Vec2;
+    if (typeof tr.target === "string") {
+      const owner = outOf && !has(into.scene, tr.target) ? outOf : into;
+      center = screenPoint(owner.scene, tr.target, shotSceneTime(owner, t));
+    } else center = tr.target ?? [seq.width / 2, seq.height / 2];
     overlays.push(
       transitionMarkup({
         type: tr.type,
@@ -172,13 +183,13 @@ export function evaluateSequence(seq: CompiledSequence, t: number): RenderFrame 
         center,
         width: seq.width,
         height: seq.height,
-        id: `seq${owner.index}${mode}`,
+        id: `seq${mode === "in" ? into.index : into.index - 1}${mode}`,
       }),
     );
   };
   const half = (s: CompiledShot) => s.transition.duration / 2;
-  if (i > 0 && t - shot.start < half(shot)) add(shot, shot.transition, "in", (t - shot.start) / half(shot));
-  if (next && shot.end - t < half(next)) add(shot, next.transition, "out", 1 - (shot.end - t) / half(next));
+  if (i > 0 && t - shot.start < half(shot)) add(shot, undefined, "in", (t - shot.start) / half(shot));
+  if (next && shot.end - t < half(next)) add(next, shot, "out", 1 - (shot.end - t) / half(next));
   if (!overlays.length) return frame;
   return { ...frame, nodes: [...frame.nodes, { kind: "markup", key: "sequence-transition", markup: overlays.join("") }] };
 }

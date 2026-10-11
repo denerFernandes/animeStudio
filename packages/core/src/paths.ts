@@ -20,6 +20,15 @@ export function parsePath(d: string): CubicPath {
   const out: CubicPath = [];
   let current: CubicSubpath | null = null;
   let cursor: Vec2 = [0, 0];
+  /** The subpath a drawing command continues: after a `Z` without an `M`, a new one at the closed subpath's initial point (SVG). */
+  const open = (): CubicSubpath => {
+    if (!current) throw new Error("Path must start with M");
+    if (current.closed) {
+      current = { start: [cursor[0], cursor[1]], segments: [], closed: false };
+      out.push(current);
+    }
+    return current;
+  };
   for (const cmd of data.commands) {
     switch (cmd.type) {
       case SVGPathData.MOVE_TO:
@@ -28,9 +37,9 @@ export function parsePath(d: string): CubicPath {
         cursor = [cmd.x, cmd.y];
         break;
       case SVGPathData.LINE_TO: {
-        if (!current) throw new Error("Path must start with M");
+        const sp = open();
         const end: Vec2 = [cmd.x, cmd.y];
-        current.segments.push([
+        sp.segments.push([
           [lerp(cursor[0], end[0], 1 / 3), lerp(cursor[1], end[1], 1 / 3)],
           [lerp(cursor[0], end[0], 2 / 3), lerp(cursor[1], end[1], 2 / 3)],
           end,
@@ -39,9 +48,9 @@ export function parsePath(d: string): CubicPath {
         break;
       }
       case SVGPathData.CURVE_TO: {
-        if (!current) throw new Error("Path must start with M");
+        const sp = open();
         const end: Vec2 = [cmd.x, cmd.y];
-        current.segments.push([[cmd.x1, cmd.y1], [cmd.x2, cmd.y2], end]);
+        sp.segments.push([[cmd.x1, cmd.y1], [cmd.x2, cmd.y2], end]);
         cursor = end;
         break;
       }

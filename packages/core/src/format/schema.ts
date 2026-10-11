@@ -149,7 +149,10 @@ export const SolidShapeSchema = z
     ellipsoid: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("An ellipsoid of these radii [x, y, z] centred on `from`, turned with its bone"),
     round: z.number().min(0).optional().describe("Rounding of a box's edges"),
   })
-  .describe("A cone between two points of the skeleton (a sphere without `to`), or a rounded box");
+  .refine((s) => [s.to !== undefined || s.r !== undefined, s.box !== undefined, s.ellipsoid !== undefined].filter(Boolean).length <= 1 && (s.round === undefined || s.box !== undefined), {
+    message: 'a solid shape is one of: a cone { from, to, r }, a sphere { from, r }, a box { from, box, round? } or an ellipsoid { from, ellipsoid } ("to"/"r" do not combine with "box"/"ellipsoid", "round" needs "box")',
+  })
+  .describe("A cone between two points of the skeleton (a sphere without `to`), a rounded box or an ellipsoid");
 
 export const SolidPartSchema = z.strictObject({
   ...PartBase,

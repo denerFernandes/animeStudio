@@ -51,7 +51,7 @@ function frontHair(look: Look): { back: string; front: string } {
   switch (look.hair) {
     case "spiky":
       return {
-        back: `<path d="${crown(7, 52, 96, 160, 380, -420)}" ${fill}/>` + (look.hairTip ? "" : ""),
+        back: `<path d="${crown(7, 52, 96, 160, 380, -420)}" ${fill}/>`,
         front: `<path d="${bangs(6, -446, -418)}" ${fill}/>`,
       };
     case "messy":
@@ -108,7 +108,8 @@ export function frontView(doc: ToonDoc, look: Look, eye: { open: string; wide: s
   const glowIris = (x: number) => `<ellipse cx="${x}" cy="${EY + 1}" rx="6" ry="8.5" fill="palette(iris)"/><ellipse cx="${x}" cy="${EY + 1}" rx="2.4" ry="6" fill="#fff6c8"/>`;
   const irises = look.glow ? glowIris(C - EX) + glowIris(C + EX) : iris(C - EX) + iris(C + EX);
   // Mouth and brows, morphed by the same channels as the profile ones (copied into the emotions).
-  const mouth = mouthShapes([C - 10, -373], [C + 10, -373], 0.6);
+  // (Seen from the front both corners lift alike.)
+  const mouth = mouthShapes([C - 10, -373], [C + 10, -373], 0.6, { symmetric: true });
   const brow = (dy: number, inner: number, outer: number) => {
     const one = (x: number, s: number) => `M${x - s * 13} ${EY - 22 + dy + outer} Q${x} ${EY - 28 + dy} ${x + s * 12} ${EY - 22 + dy + inner}`;
     return `${one(C - EX, 1)} ${one(C + EX, -1)}`;
@@ -138,13 +139,9 @@ export function frontView(doc: ToonDoc, look: Look, eye: { open: string; wide: s
     move: { front: { armF1: [r(C + w - 6 - 16), 0], armB1: [r(C - w + 6 + 6), 0], legF1: [C + 14 - 12, 0], legB1: [C - 14 + 8, 0] } },
     mouths: ["mouthF"],
   };
+  // (The eye drawings and the irises keep their own conditions — the eyes' variant — and show in
+  // the front view only: `withViews` adds the view gate as the second condition.)
   const out = withViews(doc, spec) as unknown as Doc;
-  // `visibleWhen` already shows the right eye variant; in profile every front part is hidden by the view switch.
-  for (const p of out.parts) if (p.id?.startsWith("eyeF_")) p.visibleWhen = { part: "eyes", variant: p.id.slice(5) };
-  const gate = out.parts.filter((p: Doc) => p.id?.startsWith("eyeF_") || p.id === "pupilsF");
-  for (const [view, pose] of Object.entries(out.controls.view.poses as Record<string, Record<string, unknown>>)) {
-    if (view !== "front") for (const p of gate) pose[`parts.${p.id}.opacity`] = -1;
-  }
   // The front mouth and brows follow the emotions too.
   for (const pose of Object.values(out.controls.emotion.poses as Record<string, Record<string, unknown>>)) {
     for (const [k, v] of Object.entries({ ...pose })) {

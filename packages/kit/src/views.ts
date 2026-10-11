@@ -1,9 +1,11 @@
 import type { ToonDoc } from "@animestudio/core";
+import { restAngle } from "./util";
 
 /**
- * Several views (profile, front, back) on one skeleton. A hidden `view` switch part selects
- * which art is visible; the `view` pose control flips it and moves bones (arms to the sides, eyes
- * and mouth to the middle of the face, …). Every clip is shared by the three views.
+ * Several views (profile, front, back, in-between angles) on one skeleton. A hidden `view` switch
+ * part selects which art is visible; the `view` pose control flips it and moves bones (arms to the
+ * sides, eyes and mouth to the middle of the face, …). Every clip is shared by the views. Only the
+ * views the spec draws exist (a spec with front art alone gives `profile` and `front`).
  *
  * - **front** looks at the camera: draw it symmetric about the body's centre line, eyes on that
  *   line with centred pupils (move `pupils` back by the profile look offset), mouth/snout/beak
@@ -35,7 +37,7 @@ export interface ViewSpec {
   extra?: Partial<Record<ViewName, Record<string, number | string>>>;
   /** Mouth parts used by the viseme control in addition to "mouth". */
   mouths?: string[];
-  /** Far-arm parts, redrawn in front of the body in the back view. */
+  /** Far-arm parts, redrawn in front of the body in the back view (when the spec draws one). */
   farArm?: string[];
   /**
    * Bones kept (almost) straight in a view: their rotation from emotions, aim and clips is scaled
@@ -51,16 +53,16 @@ export interface ViewSpec {
   order?: string[];
 }
 
-const angleOf = (doc: Doc, id: string): number => {
-  const b = doc.skeleton.find((x: Doc) => x.id === id);
-  if (!b?.from || !b.to) return 0;
-  return Math.atan2(b.to[1] - b.from[1], b.to[0] - b.from[0]);
-};
-
 /** World angle of a bone's parent frame in the rest pose. */
 function parentAngle(doc: Doc, id: string): number {
   const b = doc.skeleton.find((x: Doc) => x.id === id);
-  return b?.parent ? angleOf(doc, b.parent) : 0;
+  return b?.parent ? restAngle(doc.skeleton, b.parent) : 0;
+}
+
+/** The views a spec draws (every view named anywhere in it, the profile aside), in the spec's order. */
+function specViews(spec: ViewSpec): ViewName[] {
+  const keys = [spec.parts, spec.move, spec.hide, spec.rotate ?? {}, spec.extra ?? {}, spec.still ?? {}].flatMap((o) => Object.keys(o));
+  return [...new Set(keys)].filter((v) => v !== "profile");
 }
 
 const r = (n: number) => Math.round(n * 100) / 100;
@@ -79,22 +81,28 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
     if (spec.eyes.parts.includes(p.id)) p.bone = "eyesB";
     if (spec.mouth.parts.includes(p.id)) p.bone = "mouthB";
   }
+  // The views the spec draws: only those get a switch variant and a pose (a rig without a `back`
+  // drawing has no `back` view).
+  const names = specViews(spec);
   // View selector.
   doc.art.viewNone = "<g/>";
-  doc.parts.unshift({ id: "view", type: "switch", bone: "root", variants: { profile: "viewNone", front: "viewNone", back: "viewNone" }, default: "profile" });
+  doc.parts.unshift({ id: "view", type: "switch", bone: "root", variants: Object.fromEntries(["profile", ...names].map((v) => [v, "viewNone"])), default: "profile" });
   for (const p of doc.parts) if (spec.profileOnly.includes(p.id)) p.visibleWhen = { part: "view", variant: "profile" };
   // From behind, the far arm is no longer hidden by the body: draw a copy of it on top.
-  const farArm = doc.parts.filter((p: Doc) => (spec.farArm ?? []).includes(p.id));
+  const farArm = names.includes("back") ? doc.parts.filter((p: Doc) => (spec.farArm ?? []).includes(p.id)) : [];
   if (farArm.length) {
     spec.parts.back = [...(spec.parts.back ?? []), ...farArm.map((p: Doc) => ({ part: { ...structuredClone(p), id: `${p.id}Back` } }))];
     spec.hide.back = [...(spec.hide.back ?? []), ...(spec.farArm ?? [])];
   }
-  const names = [...new Set(["front", "back", ...Object.keys(spec.parts), ...Object.keys(spec.move), ...Object.keys(spec.hide)])].filter((v) => v !== "profile");
-  doc.parts[0].variants = Object.fromEntries(["profile", ...names].map((v) => [v, "viewNone"]));
   for (const view of names) {
     for (const { before, part } of spec.parts[view] ?? []) {
       const at = before ? doc.parts.findIndex((p: Doc) => p.id === before) : -1;
-      const def = { ...part, visibleWhen: { part: "view", variant: view } };
+      // Shown in its view only; a part with its own switch condition (irises with open eyes) keeps
+      // it, the view gate added as the second condition.
+      const gate = { part: "view", variant: view };
+      const own = part.visibleWhen as { part: string; variant: string | string[]; and?: unknown } | undefined;
+      if (own?.and) throw new Error(`${doc.name}: view part "${part.id}" already has two switch conditions; the view gate needs one of them`);
+      const def = { ...part, visibleWhen: own ? { ...own, and: gate } : gate };
       if (at < 0) doc.parts.push(def);
       else doc.parts.splice(at, 0, def);
     }
@@ -124,35 +132,3 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
   doc.meta = { ...(doc.meta ?? {}), views: { move: spec.move, ...(spec.order ? { order: spec.order } : {}) } };
   return doc as ToonDoc;
 }
-
-/**
- * Walk for the front/back views (towards or away from the camera). Knees bend in depth, not
- * sideways, so the leg IK is switched off and the lifted leg is foreshortened instead: it stays
- * straight and gets shorter, its foot a little smaller as it moves away. The body is lowest at the
- * contacts and highest at the passing positions, and the weight shifts from one foot to the other.
- */
-export function walkInPlace(dur: number, lift: number, bob: number, stride: number) {
-  const q = dur / 4;
-  const k = Math.min(0.32, lift / 40); // foreshortening of the lifted leg
-  return {
-    duration: dur,
-    loop: true,
-    stride,
-    tracks: {
-      "ik.footF.mix": [[0, 0], [dur, 0]],
-      "ik.footB.mix": [[0, 0], [dur, 0]],
-      "bones.legF1.squash": [[0, 0], [q, -k], [2 * q, 0], [dur, 0]],
-      "bones.legF2.squash": [[0, 0], [q, -k], [2 * q, 0], [dur, 0]],
-      "bones.footF.scaleX": [[0, 1], [q, 0.9], [2 * q, 1], [dur, 1]],
-      "bones.legB1.squash": [[0, 0], [2 * q, 0], [3 * q, -k], [dur, 0]],
-      "bones.legB2.squash": [[0, 0], [2 * q, 0], [3 * q, -k], [dur, 0]],
-      "bones.footB.scaleX": [[0, 1], [2 * q, 1], [3 * q, 0.9], [dur, 1]],
-      "bones.hips.y": [[0, bob], [q, -bob], [2 * q, bob], [3 * q, -bob], [dur, bob]],
-      "bones.hips.x": [[0, 0], [q, 2.5], [2 * q, 0], [3 * q, -2.5], [dur, 0]],
-      "bones.body.rotation": [[0, 0], [q, -1.5], [2 * q, 0], [3 * q, 1.5], [dur, 0]],
-      "bones.armF1.rotation": [[0, -5], [2 * q, 5], [dur, -5]],
-      "bones.armB1.rotation": [[0, 5], [2 * q, -5], [dur, 5]],
-    },
-  };
-}
-

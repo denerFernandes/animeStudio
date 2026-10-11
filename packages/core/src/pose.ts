@@ -83,6 +83,18 @@ function blendNumber(cur: number, v: number, w: number, mode: BlendMode, multipl
   return multiplicative ? Math.max(0, cur * lerp(1, v, w)) : cur + v * w;
 }
 
+/**
+ * Can `interpolateValue` blend these two control values — numbers, hex colours, points, weight
+ * records? Anything else (a name, a name against weights) is stepped.
+ */
+function blendable(a: Value, b: Value): boolean {
+  if (typeof a === "number" || typeof b === "number") return typeof a === "number" && typeof b === "number";
+  if (typeof a === "string" || typeof b === "string") return typeof a === "string" && typeof b === "string" && HEX_COLOR.test(a) && HEX_COLOR.test(b);
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b);
+  return typeof a === "object" && typeof b === "object" && a !== null && b !== null;
+}
+const HEX_COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
 /** Writes a value into a channel, blended with weight `w`. */
 export function applyChannel(state: PoseState, ref: ChannelRef, value: Value | undefined, w: number, mode: BlendMode = "override"): void {
   if (value === undefined || w <= 0) return;
@@ -146,7 +158,9 @@ export function applyChannel(state: PoseState, ref: ChannelRef, value: Value | u
     }
     case "control": {
       const cur = state.controls[ref.name];
-      if (w >= 1 || cur === undefined || cur === null || value === null) {
+      // Values that cannot be blended (a pose or view name, a name against weights, null) switch at
+      // half weight like variants do; blendable ones (numbers, colours, points, weights) interpolate.
+      if (w >= 1 || cur === undefined || cur === null || value === null || !blendable(cur, value)) {
         if (w >= 0.5 || cur === undefined) state.controls[ref.name] = value;
         return;
       }
@@ -476,12 +490,14 @@ export function evaluatePose(
   // 6b. A 2.5D rig: its bones posed in 3D and projected for the current view.
   let frame3d: Rig3dFrame | undefined;
   if (rig.rig3d) {
-    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget);
+    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget, input.ikOffset);
     computeWorld(rig, s, world);
   }
 
   // 7. IK.
   rig.ik.forEach((k, i) => {
+    // A leg the 2.5D pass placed in the side plane is done (its mix stays on: springs on it give way).
+    if (frame3d?.sideIk.includes(i)) return;
     const held = input.ikTarget?.[k.id];
     const w = held ? clamp(held.weight, 0, 1) : 0;
     const mix = Math.max(clamp(s.ikMix[i], 0, 1), w);

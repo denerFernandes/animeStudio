@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
+  type Issue,
   type SceneDoc,
   type ToonDoc,
   compileScene,
@@ -18,7 +19,9 @@ import { importSvg } from "@animestudio/import-svg";
 import { type LipsyncEngine, lipsyncFile } from "@animestudio/lipsync/node";
 import { describeCharacter } from "./describe";
 import { debugDocument, doctor } from "./doctor";
-import { loadSceneAssets, readJson } from "./load";
+import { loadSceneAssets, readJson, tryLoadSceneAssets } from "./load";
+
+const ENGINES = ["auto", "rhubarb", "align", "amplitude"] as const satisfies readonly LipsyncEngine[];
 
 const HELP = `toon — animeStudio command line
 
@@ -26,11 +29,12 @@ Usage:
   toon validate <file.toon.json|.scene.json|.sequence.json>...   Validate documents (exit 1 on errors)
   toon describe <file.toon.json>                      List controls, clips and channels (great for AI prompts)
   toon schema [--out dir]                             Write JSON Schemas (toon, scene, sequence)
-  toon lipsync <audio.wav> [--text "..."] [--lang pt] [--engine auto|rhubarb|align|amplitude] [-o cues.json]
+  toon lipsync <audio.wav> [--text "..."] [--lang pt] [--engine ${ENGINES.join("|")}] [-o cues.json]
   toon import-svg <drawing.svg> [--name id] [-o out.toon.json]
   toon render <file> [--time 1.5] [--clip walk] [-o frame.svg]   Render one frame to SVG
-  toon debug <scene|sequence> [--from s] [--to s] [--json]   Diagnose library output frame by frame
+  toon debug <scene|sequence> [--from s] [--to s] [--json]   Diagnose library output frame by frame (exit 1 on errors)
   toon doctor <video.mp4> <scene|sequence> [--json]           Find flickers / unpainted nodes in a render
+  toon --help | -h                                    This text
 `;
 
 function out(path: string | undefined, content: string) {
@@ -38,6 +42,27 @@ function out(path: string | undefined, content: string) {
     writeFileSync(path, content);
     console.error(`wrote ${path}`);
   } else process.stdout.write(content + "\n");
+}
+
+/**
+ * Validates one document: the schema first, then — for a scene — the assets it references, each
+ * file that cannot be loaded reported as an issue of its own, and only then the compile check.
+ */
+function validateFile(file: string): { ok: boolean; issues: Issue[] } {
+  let doc: unknown;
+  try {
+    doc = readJson(file);
+  } catch (e) {
+    return { ok: false, issues: [{ path: "(file)", message: (e as Error).message, severity: "error" }] };
+  }
+  const format = doc && typeof doc === "object" ? (doc as { format?: unknown }).format : undefined;
+  if (format === "toon-sequence") return validateSequence(doc);
+  if (format !== "toon-scene") return validateToon(doc);
+  const schema = validateScene(doc);
+  if (!schema.ok) return schema;
+  const { assets, issues } = tryLoadSceneAssets(file, schema.value);
+  if (issues.length) return { ok: false, issues: [...schema.issues, ...issues] };
+  return validateScene(doc, assets);
 }
 
 async function main() {
@@ -56,20 +81,19 @@ async function main() {
       from: { type: "string" },
       to: { type: "string" },
       json: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
     },
   });
+  if (!cmd || cmd === "--help" || cmd === "-h" || values.help) {
+    process.stdout.write(HELP);
+    return;
+  }
 
   switch (cmd) {
     case "validate": {
       let failed = false;
       for (const file of positionals) {
-        const doc = readJson(file) as { format?: string };
-        const result =
-          doc.format === "toon-scene"
-            ? validateScene(doc, loadSceneAssets(file, doc as SceneDoc))
-            : doc.format === "toon-sequence"
-              ? validateSequence(doc)
-              : validateToon(doc);
+        const result = validateFile(file);
         const errors = result.issues.filter((i) => i.severity === "error");
         console.log(`${errors.length || !result.ok ? "✗" : "✓"} ${file}`);
         for (const i of result.issues) console.log(`  ${i.severity === "error" ? "error" : "warn "} ${i.path}: ${i.message}`);
@@ -94,11 +118,9 @@ async function main() {
       return;
     }
     case "lipsync": {
-      const cues = await lipsyncFile(positionals[0], {
-        text: values.text,
-        language: values.lang,
-        engine: (values.engine as LipsyncEngine) ?? "auto",
-      });
+      const engine = values.engine ?? "auto";
+      if (!(ENGINES as readonly string[]).includes(engine)) throw new Error(`--engine must be one of ${ENGINES.join(", ")} (got "${engine}")`);
+      const cues = await lipsyncFile(positionals[0], { text: values.text, language: values.lang, engine: engine as LipsyncEngine });
       out(values.out, JSON.stringify(cues, null, 2));
       return;
     }
@@ -120,31 +142,33 @@ async function main() {
     }
     case "debug": {
       const issues = debugDocument(positionals[0], values.from ? Number(values.from) : 0, values.to ? Number(values.to) : undefined);
-      if (values.json) return out(values.out, JSON.stringify(issues, null, 2));
-      // Group identical findings across frames into ranges.
-      const groups = new Map<string, { d: (typeof issues)[number]; frames: number[] }>();
-      for (const d of issues) {
-        const id = `${d.severity}|${d.kind}|${d.key ?? ""}|${d.message}`;
-        const g = groups.get(id) ?? { d, frames: [] };
-        g.frames.push(d.frame);
-        groups.set(id, g);
-      }
-      const ranges = (fs: number[]) => {
-        const out: string[] = [];
-        let start = fs[0];
-        let prev = fs[0];
-        for (const f of [...fs.slice(1), NaN]) {
-          if (f === prev + 1) prev = f;
-          else {
-            out.push(start === prev ? `f${start}` : `f${start}–${prev}`);
-            start = prev = f;
-          }
+      if (values.json) out(values.out, JSON.stringify(issues, null, 2));
+      else {
+        // Group identical findings across frames into ranges.
+        const groups = new Map<string, { d: (typeof issues)[number]; frames: number[] }>();
+        for (const d of issues) {
+          const id = `${d.severity}|${d.kind}|${d.key ?? ""}|${d.message}`;
+          const g = groups.get(id) ?? { d, frames: [] };
+          g.frames.push(d.frame);
+          groups.set(id, g);
         }
-        return out.length > 6 ? `${out.slice(0, 6).join(", ")}, … (${fs.length} frames)` : out.join(", ");
-      };
-      console.log(issues.length ? `${issues.length} findings in ${groups.size} groups` : "✓ no findings");
-      for (const { d, frames } of [...groups.values()].sort((a, b) => b.frames.length - a.frames.length)) {
-        console.log(`  [${d.severity}] ${d.kind}${d.key ? ` ${d.key}` : ""}: ${d.message} — ${ranges(frames)}`);
+        const ranges = (fs: number[]) => {
+          const out: string[] = [];
+          let start = fs[0];
+          let prev = fs[0];
+          for (const f of [...fs.slice(1), NaN]) {
+            if (f === prev + 1) prev = f;
+            else {
+              out.push(start === prev ? `f${start}` : `f${start}–${prev}`);
+              start = prev = f;
+            }
+          }
+          return out.length > 6 ? `${out.slice(0, 6).join(", ")}, … (${fs.length} frames)` : out.join(", ");
+        };
+        console.log(issues.length ? `${issues.length} findings in ${groups.size} groups` : "✓ no findings");
+        for (const { d, frames } of [...groups.values()].sort((a, b) => b.frames.length - a.frames.length)) {
+          console.log(`  [${d.severity}] ${d.kind}${d.key ? ` ${d.key}` : ""}: ${d.message} — ${ranges(frames)}`);
+        }
       }
       process.exit(issues.some((d) => d.severity === "error") ? 1 : 0);
     }
@@ -175,8 +199,8 @@ async function main() {
       return;
     }
     default:
-      console.log(HELP);
-      process.exit(cmd ? 1 : 0);
+      process.stderr.write(`unknown command "${cmd}"\n\n${HELP}`);
+      process.exit(1);
   }
 }
 
@@ -184,5 +208,3 @@ main().catch((e) => {
   console.error((e as Error).message);
   process.exit(1);
 });
-
-export { readFileSync };

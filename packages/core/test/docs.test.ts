@@ -15,6 +15,7 @@ const packages: Record<string, () => Promise<Record<string, unknown>>> = {
   "@animestudio/lipsync/node": () => import("../../lipsync/src/node"),
   "@animestudio/import-svg": () => import("../../import-svg/src"),
   "@animestudio/react": () => import("../../react/src"),
+  "@animestudio/cli": () => import("../../cli/src"),
 };
 
 describe("docs/API.md", () => {

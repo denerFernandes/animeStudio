@@ -215,8 +215,9 @@ export function pathPoint(points: Vec2[], u: number): Vec2 {
   return [lerp(pts[i - 1][0], pts[i][0], fr), lerp(pts[i - 1][1], pts[i][1], fr)];
 }
 
-/** Zoom multiplier of a punch-in: fast attack, springy settle. */
+/** Zoom multiplier of a punch-in: fast attack, springy settle. A punch without a duration (≤ 0) does nothing. */
 export function punchFactor(p: CameraPunch, t: number): number {
+  if (!(p.duration > 0)) return 1;
   const u = (t - p.start) / p.duration;
   if (u < 0 || u > 1) return 1;
   const attack = 0.18;

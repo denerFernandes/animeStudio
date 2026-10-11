@@ -104,7 +104,8 @@ const svg = frameToSVG(evaluateScene(scene, 2.5)); // frame at t = 2.5 s
 ## CLI
 
 ```bash
-toon validate examples/scenes/hello.scene.json
+toon validate examples/scenes/hello.scene.json       # schema first, then assets; every file reported, exit 1 on errors
+toon --help                                          # usage (exit 0)
 toon describe examples/characters/pip.toon.json      # what can be animated — paste into AI prompts
 toon lipsync line.wav --text "Hello there!" -o line.cues.json
 toon lipsync fala.wav --lang pt -o fala.cues.json   # Rhubarb phonetic recognizer

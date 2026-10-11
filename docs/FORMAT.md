@@ -95,7 +95,11 @@ art id (`"head"`) or inline markup (any string starting with `<`).
 An array of bones. Parents must be declared before children. Bones without `parent` are roots.
 Each bone can be declared in **one** of two forms:
 
-**Setup form** (recommended for AI and imported art) — joint and tip in setup space:
+**Setup form** (recommended for AI and imported art) — joint and tip in setup space. The joint
+lands on `from` and the tip on `to` whatever the parent's rest scale, mirroring or rotation and
+whether the bone inherits them (the direction and length are taken in the space the bone's matrix
+is composed in; a bone's own rest `scaleX` is folded into its length, a negative one points it the
+other way):
 
 ```json
 { "id": "upperArmR", "parent": "body", "from": [20, -110], "to": [45, -70] }
@@ -115,7 +119,7 @@ Each bone can be declared in **one** of two forms:
 | `x`, `y`, `rotation`, `length` | number | 0 | Local form |
 | `scaleX`, `scaleY` | number | 1 | Rest scale |
 | `mass` | number | 1 | Used by physics (heavier = more inertia, slower response) |
-| `limits.rotation` | `[min, max]` | none | Clamp of the rotation offset (degrees) after animation and IK |
+| `limits.rotation` | `[min, max]` | none | Clamp of the rotation offset (degrees) after clips, tracks, pose controls and behaviors — before IK, `aim` and physics, which may still turn the bone past it (step 6 of 2.13) |
 | `inheritRotation` | boolean | true | |
 | `inheritScale` | boolean | true | |
 
@@ -154,9 +158,11 @@ or one value per joint, scaled with the first bone's scale but not its squash (a
 foreshortened thigh does not thin the limb). `cap`: `"round"` (default) or `"butt"`.
 
 **`solid`** — needs a `rig3d`; every bone it names must be a 3D bone. Each body is a smooth union
-(`blend`: over this distance) of shapes: a cone `{ from, to, r }` between two points of the skeleton
-(`r` a radius or `[at from, at to]`; no `to`: a sphere) or a rounded box `{ from, box: [hx, hy, hz],
-round? }` turned with its bone. A point is `{ bone, t?, at? }`: along the 3D bone (`t`: 0 = its
+(`blend`: over this distance) of shapes, each one of: a cone `{ from, to, r }` between two points of the
+skeleton (`r` a radius or `[at from, at to]`), a sphere `{ from, r }`, a rounded box `{ from, box: [hx, hy, hz],
+round? }` or an ellipsoid `{ from, ellipsoid: [rx, ry, rz] }`, boxes and ellipsoids centred on `from` and
+turned with its bone. Mixing them in one shape (`to`/`r` with `box` or `ellipsoid`, `round` without `box`) is a
+validation error. A point is `{ bone, t?, at? }`: along the 3D bone (`t`: 0 = its
 joint, 1 = its tip) plus an offset `[x, y, z]` in body space at rest, turned with the bone. Every
 frame the shapes are posed and seen from the view, ray cast on a grid of `step` units (default 2)
 and composited per cell by depth: the nearest body wins and is outlined where it passes in front of
@@ -194,8 +200,8 @@ A rig with a pose control named `side` (`right` / `left`) gets it from the actor
 (`left` when the actor is mirrored): use it to keep asymmetric details on the same side of the body.
 A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
 above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
-prop's first point (its art's coordinates) on the first anchor, turned so its second point points at the
-second anchor, every frame; with one point it turns with that anchor's bone. The second entry may be a
+prop's first point (its art's coordinates, scaled and mirrored as the prop is drawn — a flipped prop keeps its
+point on the anchor) on the first anchor, turned so its second point points at the second anchor, every frame; with one point it turns with that anchor's bone. The second entry may be a
 direction instead, `{ point, angle }` (degrees in the actor's frame: 0 forward, -90 up), turning with
 the first anchor's bone — or, with `fixed: true`, not (a cigarette held upright between the fingers).
 On a 2.5D rig it may be a 3D direction, `{ point, dir: [x, y, z], view? }` (body space: z towards the
@@ -205,7 +211,9 @@ as the head turns — a cigarette on the lips points at the camera from the fron
 prop's point (`{ prop, point, from? }`), even on a prop fitted to the reaching actor's own body (a hand
 holding the phone at its ear); `from` (degrees in the actor's frame: 0 forward, 90 from below) is where
 the forearm comes from — the elbow goes there, the upper arm foreshortened when the hand is close to
-the shoulder (the elbow points at the camera).
+the shoulder (the elbow points at the camera). It blends with the target: between two gripped reaches the
+direction turns from one to the other; between a free reach and a gripped one it switches halfway through the
+blend.
 `turn` (0..1, optional) makes a prop held at the anchor turn with the bone: 1 turns it as much as
 the hand turns from its rest pose (a phone at the ear, a bottle tipped to the mouth), 0 keeps it
 upright. Draw held props the way they look in the hand at rest (arm hanging).
@@ -227,12 +235,18 @@ A rig whose bones are posed in 3D and drawn from any angle:
 `bones` gives each 3D bone's rest joint and tip in body space (the front view: x right, y down,
 z towards the viewer). Every frame, before IK, the bones are posed in 3D — a bone's `rotation` turns
 it about the body's sideways axis (the plane of a side view: what a clip authored in profile means),
-`turn` about the vertical axis, `spread` about the forward axis — and projected with the yaw of the
+`turn` about the vertical axis (+ turns the front towards +x), `spread` about the forward axis
+(+ swings a hanging limb towards −x: to the viewer's left in the front view) — and projected with the yaw of the
 current `view` (`views`, degrees: 0 faces the camera) and `pitch`; the 2D bones are set to match
 (place, direction, and for the chains' bones — limbs — foreshortening as a squash; a torso or a
 head is a drawing of a volume and is never squashed). A bone that does not inherit its parent's
 rotation (`inheritRotation: false`: a foot staying level) turns with the body, not its parent. Leg IK (feet planted while walking) is solved in the
-side plane first, so walks foreshorten from the front. Limbs (`chains`) clearly nearer than the body
+side plane first — forward and height from the chain's `ik.<id>.x` / `.y`, folding the way `ik.<id>.bend` says, the
+ground under the foot by its height — so walks foreshorten from the front. A leg is a two-bone IK chain of 3D bones
+that hangs (mostly vertical at rest, pointing down) and ends at the bottom of the 3D skeleton (its rest tip within a
+tenth of the skeleton's height of the lowest 3D point); arms hang too but end at the hips and are solved in the
+picture, as is a leg held on an absolute target (a pedal). A placed leg keeps its IK mix: springs on it give way.
+Limbs (`chains`) clearly nearer than the body
 are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
 clearly farther ones just after the `back` part. `points` names points on the 3D bones
 (`{ "mouth": { "bone": "head", "at": [0, -40, 44] } }`: an offset from the bone's rest joint) — where
@@ -292,7 +306,8 @@ is the main interface for AI-driven animation.
 | `aim` | `targets: [{ bone, weight=1, mode="rotate", forward=0, maxAngle=60, radius=0 }]` | `[x, y]` setup-space point, an actor/prop id (in scenes), or `null` (off) |
 | `pose` | `poses: { name → { channel → value } }` | Pose name, or `{ name → weight }` blend |
 
-`aim` modes: `rotate` turns the bone so its `forward` direction (degrees, relative to the bone)
+`aim` modes: `rotate` turns the bone so its `forward` direction (degrees, added to the bone's world
+angle: for a head bone drawn pointing up (−90°) on a profile facing right, `forward` is +90)
 points at the target, limited by `maxAngle` and scaled by `weight`; `translate` moves the bone
 towards the target by at most `radius` (pupils).
 
@@ -304,7 +319,10 @@ where another control — the body's view — also moved them).
 
 **Fluid lip sync:** with a `morph` mouth, the `say` action cross-fades visemes (~60 ms) so the
 mouth flows between shapes. With a `switch` mouth the strongest viseme is shown (classic cut-out).
-Missing visemes fall back to the closest available shape (e.g. `H → C`, `G → B`, `X → A`).
+Missing visemes fall back to the closest available shape, along a chain (a viseme's fallbacks, then theirs,
+in the listed order) until one the mouth draws is found: `H → C`, `G → B`, `X → A`; `E` on a mouth with only
+`A`, `B` and `X` shows `B`, and a mouth with only `X` shows `X` for everything. The control's `map` applies at
+every step.
 
 ### 2.10 `behaviors`
 
@@ -357,7 +375,7 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 | `bones.<id>.x`, `bones.<id>.y` | px offset in parent space |
 | `bones.<id>.scaleX`, `bones.<id>.scaleY` | multiplier (1 = rest) |
 | `bones.<id>.rotationMix` | multiplier of the bone's rotation offset and aim (rest 1; e.g. `-0.85` in a pose keeps a head nearly straight) |
-| `bones.<id>.turn`, `bones.<id>.spread` | 2.5D rigs (`rig3d`) only: degrees about the vertical axis (+ turns the front towards +x) and about the forward axis (+ swings a hanging limb towards +x); `rotation` is about the body's sideways axis |
+| `bones.<id>.turn`, `bones.<id>.spread` | 2.5D rigs (`rig3d`) only: degrees about the vertical axis (+ turns the front towards +x) and about the forward axis (+ swings a hanging limb towards −x: to the viewer's left in the front view); `rotation` is about the body's sideways axis (+ swings a hanging limb backwards) |
 | `bones.<id>.squash` | volume-preserving, relative to the bone: `> 0` stretches along the bone (`×(1+v)`) and thins it (`÷(1+v)`), `< 0` squashes. **Local:** it deforms the bone's own art and moves where children attach, but never scales or shears children |
 | `parts.<id>.variant` | variant name (switch) |
 | `parts.<id>.opacity` | 0..1 multiplier; pose values multiply and never go below 0 (`-1` or `0` hides, and two controls hiding the same part keep it hidden) |
@@ -373,13 +391,15 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 
 1. Setup pose.
 2. Clip layers (mixer), in layer order. `override` layers blend towards the clip value by their
-   (smoothly faded) weight; `additive` layers add on top.
+   (smoothly faded) weight; `additive` layers add on top. A control value that cannot be blended
+   (a pose or view name, a name against weights) switches at half weight, like a variant; numbers,
+   colours, points and weight records interpolate.
 3. Direct tracks (scene `tracks` and `set` actions). Numeric offset channels (bones, IK targets,
    morphs, opacity) are **added** on top of clips; other channels override.
 4. `pose` controls, `viseme` controls.
 5. Behaviors.
-6. Rotation limits, forward kinematics.
-7. IK, `aim` controls.
+6. Rotation limits, forward kinematics. 2.5D rigs: the 3D pose, leg IK in the side plane, the projection (2.6b).
+7. IK (the legs a 2.5D rig already placed are skipped), `aim` controls.
 8. Baked physics (springs, jiggles).
 9. Parts → render tree.
 
@@ -443,7 +463,7 @@ blend modes), so it works in browsers and Remotion and stays deterministic.
 | `ambient` | Multiply layer over the frame; **point lights cut through it** (radial falloff) |
 | `lights[]` (`point`) | Additive radial glow (`glow` × `intensity`, `screen` blend) at `x`, `y` with `radius`; `parallax` like layers; `flicker: { amount, speed? }` makes it flicker by itself (a TV on, a candle, a fire: up to `amount` of its intensity lost, `speed` changes per second, default 6; deterministic by time) |
 | `lights[]` (`directional`) | `angle` = direction the light travels (degrees, 90 = from above). No glow; used as a key light |
-| `shading` | **Automatic cel shading on actors**: a shadow crescent on the side away from the key light (`color`, `opacity`) and a rim light on the lit side (`rim` uses the light color, `rimOpacity`). `offset` is the crescent size; `inset` keeps it inside the outline so line art stays crisp. Follows poses and motion. Point lights fade the shading with distance |
+| `shading` | **Automatic cel shading on actors**: a shadow crescent on the side away from the key light (`color`, `opacity`) and a rim light on the lit side (colour `rim`, default the key light's colour; `rimOpacity`). `light` names the key light (default the first light; an unknown id is a validation error listing the lights). `offset` is the crescent size; `inset` keeps it inside the outline so line art stays crisp. Follows poses and motion. Point lights fade the shading with distance |
 | `grade` | Full-frame color grading (`blend`: `multiply`, `screen`, `overlay`, `soft-light`, …) |
 | `vignette` | Darkened frame edges |
 
@@ -492,9 +512,10 @@ and is gone; `z` (default just behind the prop or whoever holds it).
 | `camera.handheld`, `camera.dolly`, `camera.focus`, `camera.blur`, `camera.focusRange`, `camera.motionBlur` | see 3.5 |
 | `actors.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute |
 | `actors.<id>.flip` | boolean (stepped) |
+| `actors.<id>.z`, `props.<id>.z`, `layers.<id>.z` | draw order (stepped: a `set` with a duration still cuts) — a baby cradled in front, someone hiding behind the sofa |
 | `actors.<id>.<character channel>` | e.g. `actors.pip.controls.emotion` |
 | `props.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute (non-dynamic props); a prop at opacity 0 is not drawn at all (its art is left out of the frame) |
-| `layers.<id>.x` / `.y` / `.opacity` | absolute |
+| `layers.<id>.x` / `.y` / `.rotation` / `.scale` / `.opacity` | absolute |
 | `lights.<id>.<prop>`, `lighting.<section>.<prop>` | see Lighting |
 
 ### 3.3 Script actions
@@ -505,9 +526,9 @@ Actions are compiled into clip instances and tracks before rendering.
 | `action` | Fields | Effect |
 |---|---|---|
 | `play` | `clip`, `duration?`, `loop?`, `speed` (1), `fadeIn` (0.2), `fadeOut` (0.2), `layer` (0), `blend` (`override` \| `additive`), `weight` (1) | Plays a character clip |
-| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps |
-| `pose` | `control`, `value`, `duration` (0.3), `ease` | Shortcut for `set controls.<control>` |
-| `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction |
+| `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps. With `duration` 0 the value steps in at `at` (at `at: 0`, on frame 0), replacing a step already there; a ramp ending at `at` still ends there first |
+| `pose` | `control`, `value`, `duration` (0.3), `ease` | Shortcut for `set controls.<control>`: cross-fades the pose weights from where they are, taking over a change under way |
+| `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction. It takes over a move under way (on both axes) from where the actor is, like `set` |
 | `face` | `direction` (`left` \| `right`) | Flips the actor |
 | `lookAt` | `target` (actor id, prop id, `[x, y]` scene point, or `null`), `control` (first `aim` control) | Aims eyes/head until the next `lookAt`; target changes blend smoothly (0.35 s) and moving targets are tracked |
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
@@ -518,8 +539,8 @@ Actions are compiled into clip instances and tracks before rendering.
 | `impulse` | `prop`, `vector` | Changes a dynamic prop's velocity by `vector` (px/s) |
 | `camera` | `x?`, `y?`, `zoom?`, `rotation?`, `duration` (1), `ease` (`sineInOut`) | Camera move |
 | `camera` (rigs, paths, effects) | `follow`, `frame`, `path`, `punch`, `handheld`, `dolly`, `focus`, `blur`, `motionBlur`, … | See 3.5 |
-| `transition` | `type` (`fade` \| `iris` \| `wipe` \| `flash`), `duration`, `mode` (`outIn` default, `out`, `in`), `color`, `direction` (wipe), `target` (iris center: actor/prop id or scene point) | Screen transition inside a scene (e.g. an iris closing on a character at the end) |
-| `fx` | `type`, `actor?`, `anchor?` (`head` default, `origin` = feet), `offset?`, `prop?` (at a prop, following it), `x?`/`y?` (scene point), `duration?`, `scale` (1), `color?`, `fill?` | Cartoon effect (see 3.4) |
+| `transition` | `type` (`fade` \| `iris` \| `wipe` \| `flash`), `duration`, `mode` (`outIn` default, `out`, `in`), `color`, `direction` (wipe), `target` (iris center: actor id — its posed head —, prop id or scene point) | Screen transition inside a scene (e.g. an iris closing on a character at the end) |
+| `fx` | `type`, `actor?`, `anchor?` (`head` default, `origin` = feet), `offset?`, `prop?` (at a prop, following it; an unknown id is an error), `x?`/`y?` (scene point; one given alone, the other defaults — scene centre, or the caption's place), `duration?`, `scale` (1), `color?`, `fill?` | Cartoon effect (see 3.4) |
 | `shake` | `duration` (0.5), `amount` (px, 10), `frequency` (Hz, 12) | Seeded camera shake |
 | `sound` | `audio`, `volume` (1) | Plays a sound effect |
 | `light` | `channel` (lighting channel), `value`, `duration` (0), `ease` (`sineInOut`) | Animates lighting (sunrise, lamp switching on, flash) |
@@ -549,8 +570,8 @@ actor they move to the other side but stay readable. Each pops in, animates and 
 | `birds` | Little birds flying across (left → right), wings flapping | A sunny day, birdsong | 3.2 s |
 
 **Anime effects.** `focusLines`, `speedLines`, `impactFrame` and `caption` are drawn in **screen
-space** (fixed to the frame, never moved by the camera; `x`/`y` are screen coordinates, default
-the centre). `aura` is drawn just **behind** its actor.
+space** (fixed to the frame, never moved by the camera; `x`/`y` are screen coordinates, each
+defaulting to the centre, captions to their look's place). `aura` is drawn just **behind** its actor.
 
 | `type` | Look | Typical use | Default duration |
 |---|---|---|---|
@@ -582,9 +603,9 @@ segments come `punch`, handheld drift, `shake` and `bounds`. All of it is determ
 | Curved move | `path: [[x, y], …]`, `duration`, `ease` | Smooth curve from the current position through the points, constant speed along the curve |
 | Follow an actor | `follow: id`, `offset`, `lag` (0.3 s), `axes` (`x` \| `xy`), `deadZone` (`[w, h]` half size), `lookAhead` (s), `blend` (0.6 s), `zoom?`, `duration?` | Smoothing is baked (deterministic). The actor can move inside the dead zone without moving the camera; look-ahead frames the space it moves into. Lasts until the next camera action (or `duration`, then holds); `follow: null` holds |
 | Frame targets | `frame: [ids]`, `padding` (80), `minZoom`, `maxZoom`, `lag` (0.4 s), `blend`, `duration?`, `band?` (`[top, bottom]` scene y), `on?` (`body` \| `face`: the posed `face`/`head` anchors, for close-ups) | Position and zoom keep all targets in shot (smoothed, so a target turning around never makes the camera pop), until the next camera action; `frame: null` holds. With `band` the vertical extent is fixed: targets are framed sideways only, so a jump or a flight never moves the camera up and down |
-| Punch-in | `punch: 0.15`, `duration` (0.4) | Quick zoom pulse with a springy settle (impacts, reactions) |
+| Punch-in | `punch: 0.15`, `duration` (0.4) | Quick zoom pulse with a springy settle (impacts, reactions). On a cut (`duration: 0`) or a rig (`follow`/`frame`) the punch settles over the default 0.4 s |
 | Handheld | `handheld: px` (scene camera or action) | Continuous organic drift (position + slight roll). A roll turns every depth by the same angle; screen-fixed items (parallax 0) stay upright |
-| Vertigo / dolly zoom | `dolly: value` | Scales depths relative to the subject plane (parallax 1): `> 0` pushes the background away while the subject keeps its size; combine with a zoom-in for the classic effect |
+| Vertigo / dolly zoom | `dolly: value` | Scales depths relative to the subject plane (parallax 1): `> 0` pushes the background away while the subject keeps its size; screen-fixed items (parallax 0) are left alone; combine with a zoom-in for the classic effect |
 | Depth of field | `blur` (max px), `focus` (parallax depth or an actor/prop/layer id), `focusRange` (0.5) | Items blur by their depth distance from the focus; animate `focus` for a rack focus |
 | Motion blur | `motionBlur: 0..1` (shutter) | Blur proportional to each item's on-screen motion between frames (fast pans, hops) |
 | Bounds | scene `camera.bounds: [minX, minY, maxX, maxY]` | The view never shows outside this area |
@@ -668,7 +689,7 @@ document, rendered by `evaluateSequence` / `<ToonSequenceComposition>`.
 | `muteSpeech` | Show the scene without its speech (no lip sync, no voice audio) — for recaps and songs that replay a window under different audio |
 | `speed` | Scene seconds per shot second (default 1); negative plays backwards from `from` (a tape rewinding). A shot not at speed 1 is silent |
 | `overlay` | `"vhs"`: a tape rewinding drawn over the shot (scanlines, a rolling tracking band, colour fringes, ◀◀ REW) |
-| `transition` | Into this shot: `cut`, `crossfade` (shots overlap by `duration`), `fade` / `iris` / `wipe` / `flash` (through `color`, half before and half after the cut), with `duration`, `color`, `direction` (wipe), `target` (iris center: actor id of the scene or screen point) |
+| `transition` | Into this shot: `cut`, `crossfade` (shots overlap by `duration`), `fade` / `iris` / `wipe` / `flash` (through `color`, half before and half after the cut), with `duration`, `color`, `direction` (wipe), `target` (iris center: an actor or prop id of this shot's scene, or a screen point). The id is followed at the scene time the shot shows (its `from` and `speed`); closing on the previous shot, the iris closes where the target will be when this shot opens, so it opens on the same point. An id this scene does not have is looked up in the previous shot's scene |
 
 Each shot's audio plays on the global timeline and is cut at the end of the shot.
 
