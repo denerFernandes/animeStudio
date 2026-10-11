@@ -145,3 +145,27 @@ describe("hand-drawn timing", () => {
     expect(m.teeth.base).toMatch(/^M(\S+ \S+) Q\1 \1 Q\1 \1 Z$/);
   });
 });
+
+describe("flat style", () => {
+  const look: CartoonLook = { name: "flat", build: "kid", skin: "#f6d3b5", hair: "bowl", hairColor: "#5a3a22", top: "tee", topColor: "#2d8f4e", bottom: "shorts", bottomColor: "#3a62b0", shoes: "sneakers" } as CartoonLook;
+  const flat = cartoonCharacter(look, { style: "flat" } as never) as unknown as { palette: Record<string, string>; art: Record<string, string>; parts: { id: string; type: string; default?: string; bodies?: { fill?: string; shade?: string; strokeWidth: number; shapes: { r?: [number, number] }[] }[] }[] };
+  const painted = cartoonCharacter(look) as unknown as typeof flat;
+  it("inks every line in one ink and one weight, with no cel shadow", () => {
+    expect(new Set(Object.entries(flat.palette).filter(([k]) => k.endsWith("Line") || k === "ink").map(([, v]) => v))).toEqual(new Set(["#1b1b1b"]));
+    const widths = new Set<string>();
+    for (const a of Object.values(flat.art)) for (const m of a.matchAll(/stroke-width="([\d.]+)"/g)) widths.add(m[1]);
+    expect(widths).toEqual(new Set(["2.4"]));
+    expect(Object.values(flat.art).join("")).not.toMatch(/palette\(\w+Shade\)/);
+    expect(Object.values(painted.art).join("")).toMatch(/palette\(\w+Shade\)/);
+    for (const p of flat.parts) if (p.bodies) for (const b of p.bodies) { expect(b.shade).toBeUndefined(); if (b.strokeWidth) expect(b.strokeWidth).toBe(2.4); }
+  });
+  it("draws tube arms (one width, the sleeve flush) and open hands at rest", () => {
+    const arms = flat.parts.find((p) => p.id === "arms")!.bodies!;
+    const radii = arms.filter((b) => b.fill && b.shapes.every((s) => s.r)).flatMap((b) => b.shapes.flatMap((s) => s.r!));
+    expect(Math.max(...radii) - Math.min(...radii)).toBeLessThan(1);
+    const tapered = painted.parts.find((p) => p.id === "arms")!.bodies!.filter((b) => b.fill).flatMap((b) => b.shapes.flatMap((s) => s.r ?? []));
+    expect(Math.max(...tapered) - Math.min(...tapered)).toBeGreaterThan(4);
+    for (const id of ["handF", "handB"]) expect(flat.parts.find((p) => p.id === id)!.default).toBe("open");
+    expect(painted.parts.find((p) => p.id === "handF")!.default).toBe("fist");
+  });
+});

@@ -849,8 +849,9 @@ function mouthTable() {
  * variants `open`, `fist`, `point` and `grip` — the same names as `handShapes`. `dir` is the
  * direction of the fingers in setup space (90 = down, a hanging arm); `line` the outline colour.
  */
-export function cartoonHands(at: P, o: { r: number; fill: string; line?: string; stroke?: number; dir?: number; shade?: string }) {
-  const [x, y] = at, R = o.r, ink = o.line ?? "palette(ink)", w = o.stroke ?? 2.6;
+export function cartoonHands(at: P, o: { r: number; fill: string; line?: string; stroke?: number; dir?: number; shade?: string; detail?: number }) {
+  // (`detail`: the knuckle lines' weight, thinner than the outline unless a style draws every line alike.)
+  const [x, y] = at, R = o.r, ink = o.line ?? "palette(ink)", w = o.stroke ?? 2.6, wd = o.detail ?? w * 0.7;
   const st = `stroke="${ink}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
   // Drawn with the fingers along +x, then turned.
   const P_ = (dx: number, dy: number) => `${r(x + dx * R)} ${r(y + dy * R)}`;
@@ -859,7 +860,7 @@ export function cartoonHands(at: P, o: { r: number; fill: string; line?: string;
   const palm = `<path d="M${P_(-0.55, -0.5)} Q${P_(-0.6, 0)} ${P_(-0.55, 0.5)} L${P_(0.45, 0.58)} Q${P_(0.62, 0)} ${P_(0.45, -0.58)} Z" fill="${o.fill}" ${st}/>`;
   const thumb = (a: number) => `<g transform="rotate(${a} ${P_(-0.2, -0.45).replace(" ", " ")})"><path d="M${P_(-0.3, -0.62)} L${P_(0.25, -0.62)} Q${P_(0.45, -0.48)} ${P_(0.25, -0.34)} L${P_(-0.3, -0.34)} Z" fill="${o.fill}" ${st}/></g>`;
   const curled = `<path d="M${P_(0.3, -0.55)} Q${P_(0.85, -0.6)} ${P_(0.85, 0)} Q${P_(0.85, 0.6)} ${P_(0.3, 0.55)}" fill="${o.fill}" ${st}/>` +
-    `<path d="M${P_(0.55, -0.18)} H${P_(0.84, -0.18).split(" ")[0]} M${P_(0.55, 0.18)} H${P_(0.84, 0.18).split(" ")[0]}" stroke="${ink}" stroke-width="${r(w * 0.7)}" stroke-linecap="round"/>`;
+    `<path d="M${P_(0.55, -0.18)} H${P_(0.84, -0.18).split(" ")[0]} M${P_(0.55, 0.18)} H${P_(0.84, 0.18).split(" ")[0]}" stroke="${ink}" stroke-width="${r(wd)}" stroke-linecap="round"/>`;
   const turn = (art: string) => `<g transform="rotate(${o.dir ?? 90} ${x} ${y})">${art}</g>`;
   return {
     open: turn(finger(0.38, 0.62, 0.06) + finger(0.12, 0.78) + finger(-0.14, 0.82) + finger(-0.4, 0.7, -0.04) + palm + thumb(-35)),

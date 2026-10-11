@@ -1169,7 +1169,7 @@ class BlockScene {
         this.armRest(actor, use.until, 0.45, now.side as "F" | "B");
       }
       if (active && this.hasChain(actor, old.chain)) this.push({ at: this.t(abs), actor, action: "reach", chain: old.chain, target: null, duration: 0.2 });
-      if (this.hasPart(actor, old.part)) this.set(actor, `parts.${old.part}.variant`, "fist", abs);
+      if (this.hasPart(actor, old.part)) this.set(actor, `parts.${old.part}.variant`, null, abs);
       if (this.hasPart(actor, now.part)) this.set(actor, `parts.${now.part}.variant`, "grip", abs);
     }
   }
@@ -1408,7 +1408,7 @@ class BlockScene {
     if (where) this.arm3d(actor, [where[0], where[1], where[2] + 4], at, 0.4);
     this.use(actor, prop, fit, at, undefined, false);
     this.armRest(actor, at + 0.05, 0.45);
-    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "fist", at + 0.1);
+    if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", null, at + 0.1);
   }
   /** The phone / smoke / drink gestures with a held prop that has contact points: `use` it. */
   private useForGesture(actor: string, clip: string, at: number, until?: number) {
@@ -3676,7 +3676,7 @@ class BlockScene {
       if (this.hasPart(actor, `hand${hand}`)) this.set(actor, `parts.hand${hand}.variant`, "open", t0);
       this.armRest(actor, t0 + Math.max(up + 0.3, span * 0.75), Math.min(0.5, span * 0.25), hand);
     }
-    for (const hand of ["F", "B"]) if (this.hasPart(actor, `hand${hand}`) && !this.armBusy.some((b) => b.actor === actor && b.side === hand && b.t0 <= e && b.t1 > e)) this.set(actor, `parts.hand${hand}.variant`, "fist", e + 0.2);
+    for (const hand of ["F", "B"]) if (this.hasPart(actor, `hand${hand}`) && !this.armBusy.some((b) => b.actor === actor && b.side === hand && b.t0 <= e && b.t1 > e)) this.set(actor, `parts.hand${hand}.variant`, null, e + 0.2);
     this.armBusy.length = busy;
   }
   /** Walking at a moment (or about to: a walk starting within `pad` seconds). */

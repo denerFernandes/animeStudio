@@ -125,6 +125,13 @@ const BUILDS: Record<CartoonBuild, Build> = {
 
 const INK = "#2a201e";
 const SW = 2.8;
+/**
+ * The line weights of the drawing being built: the painted style's own (`SW` for outlines, thinner
+ * for seams and lips), or one weight for every line (`CartoonStyle.line`), set for a build.
+ */
+const WEIGHT = { w: SW, uniform: false };
+/** A line weight as the style draws it (one weight for everything when uniform). */
+const lw = (w: number) => (WEIGHT.uniform ? WEIGHT.w : w);
 /** The three-quarter angle of the main view. */
 const Q = (36 * Math.PI) / 180;
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -146,9 +153,9 @@ type ViewKey = keyof typeof VIEWS;
 const SUFFIX: Record<ViewKey, string> = { front: "F", half: "H", q24: "T", profile: "", q50: "U", q64: "V", q77: "W", side: "S", q112: "X", away: "A", q158: "Y", back: "K" };
 
 const r = (n: number) => Math.round(n * 100) / 100;
-const st = (w = SW) => `stroke="palette(ink)" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+const st = (w = SW) => `stroke="palette(ink)" stroke-width="${lw(w)}" stroke-linejoin="round" stroke-linecap="round"`;
 /** Outline in a dark tone of a palette colour (`<key>Line`). */
-const stc = (key: string, w = SW) => `stroke="palette(${key}Line)" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"`;
+const stc = (key: string, w = SW) => `stroke="palette(${key}Line)" stroke-width="${lw(w)}" stroke-linejoin="round" stroke-linecap="round"`;
 /** The line colour that goes with a fill (`palette(x)` → `palette(xLine)`). */
 const LINE = (fill: string) => fill.replace(/palette\(([^)]+)\)/, (_, k: string) => `palette(${k.replace(/Shade$|Dark$/, "")}Line)`);
 const pts = (p: P2[]) => p.map((q) => `${r(q[0])} ${r(q[1])}`).join(" L");
@@ -294,6 +301,8 @@ interface Model {
   chinRoom: number;
   /** Cel shadows drawn on the volumes (false: flat colours). */
   shade: boolean;
+  /** Radius of the shoulder caps (the torso's capsule across the shoulders). */
+  sh: number;
 }
 
 /** Half width of the part of a face that looks at the camera at a height (a mouth must fit in it). */
@@ -323,13 +332,14 @@ const m_ry = (u: number) => u * 0.235;
  */
 /** The style's settings from `CartoonOptions.style`. */
 function styleOf(style: CartoonOptions["style"]): Required<CartoonStyle> {
-  const base: Required<CartoonStyle> = { ink: "", shade: true };
-  if (style === "flat") return { ink: "#1b1b1b", shade: false };
+  const base: Required<CartoonStyle> = { ink: "", shade: true, line: undefined as unknown as number, limbs: "tapered", hands: "fist" };
+  if (style === "flat") return { ink: "#1b1b1b", shade: false, line: 2.4, limbs: "tube", hands: "open" };
   if (!style || style === "painted") return base;
   return { ...base, ...style };
 }
 
-function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look), shade = true): Model {
+function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look), style: Required<CartoonStyle> = styleOf(undefined)): Model {
+  const shade = style.shade;
   const M = mirror ? -1 : 1;
   const A = a.body, F = a.face;
   const b: Build = { L: A.hip, T: A.torso, n: A.neck, u: A.head, S: A.shoulders, W: A.waist, H: A.hips, D: A.depth, arm: a.limbs.arm, leg: a.limbs.leg, hand: a.limbs.hand, shoe: a.limbs.shoe, eye: F.eye[1] / 0.235 };
@@ -562,7 +572,9 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
   // Neck and torso (the pelvis is part of it: the trousers' top).
   const neckR = u * (look.build === "big" ? 0.5 : look.build === "man" ? 0.36 : 0.26) * (1 + heavy * 0.2);
   const neck = capsule([0, torsoTop + 10, -b.D * 0.15], [0, hy + u * 0.55, -u * 0.12], neckR);
-  const sh = look.top === "blouse" ? b.arm[0] * 1.05 : b.arm[0] * 0.75;
+  // The shoulders: round caps the arms come out of (a blouse's puffed), or, with tube arms, flush
+  // with the arm — no ball shoulders.
+  const sh = style.limbs === "tube" ? b.arm[0] * 0.5 : look.top === "blouse" ? b.arm[0] * 1.05 : b.arm[0] * 0.75;
   const torso = blend(
     T * 0.12,
     ellipsoid([0, -L - T * 0.68, 0], [b.S, T * 0.36, b.D]),
@@ -690,7 +702,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { shade, b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { shade, sh, b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -907,7 +919,7 @@ function bodyView(m: Model, look: CartoonLook, vw: View) {
   const nb: Box3 = { x: [-m.neckR - 4, m.neckR + 4], y: [m.y.torsoTop - 4, m.y.head + m.b.u * 0.7], z: [-m.b.u, m.b.u * 0.5] };
   const ng = gridFor([nb], vw, 1.5);
   // The neck is in the head's shadow.
-  const neck = piece(cast(m.neck, ng, vw), ng, { shade: m.shade, sdf: m.neck, theta: vw, base: "skinShade", line: "skin" });
+  const neck = piece(cast(m.neck, ng, vw), ng, { shade: m.shade, sdf: m.neck, theta: vw, base: m.shade ? "skinShade" : "skin", line: "skin" });
   let skirt = "";
   if (m.skirt) {
     const sb: Box3 = { x: [-b.H * 2 - 20, b.H * 2 + 20], y: [m.y.waist - 8, 0], z: [-b.D * 2, b.D * 2.4] };
@@ -1184,7 +1196,7 @@ function torsoOccluder(m: Model, look: CartoonLook): Record<string, unknown> {
   const heavy = look.heavy ?? 0;
   const T = b.T, L = b.L, k = 0.98;
   const W = b.W * (look.female ? 0.86 : 1) + heavy * b.W * 0.35, H = b.H * (look.female ? 1.04 : 1) + heavy * b.H * 0.2;
-  const sh = look.top === "blouse" ? b.arm[0] * 1.05 : b.arm[0] * 0.75;
+  const sh = m.sh;
   const at = (y: number, z = 0) => ({ bone: "body", at: [0, r(y + L), r(z)] });
   const ell = (y: number, z: number, rad: V3) => ({ from: at(y, z), ellipsoid: rad.map((v) => r(v * k)) });
   const hipR = T * 0.2;
@@ -1215,7 +1227,7 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
   const thigh: [number, number] = [r(b.leg[0] * THIGH_R * (1 + heavy * 0.35)), r(b.leg[0] * 0.6)];
   const shin: [number, number] = [r(b.leg[0] * 0.52), r(b.leg[1] * 0.5)];
   const pt = (bone: string, t = 0, at?: V3) => ({ bone, ...(t ? { t } : {}), ...(at ? { at: at.map(r) } : {}) });
-  const paint = (key: string) => ({ fill: `palette(${key})`, ...(m.shade ? { shade: `palette(${key}Shade)` } : {}), stroke: `palette(${key}Line)`, strokeWidth: SW });
+  const paint = (key: string) => ({ fill: `palette(${key})`, ...(m.shade ? { shade: `palette(${key}Shade)` } : {}), stroke: `palette(${key}Line)`, strokeWidth: lw(SW) });
   const bodies: Record<string, unknown>[] = [];
   const T = b.T, D = b.D * (1 + heavy * 0.6);
   bodies.push(torsoOccluder(m, look));
@@ -1297,11 +1309,21 @@ export interface CartoonStyle {
   ink?: string;
   /** Cel shadows drawn (default true). */
   shade?: boolean;
+  /** One line weight for every line (outlines, seams, lips, hands); default: the painted weights (2.8 outlines, thinner seams). */
+  line?: number;
+  /**
+   * `tapered` (default): arms thicker at the shoulder than the wrist, a round elbow, puffed short
+   * sleeves, round shoulder caps. `tube`: noodle arms of one width, the sleeve flush with the arm
+   * (just a hem line), no shoulder caps — a flat TV cartoon's.
+   */
+  limbs?: "tapered" | "tube";
+  /** The hands' resting shape (default `fist`; a flat TV cartoon's hang `open`). */
+  hands?: "fist" | "open";
 }
 
 export interface CartoonOptions {
   pitch?: number;
-  /** Inking and painting (default painted; `"flat"`: one ink, no cel shadow). */
+  /** Inking and painting (default painted; `"flat"`: one near-black ink and one line weight, no cel shadow, tube arms, open hands). */
   style?: "painted" | "flat" | CartoonStyle;
   /** The character's anatomy (default `cartoonAnatomy(look)`): an edited one changes its body, face and physics. */
   anatomy?: CartoonAnatomy;
@@ -1309,12 +1331,23 @@ export interface CartoonOptions {
 
 export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): ToonDoc {
   // Lipstick colours the lips (a thicker outline); the inside of the mouth stays dark.
-  const [LIPS, LIPS_W] = look.lipstick ? ["palette(lips)", 3.6] : ["palette(mouthLine)", 2.4];
+  const style = styleOf(opts.style);
+  WEIGHT.w = style.line ?? SW;
+  WEIGHT.uniform = style.line !== undefined;
+  try {
+    return buildCartoon(look, opts, style);
+  } finally {
+    WEIGHT.w = SW;
+    WEIGHT.uniform = false;
+  }
+}
+
+function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<CartoonStyle>): ToonDoc {
+  const [LIPS, LIPS_W] = look.lipstick ? ["palette(lips)", lw(3.6)] : ["palette(mouthLine)", lw(2.4)];
   const anatomy = opts.anatomy ?? cartoonAnatomy(look);
   const broken = checkAnatomy(anatomy).filter((x) => x.severity === "error");
   if (broken.length) throw new Error(`${look.name}: anatomy breaks ${broken.length} rule(s): ${broken.map((x) => `${x.rule} — ${x.message}`).join("; ")}`);
-  const style = styleOf(opts.style);
-  const m = model(look, false, anatomy, style.shade);
+  const m = model(look, false, anatomy, style);
   const { b } = m;
   const u = b.u;
   const pitch = deg(opts.pitch ?? 0);
@@ -1373,14 +1406,14 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     }];
   })) as Record<ViewKey, Record<"ear" | "earB" | "mouth" | "eye" | "top", P2>>;
   const art: Record<string, string> = {
-    ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.2, fill: "palette(skin)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handF_${k}`, v])),
-    ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.16, fill: "palette(skinShade)", line: "palette(skinLine)", stroke: 2.2 })).map(([k, v]) => [`handB_${k}`, v])),
+    ...Object.fromEntries(Object.entries(cartoonHands(j.handF, { r: b.hand * 1.2, fill: "palette(skin)", line: "palette(skinLine)", stroke: lw(2.2), detail: lw(2.2 * 0.7) })).map(([k, v]) => [`handF_${k}`, v])),
+    ...Object.fromEntries(Object.entries(cartoonHands(j.handB, { r: b.hand * 1.16, fill: m.shade ? "palette(skinShade)" : "palette(skin)", line: "palette(skinLine)", stroke: lw(2.2), detail: lw(2.2 * 0.7) })).map(([k, v]) => [`handB_${k}`, v])),
   };
   // Asymmetric details: a second drawing of the hair and the torso, mirrored on the body, shown when
   // the character faces left (`side` control).
   const asym = look.top === "shirt" || !!look.pocketItem || !!look.earItem || look.hair === "sidePart" || !!look.hairLine || !!look.boutonniere;
   if (asym) {
-    const mm = model(look, true, anatomy, style.shade);
+    const mm = model(look, true, anatomy, style);
     for (const v of Object.keys(VIEWS) as ViewKey[]) {
       const s = SUFFIX[v], H = headView(mm, vh(v)), B = bodyView(mm, look, vw(v));
       art[`hairBack${s}M`] = H.hairBack;
@@ -1414,15 +1447,19 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // towards the camera in front of the upper arm, from any angle), cel shaded like the legs.
   const armBodies = (side: "F" | "B"): Record<string, unknown>[] => {
     const pt = (bone: string, t = 0) => ({ bone, ...(t ? { t } : {}) });
-    const key = (k: string) => ({ fill: `palette(${k})`, ...(m.shade ? { shade: `palette(${k}Shade)` } : {}), stroke: `palette(${k}Line)`, strokeWidth: SW });
-    const elbow = r((b.arm[0] + b.arm[1]) * 0.25), up = `arm${side}1`, lo = `arm${side}2`;
+    const key = (k: string) => ({ fill: `palette(${k})`, ...(m.shade ? { shade: `palette(${k}Shade)` } : {}), stroke: `palette(${k}Line)`, strokeWidth: lw(SW) });
+    const up = `arm${side}1`, lo = `arm${side}2`;
+    // Tube arms: one width from the shoulder to the wrist, the sleeve flush with it (a hem line).
+    const tube = style.limbs === "tube";
+    const elbow = tube ? r((b.arm[0] + b.arm[1]) * 0.25) : r((b.arm[0] + b.arm[1]) * 0.25);
+    const [rs, rw] = tube ? [elbow, elbow] : [r(b.arm[0] * 0.5), r(b.arm[1] * 0.5)];
     const bodies: Record<string, unknown>[] = [
       { ...key(longSleeves ? "top2" : "skin"), blend: 3, shapes: [
-        { from: pt(up), to: pt(up, 1), r: [r(b.arm[0] * 0.5), elbow], under: true },
-        { from: pt(lo), to: pt(lo, 0.96), r: [elbow, r(b.arm[1] * 0.5)] },
+        { from: pt(up), to: pt(up, 1), r: [rs, elbow], under: true },
+        { from: pt(lo), to: pt(lo, 0.96), r: [elbow, rw] },
       ] },
     ];
-    if (shortSleeves) bodies.push({ ...key("top"), shapes: [{ from: pt(up, -0.04), to: pt(up, 0.42), r: [r(b.arm[0] * 0.5 + 5), r(b.arm[0] * 0.5 + 6)], under: true }] });
+    if (shortSleeves) bodies.push({ ...key("top"), shapes: [{ from: pt(up, -0.04), to: pt(up, 0.42), r: tube ? [r(elbow + 0.8), r(elbow + 0.8)] : [r(b.arm[0] * 0.5 + 5), r(b.arm[0] * 0.5 + 6)], under: true }] });
     return bodies;
   };
   /** A body as an occluder: its shapes hide what is behind them, drawing nothing. */
@@ -1452,7 +1489,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
         visibleWhen: { part: "sideSwitch", variant: side === "F" ? "r" : "l" },
         bodies: [
           torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B").map(occluder), ...armBodies("F").map(occluder),
-          { fill: "palette(watch)", shade: "palette(watchShade)", stroke: "palette(watchLine)", strokeWidth: 2.2, shapes: [{ from: { bone: `arm${side}2`, t: 0.8 }, to: { bone: `arm${side}2`, t: 0.88 }, r: r(b.arm[1] * 0.5 + 2.5) }] },
+          { fill: "palette(watch)", ...(m.shade ? { shade: "palette(watchShade)" } : {}), stroke: "palette(watchLine)", strokeWidth: lw(2.2), shapes: [{ from: { bone: `arm${side}2`, t: 0.8 }, to: { bone: `arm${side}2`, t: 0.88 }, r: r(b.arm[1] * 0.5 + 2.5) }] },
         ],
       }))
     : [];
@@ -1488,8 +1525,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
     armsSolid,
     ...watchSolids,
-    { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: "fist" },
-    { id: "handF", type: "switch", bone: "handF", variants: { open: "handF_open", fist: "handF_fist", point: "handF_point", grip: "handF_grip" }, default: "fist" },
+    { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: style.hands },
+    { id: "handF", type: "switch", bone: "handF", variants: { open: "handF_open", fist: "handF_fist", point: "handF_point", grip: "handF_grip" }, default: style.hands },
   ];
 
   // Secondary motion, as in hand-drawn animation: the body jiggles, forearms and the head drag a
