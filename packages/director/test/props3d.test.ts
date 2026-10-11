@@ -190,3 +190,24 @@ describe("carried", () => {
     expect(msgs).not.toMatch(/baby walks backwards/);
   });
 });
+
+describe("walking and running with drawn angles", () => {
+  const s = (beats: unknown[]) => ({ blocks: [{ id: "x", set: "s", from: 0, to: 2, cast: [{ id: "kid", at: "a", facing: "right" }], beats }] }) as unknown as Staging;
+  const views = (d: ReturnType<typeof direct>) => (d.scenes.x.script as { at: number; action: string; control?: string; value?: unknown; direction?: string }[]).filter((a) => a.actor === "kid" && ((a.action === "pose" && a.control === "view") || a.action === "face")).map((a) => [a.at, a.action === "face" ? `face:${a.direction}` : a.value] as [number, string]);
+  it("turns through its angles to set off the other way (never flipped at once), and runs in its travel view", () => {
+    const d = direct(s([{ line: 1, do: "run", who: "kid", to: { mark: "a", dx: -600 } }]), lines, kit);
+    expect(d.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const v = views(d);
+    const flip = v.findIndex(([, x]) => x === "face:left");
+    expect(flip).toBeGreaterThan(0);
+    // Through the front before the flip, then round to the travel view (side-on, the face showing).
+    expect(v.slice(0, flip).map(([, x]) => x)).toContain("front");
+    expect(v.slice(flip).map(([, x]) => x)).toContain("q64");
+    // Back to its own view on arrival.
+    expect(v[v.length - 1][1]).toBe("profile");
+  });
+  it("walks in its own view (only a run turns side-on)", () => {
+    const d = direct(s([{ line: 1, do: "walk", who: "kid", to: { mark: "a", dx: 600 } }]), lines, kit);
+    expect(views(d).map(([, x]) => x)).not.toContain("q64");
+  });
+});

@@ -617,6 +617,22 @@ class BlockScene {
     abs = Math.max(abs, this.t0);
     const x0 = this.xAt(actor, abs);
     const d = Math.max(0.4, o.until !== undefined ? o.until - abs : dur);
+    // A rig drawn at in-between angles turns through them to set off the other way (never flipped
+    // at once), and runs in its travel view (`meta.views.travel`: a run across the frame reads
+    // side-on), turning back to its view on arrival.
+    const order = this.viewOrder(actor);
+    if (order && this.present.includes(actor) && Math.abs(x - x0) > 80 * this.scaleOf(actor)) {
+      const dir = x > x0 ? "right" : "left";
+      const cur = this.viewAt(actor, abs);
+      const travel = (this.kit.characters[this.characterOf(actor)]?.meta as { views?: { travel?: string } } | undefined)?.views?.travel;
+      const runView = o.clip === "run" && travel && order.includes(travel) && order.includes(cur) && cur !== travel ? travel : undefined;
+      if ((this.facing(actor, abs - 0.001) ? "right" : "left") !== dir) this.face(actor, dir, abs, runView);
+      else if (runView) this.view(actor, runView, abs);
+      if (runView) {
+        if (this.views.at(-1)?.actor !== actor || this.views.at(-1)?.t !== abs) this.views.push({ actor, t: abs, view: runView });
+        this.view(actor, cur, abs + d);
+      }
+    }
     const walk: Walk = { actor, t0: abs, t1: abs + d, x0, x1: x };
     this.walks.push(walk);
     // (The cast leans into it once the block is staged; vehicles never do.)
@@ -702,7 +718,8 @@ class BlockScene {
     this.push(a);
     if (this.inArc) this.arcKeys.add(a);
   }
-  face(actor: string, dir: "left" | "right", abs: number) {
+  /** Faces a way; a rig drawn at in-between angles turns through them, ending in `end` (default: the view it had). */
+  face(actor: string, dir: "left" | "right", abs: number, end?: string) {
     // Walking, one faces where one goes: turning the other way waits for the walk to end.
     const w = this.walks.find((w) => w.actor === actor && w.t0 < abs && w.t1 > abs && Math.abs(w.x1 - w.x0) > 1);
     if (w && (w.x1 > w.x0 ? "right" : "left") !== dir) {
@@ -723,7 +740,7 @@ class BlockScene {
         const step = this.twos();
         steps.forEach((v, k) => this.push({ at: this.t(abs - (steps.length - k) * step), actor, action: "pose", control: "view", value: v, duration: 0 }));
         this.push({ at: this.t(abs), actor, action: "face", direction: dir });
-        [...steps.slice(0, -1).reverse(), cur].forEach((v, k) => {
+        (end && order.includes(end) ? this.viewPath(order, mid, end) : [...steps.slice(0, -1).reverse(), cur]).forEach((v, k) => {
           const a = { at: this.t(abs + (k + 1) * step), actor, action: "pose", control: "view", value: v, duration: 0 } as Action;
           this.turnBack.add(a);
           this.push(a);
@@ -3354,16 +3371,17 @@ class BlockScene {
       case "two-shot":
         this.push({ at: abs, action: "camera", frame: who.slice(0, 2), ...face(who.slice(0, 2)), padding: 150, minZoom: 1.3, maxZoom: 2.4, blend: 1 });
         break;
-      // A crash zoom: snapped in on a face, with a jolt and focus lines.
+      // A crash zoom: snapped in on a face (the blend), with a jolt and focus lines; then it keeps the
+      // face framed smoothly (the lag), not shaking with every bob of the head.
       case "crash":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.05 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 70, minZoom: 2.2, maxZoom: 3.4, blend: 0.15, lag: 0.3 });
         this.push({ at: abs, action: "shake", duration: 0.45, amount: 7, frequency: 22 });
         this.push({ at: abs, action: "fx", type: "focusLines", duration: 1.1 });
         this.sfx("crash", at);
         break;
       // A whip pan to someone: a fast swing with speed lines.
       case "whip":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.05 });
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.22, lag: 0.3 });
         this.push({ at: abs, action: "fx", type: "speedLines", duration: 0.3 });
         this.sfx("whip", at);
         break;

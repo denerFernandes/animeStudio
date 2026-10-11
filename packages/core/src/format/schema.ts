@@ -148,6 +148,7 @@ export const SolidShapeSchema = z
     box: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("A box of these half sizes [x, y, z] centred on `from`, turned with its bone"),
     ellipsoid: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]).optional().describe("An ellipsoid of these radii [x, y, z] centred on `from`, turned with its bone"),
     round: z.number().min(0).optional().describe("Rounding of a box's edges"),
+    under: z.boolean().optional().describe("Drawn under the occluders with `over` wherever they cover it, whatever its depth (a shoulder under its head)"),
   })
   .refine((s) => [s.to !== undefined || s.r !== undefined, s.box !== undefined, s.ellipsoid !== undefined].filter(Boolean).length <= 1 && (s.round === undefined || s.box !== undefined), {
     message: 'a solid shape is one of: a cone { from, to, r }, a sphere { from, r }, a box { from, box, round? } or an ellipsoid { from, ellipsoid } ("to"/"r" do not combine with "box"/"ellipsoid", "round" needs "box")',
@@ -167,6 +168,7 @@ export const SolidPartSchema = z.strictObject({
         strokeWidth: z.number().min(0).optional(),
         blend: z.number().min(0).optional().describe("Smooth union of the shapes over this distance"),
         seamless: z.boolean().optional().describe("No outline where it meets an occluder: cloth continuing the drawing under it (a dress's skirt out of the torso)"),
+        over: z.number().min(0).optional().describe("An occluder drawn over the shapes marked `under` by this much (rig units), whatever their depth: a cartoon head over its shoulders; other shapes keep their true depth"),
         shapes: z.array(SolidShapeSchema).min(1),
       }),
     )

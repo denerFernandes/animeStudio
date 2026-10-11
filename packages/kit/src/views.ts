@@ -51,6 +51,11 @@ export interface ViewSpec {
    * turn on twos, like hand-drawn animation) instead of switching drawings at once.
    */
   order?: string[];
+  /**
+   * The view a character is drawn in crossing the frame (running across it): side-on enough to read
+   * the move, the face still showing. The director turns runners to it and back on arrival.
+   */
+  travel?: string;
 }
 
 /** World angle of a bone's parent frame in the rest pose. */
@@ -129,6 +134,6 @@ export function withViews(base: ToonDoc, spec: ViewSpec): ToonDoc {
     poses[view] = pose;
   }
   doc.controls.view = { type: "pose", poses };
-  doc.meta = { ...(doc.meta ?? {}), views: { move: spec.move, ...(spec.order ? { order: spec.order } : {}) } };
+  doc.meta = { ...(doc.meta ?? {}), views: { move: spec.move, ...(spec.order ? { order: spec.order } : {}), ...(spec.travel ? { travel: spec.travel } : {}) } };
   return doc as ToonDoc;
 }

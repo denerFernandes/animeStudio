@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  bakeFrame,
+  smoothDamp,
   actorPlacement,
   anchorPosition,
   apply,
@@ -464,6 +466,55 @@ describe("solids", () => {
     };
     const stand = drawSolid(part.bodies, part.step, rig.rig3d!, pose("front").frame3d!);
     expect(height(paths)).toBeLessThan(height(stand) * 0.75);
+  });
+  it("draws an occluder with `over` over the shapes marked `under`, whatever their depth (a head over its shoulders)", () => {
+    const front = pose("front").frame3d!;
+    const part = rig.parts.find((q) => q.id === "leg")! as Extract<(typeof rig.parts)[number], { type: "solid" }>;
+    // An occluder behind the thigh (20 px back): the thigh is in front of it, and drawn whole.
+    const thigh = rig.bones.find((b) => b.id === "thigh")!.index;
+    const behind = { strokeWidth: 0, blend: 0, shapes: [{ kind: "ellipsoid", at: { bone: thigh, t: 0.5, at: [0, 0, -20] }, radii: [14, 14, 6] }] } as never;
+    const leg = part.bodies[1];
+    const underLeg = { ...leg, shapes: leg.shapes.map((x, i) => (i === 0 ? { ...x, under: true } : x)) };
+    const plain = drawSolid([behind, leg], part.step, rig.rig3d!, front);
+    const over = drawSolid([{ ...(behind as object), over: 40 } as never, underLeg], part.step, rig.rig3d!, front);
+    // Over the thigh (under) it is drawn, hiding it where they overlap.
+    expect(over[0].d).not.toBe(plain[0].d);
+    // Shapes not marked under keep their true depth: nothing changes.
+    expect(drawSolid([{ ...(behind as object), over: 40 } as never, leg], part.step, rig.rig3d!, front)[0].d).toBe(plain[0].d);
+  });
+});
+
+describe("camera smoothing", () => {
+  it("never jolts: a framing target that jumps is reached with a continuous velocity", () => {
+    const frame = { targets: [], start: 0, lag: 0.3, padding: 0, minZoom: 1, maxZoom: 1, blend: 0 } as never;
+    const s = bakeFrame(frame, 2, (t) => ({ x: t < 0.5 ? 0 : 100, y: 0, zoom: 1 }));
+    const x = (i: number) => s[i * 3];
+    let jerk = 0;
+    for (let i = 2; i < s.length / 3; i++) jerk = Math.max(jerk, Math.abs(x(i) - 2 * x(i - 1) + x(i - 2)));
+    // An exponential lag would move ~5 px in the first 1/60 s after the jump, from standing still.
+    expect(x(31) - x(30)).toBeLessThan(4);
+    expect(jerk).toBeLessThan(3.5);
+    // A jump is not a speed: no lead, no overshoot.
+    expect(Math.max(...Array.from({ length: s.length / 3 }, (_, i) => x(i)))).toBeLessThan(100.5);
+    expect(x(119)).toBeCloseTo(100, 0);
+  });
+  it("keeps up with a target moving steadily (it aims ahead by its speed), filtering a wobble", () => {
+    const frame = { targets: [], start: 0, lag: 0.3, padding: 0, minZoom: 1, maxZoom: 1, blend: 0 } as never;
+    // 480 px/s with a 6 Hz bob of ±3 px.
+    const s = bakeFrame(frame, 3, (t) => ({ x: 480 * t + 3 * Math.sin(2 * Math.PI * 6 * t), y: 0, zoom: 1 }));
+    const i = 150, t = i / 60;
+    expect(Math.abs(s[i * 3] - 480 * t)).toBeLessThan(8);
+    const v = [140, 141, 142, 143, 144, 145, 146, 147, 148].map((k) => (s[(k + 1) * 3] - s[k * 3]) * 60);
+    expect(Math.max(...v) - Math.min(...v)).toBeLessThan(80);
+  });
+  it("smoothDamp is critically damped: no overshoot towards a still target", () => {
+    let x = 0, v = 0, peak = 0;
+    for (let i = 0; i < 240; i++) {
+      [x, v] = smoothDamp(x, 10, v, 0.3, 1 / 60);
+      peak = Math.max(peak, x);
+    }
+    expect(peak).toBeLessThanOrEqual(10 + 1e-6);
+    expect(x).toBeCloseTo(10, 3);
   });
 });
 

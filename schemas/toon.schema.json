@@ -887,6 +887,11 @@
                       "description": "No outline where it meets an occluder: cloth continuing the drawing under it (a dress's skirt out of the torso)",
                       "type": "boolean"
                     },
+                    "over": {
+                      "description": "An occluder drawn over the shapes marked `under` by this much (rig units), whatever their depth: a cartoon head over its shoulders; other shapes keep their true depth",
+                      "type": "number",
+                      "minimum": 0
+                    },
                     "shapes": {
                       "minItems": 1,
                       "type": "array",
@@ -1035,6 +1040,10 @@
                             "description": "Rounding of a box's edges",
                             "type": "number",
                             "minimum": 0
+                          },
+                          "under": {
+                            "description": "Drawn under the occluders with `over` wherever they cover it, whatever its depth (a shoulder under its head)",
+                            "type": "boolean"
                           }
                         },
                         "required": [

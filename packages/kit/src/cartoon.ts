@@ -262,6 +262,8 @@ interface Model {
   /** Key heights. */
   y: { hip: number; waist: number; shoulder: number; torsoTop: number; neckTop: number; head: number; eye: number; brow: number; nose: number; mouth: number; ear: number; top: number };
   head: Sdf;
+  /** The ellipsoids the head (cranium and face) is blended from: [centre, radii] — its occluder. */
+  headParts: [V3, V3][];
   ears: Sdf;
   hair: Sdf;
   hairColor: (p: V3) => string;
@@ -336,14 +338,16 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     nose: hy + u * F.noseY, mouth: hy + u * F.mouthY, ear: hy + u * F.earY, top: hy - u * 1.14,
   };
 
-  // Head: a cranium and a face (jaw), blended.
-  const cranium = ellipsoid([0, hy - u * 0.12, -u * 0.08], [u, u * 1.02, u]);
+  // Head: a cranium and a face (jaw), blended (its ellipsoids kept: the head's occluder).
+  const headParts: [V3, V3][] = [];
+  const hell = (c: V3, rad: V3) => (headParts.push([c, rad]), ellipsoid(c, rad));
+  const cranium = hell([0, hy - u * 0.12, -u * 0.08], [u, u * 1.02, u]);
   const jaw = look.jaw ?? "round";
   const face =
-    jaw === "square" ? blend(u * 0.18, ellipsoid([0, hy + u * 0.42, u * 0.1], [u * 0.86, u * 0.7, u * 0.8]), ellipsoid([-u * 0.46, hy + u * 0.74, u * 0.02], [u * 0.36, u * 0.32, u * 0.5]), ellipsoid([u * 0.46, hy + u * 0.74, u * 0.02], [u * 0.36, u * 0.32, u * 0.5]), ellipsoid([0, hy + u * 0.92, u * 0.32], [u * 0.36, u * 0.24, u * 0.36]))
-      : jaw === "pointy" ? blend(u * 0.2, ellipsoid([0, hy + u * 0.42, u * 0.1], [u * 0.74, u * 0.7, u * 0.76]), ellipsoid([0, hy + u * 0.9, u * 0.3], [u * 0.24, u * 0.24, u * 0.3]))
-        : jaw === "chubby" ? ellipsoid([0, hy + u * 0.42, u * 0.1], [u * 0.94, u * 0.72, u * 0.86])
-          : ellipsoid([0, hy + u * 0.42, u * 0.1], [u * 0.8, u * 0.72, u * 0.8]);
+    jaw === "square" ? blend(u * 0.18, hell([0, hy + u * 0.42, u * 0.1], [u * 0.86, u * 0.7, u * 0.8]), hell([-u * 0.46, hy + u * 0.74, u * 0.02], [u * 0.36, u * 0.32, u * 0.5]), hell([u * 0.46, hy + u * 0.74, u * 0.02], [u * 0.36, u * 0.32, u * 0.5]), hell([0, hy + u * 0.92, u * 0.32], [u * 0.36, u * 0.24, u * 0.36]))
+      : jaw === "pointy" ? blend(u * 0.2, hell([0, hy + u * 0.42, u * 0.1], [u * 0.74, u * 0.7, u * 0.76]), hell([0, hy + u * 0.9, u * 0.3], [u * 0.24, u * 0.24, u * 0.3]))
+        : jaw === "chubby" ? hell([0, hy + u * 0.42, u * 0.1], [u * 0.94, u * 0.72, u * 0.86])
+          : hell([0, hy + u * 0.42, u * 0.1], [u * 0.8, u * 0.72, u * 0.8]);
   const skullFace = blend(u * 0.3, cranium, face);
   // A nose with volume (it catches the light and casts a shadow), on the face.
   const zn = surfaceZ(skullFace, 0, y.nose) ?? u * 0.8;
@@ -676,7 +680,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { b, y, head, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -1390,18 +1394,23 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
     const elbow = r((b.arm[0] + b.arm[1]) * 0.25), up = `arm${side}1`, lo = `arm${side}2`;
     const bodies: Record<string, unknown>[] = [
       { ...key(longSleeves ? "top2" : "skin"), blend: 3, shapes: [
-        { from: pt(up), to: pt(up, 1), r: [r(b.arm[0] * 0.5), elbow] },
+        { from: pt(up), to: pt(up, 1), r: [r(b.arm[0] * 0.5), elbow], under: true },
         { from: pt(lo), to: pt(lo, 0.96), r: [elbow, r(b.arm[1] * 0.5)] },
       ] },
     ];
-    if (shortSleeves) bodies.push({ ...key("top"), shapes: [{ from: pt(up, -0.04), to: pt(up, 0.42), r: [r(b.arm[0] * 0.5 + 5), r(b.arm[0] * 0.5 + 6)] }] });
+    if (shortSleeves) bodies.push({ ...key("top"), shapes: [{ from: pt(up, -0.04), to: pt(up, 0.42), r: [r(b.arm[0] * 0.5 + 5), r(b.arm[0] * 0.5 + 6)], under: true }] });
     return bodies;
   };
   /** A body as an occluder: its shapes hide what is behind them, drawing nothing. */
   const occluder = (x: Record<string, unknown>) => ({ shapes: x.shapes, ...(x.blend ? { blend: x.blend } : {}) });
   // Both arms in one solid, the torso an occluder: each bit of an arm shows only where it is nearest
   // (a forearm in front of the chest hidden from behind, one arm over the other).
-  const headOccluder = { shapes: [{ from: { bone: "head", at: [0, r(m.y.head - m.y.neckTop), r(-u * 0.05)] }, r: r(u * 0.92) }] };
+  // The head hides them as drawn: its cranium and its face down to the chin (a big head's jaw comes
+  // down past the shoulders), a hair smaller — and, as a cartoon head is drawn over its shoulders,
+  // it is drawn over the upper arms and the sleeves (`under`) whatever their depth: a shoulder
+  // turned towards the camera never covers the jaw. A forearm keeps its depth (a phone at the ear,
+  // a glass at the mouth).
+  const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: m.headParts.map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v * 0.97)) })) };
   // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
   const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map(occluder);
   const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
@@ -1813,6 +1822,8 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v], v)])),
     mouths: ["teeth", "tongue", ...others.filter((v) => views[v].face.visible).flatMap((v) => ["mouth", "teeth", "tongue"].map((k) => `${k}${SUFFIX[v]}`))],
     order: Object.keys(VIEWS),
+    // (Running across the frame: three-quarters side-on — fully side-on, a big round head hides the eye.)
+    travel: "q64",
   };
   const out = withViews(doc as unknown as ToonDoc, spec) as unknown as Record<string, any>;
   // The limbs are placed by the 3D projection (rig3d): the views' 2D limb moves and foot targets

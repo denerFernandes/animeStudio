@@ -175,6 +175,12 @@ it (a little smaller: a larger one would cut holes): the legs are drawn over the
 they are nearer (a lap facing the camera), and hidden behind a body turned away. A held pose is
 drawn once (cached).
 
+Drawing conventions over strict depth: an occluder with `over` (rig units) is drawn over the shapes
+marked `under: true` wherever it covers them, as if that much nearer — a cartoon head is drawn over
+its shoulders, so the head's occluder has `over` and the upper arms and sleeves are `under`: a
+shoulder turned towards the camera never covers the jaw. Shapes not marked keep their true depth (a
+forearm holding a phone at the ear, a glass at the mouth).
+
 ```json
 { "id": "legs", "type": "solid", "bodies": [
   { "shapes": [{ "from": { "bone": "body", "at": [0, -70, 0] }, "box": [40, 75, 28], "round": 14 }] },
@@ -608,8 +614,8 @@ segments come `punch`, handheld drift, `shake` and `bounds`. All of it is determ
 |---|---|---|
 | Move / zoom / rotate | `camera` action with `x`, `y`, `zoom`, `rotation`, `duration`, `ease` | `duration: 0` is a cut |
 | Curved move | `path: [[x, y], …]`, `duration`, `ease` | Smooth curve from the current position through the points, constant speed along the curve |
-| Follow an actor | `follow: id`, `offset`, `lag` (0.3 s), `axes` (`x` \| `xy`), `deadZone` (`[w, h]` half size), `lookAhead` (s), `blend` (0.6 s), `zoom?`, `duration?` | Smoothing is baked (deterministic). The actor can move inside the dead zone without moving the camera; look-ahead frames the space it moves into. Lasts until the next camera action (or `duration`, then holds); `follow: null` holds |
-| Frame targets | `frame: [ids]`, `padding` (80), `minZoom`, `maxZoom`, `lag` (0.4 s), `blend`, `duration?`, `band?` (`[top, bottom]` scene y), `on?` (`body` \| `face`: the posed `face`/`head` anchors, for close-ups) | Position and zoom keep all targets in shot (smoothed, so a target turning around never makes the camera pop), until the next camera action; `frame: null` holds. With `band` the vertical extent is fixed: targets are framed sideways only, so a jump or a flight never moves the camera up and down |
+| Follow an actor | `follow: id`, `offset`, `lag` (0.3 s), `axes` (`x` \| `xy`), `deadZone` (`[w, h]` half size), `lookAhead` (s), `blend` (0.6 s), `zoom?`, `duration?` | Smoothing is baked (deterministic), a critically damped spring of time `lag`: the camera eases into a move and out of it, never jolting. The actor can move inside the dead zone without moving the camera; look-ahead frames the space it moves into. Lasts until the next camera action (or `duration`, then holds); `follow: null` holds |
+| Frame targets | `frame: [ids]`, `padding` (80), `minZoom`, `maxZoom`, `lag` (0.4 s), `blend`, `duration?`, `band?` (`[top, bottom]` scene y), `on?` (`body` \| `face`: the posed `face`/`head` anchors, for close-ups) | Position and zoom keep all targets in shot (smoothed by a critically damped spring of time `lag`, so a target turning around or a head bobbing on a run never makes the camera pop or shake), until the next camera action; `frame: null` holds. With `band` the vertical extent is fixed: targets are framed sideways only, so a jump or a flight never moves the camera up and down |
 | Punch-in | `punch: 0.15`, `duration` (0.4) | Quick zoom pulse with a springy settle (impacts, reactions). On a cut (`duration: 0`) or a rig (`follow`/`frame`) the punch settles over the default 0.4 s |
 | Handheld | `handheld: px` (scene camera or action) | Continuous organic drift (position + slight roll). A roll turns every depth by the same angle; screen-fixed items (parallax 0) stay upright |
 | Vertigo / dolly zoom | `dolly: value` | Scales depths relative to the subject plane (parallax 1): `> 0` pushes the background away while the subject keeps its size; screen-fixed items (parallax 0) are left alone; combine with a zoom-in for the classic effect |

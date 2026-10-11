@@ -21,10 +21,14 @@ export interface SolidPoint {
   at: V3;
 }
 
-export type SolidShape =
+export type SolidShape = (
   | { kind: "cone"; from: SolidPoint; to: SolidPoint; r: [number, number] }
   | { kind: "box"; at: SolidPoint; size: V3; round: number }
-  | { kind: "ellipsoid"; at: SolidPoint; radii: V3 };
+  | { kind: "ellipsoid"; at: SolidPoint; radii: V3 }
+) & {
+  /** Drawn under the occluders with `over` wherever they cover it (a shoulder under its head). */
+  under?: boolean;
+};
 
 export interface SolidBody {
   /** Resolved colours; no fill: an occluder. */
@@ -36,6 +40,13 @@ export interface SolidBody {
   blend: number;
   /** No outline where it meets an occluder: cloth that continues the drawing under it (a dress's skirt out of the torso). */
   seamless?: boolean;
+  /**
+   * An occluder drawn over the shapes marked `under`, by this much (rig units) whatever their depth:
+   * a drawing convention over strict depth — a cartoon head is drawn over its shoulders, even where a
+   * shoulder turned towards the camera comes out in front of the jaw. Other shapes (a forearm, a hand
+   * holding a phone to the ear) keep their true depth.
+   */
+  over?: number;
   shapes: SolidShape[];
 }
 
@@ -163,12 +174,13 @@ const CACHE_SIZE = 256;
  * renders match byte for byte).
  */
 function cacheKey(bodies: SolidBody[], posed: ViewShape[][], step: number): string {
-  const body = (b: SolidBody) => [b.fill ?? "", b.shade ?? "", b.stroke ?? "", b.strokeWidth, b.blend, b.seamless ? 1 : 0].join("\u0001");
+  const body = (b: SolidBody) => [b.fill ?? "", b.shade ?? "", b.stroke ?? "", b.strokeWidth, b.blend, b.seamless ? 1 : 0, b.over ?? 0].join("\u0001");
+  const under = (b: SolidBody) => b.shapes.map((x) => (x.under ? 1 : 0)).join("");
   const shape = (s: ViewShape): string => {
     const nums = s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m, ...s.h, s.kind === "box" ? s.round : -1];
     return s.kind + ":" + nums.join(",");
   };
-  return step + "|" + bodies.map((b, i) => body(b) + "\u0002" + posed[i].map(shape).join(";")).join("/");
+  return step + "|" + bodies.map((b, i) => body(b) + under(b) + "\u0002" + posed[i].map(shape).join(";")).join("/");
 }
 
 /**
@@ -254,11 +266,40 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
   bodies.forEach((b, k) => {
     if (!b.fill && posed[k].length) castBody(k, covered);
   });
+  // Under an occluder drawn over (`over`): where a body's surface belongs to one of its `under`
+  // shapes (the shape nearest its surface there), it counts that much farther back.
+  const overAt = new Float32Array(n);
+  bodies.forEach((b, k) => {
+    if (b.fill || !b.over || !vals[k]) return;
+    for (let c = 0; c < n; c++) if (vals[k][c] < 0) overAt[c] = Math.max(overAt[c], b.over);
+  });
+  const back: (Float32Array | undefined)[] = drawn.map(() => undefined);
+  drawn.forEach((k, di) => {
+    if (!bodies[k].shapes.some((x) => x.under)) return;
+    const fs = posed[k].map(shapeSdf);
+    const arr = new Float32Array(n);
+    for (let c = 0; c < n; c++) {
+      if (!overAt[c] || vals[k][c] >= 0) continue;
+      const X = g.x0 + (c % g.w) * step, Y = g.y0 + Math.floor(c / g.w) * step, Z = depths[k][c];
+      let best = Infinity, which = 0;
+      fs.forEach((f, i) => {
+        const d = f(X, Y, Z);
+        if (d < best) { best = d; which = i; }
+      });
+      if (bodies[k].shapes[which].under) arr[c] = overAt[c];
+    }
+    back[di] = arr;
+  });
+  const pushed = new Map(drawn.map((k, di) => [k, back[di]]));
   // The nearest body at each cell.
   const nearest = new Int16Array(n).fill(-1);
   for (let c = 0; c < n; c++) {
     let best = -Infinity;
-    for (let k = 0; k < bodies.length; k++) if (vals[k] && vals[k][c] < 0 && depths[k][c] > best) { best = depths[k][c]; nearest[c] = k; }
+    for (let k = 0; k < bodies.length; k++) {
+      if (!vals[k] || vals[k][c] >= 0) continue;
+      const z = depths[k][c] - (pushed.get(k)?.[c] ?? 0);
+      if (z > best) { best = z; nearest[c] = k; }
+    }
   }
   const fills: SolidPath[] = [], lines: SolidPath[] = [];
   for (const k of drawn) {

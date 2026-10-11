@@ -520,11 +520,13 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
           strokeWidth: bd.strokeWidth ?? 0,
           blend: bd.blend ?? 0,
           ...(bd.seamless ? { seamless: true } : {}),
+          ...(bd.over ? { over: bd.over } : {}),
           shapes: bd.shapes.map((sh): SolidShape => {
-            if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box) };
-            if (sh.ellipsoid) return { kind: "ellipsoid", at: pt(sh.from), radii: sh.ellipsoid };
+            const u = sh.under ? { under: true } : {};
+            if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box), ...u };
+            if (sh.ellipsoid) return { kind: "ellipsoid", at: pt(sh.from), radii: sh.ellipsoid, ...u };
             const r = sh.r ?? 0;
-            return { kind: "cone", from: pt(sh.from), to: pt(sh.to ?? sh.from), r: typeof r === "number" ? [r, r] : r };
+            return { kind: "cone", from: pt(sh.from), to: pt(sh.to ?? sh.from), r: typeof r === "number" ? [r, r] : r, ...u };
           }),
         }));
         return { ...base, type: "solid", step: def.step ?? 2, bodies };

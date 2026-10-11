@@ -61,18 +61,55 @@ export interface CameraFrame {
 }
 
 /** Bakes a frame rig's smoothed target (x, y, log-zoom exponential smoothing). */
+/**
+ * One step of a critically damped spring towards `target` (Game Programming Gems 4, "Critically
+ * Damped Ease-In/Ease-Out Smoothing"; Unity's SmoothDamp): `lag` is the smoothing time. Unlike an
+ * exponential lag, the velocity never jumps — a camera starting to track, or a target that moves
+ * suddenly (a character turning round, a head bobbing on a run), eases in and out instead of
+ * jolting, and quick wobbles are filtered out. Returns the new value and velocity.
+ */
+export function smoothDamp(cur: number, target: number, vel: number, lag: number, dt: number): [number, number] {
+  if (!(lag > 0)) return [target, 0];
+  const omega = 2 / lag;
+  const x = omega * dt;
+  const e = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = cur - target;
+  const temp = (vel + omega * change) * dt;
+  return [target + (change + temp) * e, (vel - omega * temp) * e];
+}
+
 export function bakeFrame(frame: CameraFrame, duration: number, fitAt: (t: number) => { x: number; y: number; zoom: number } | null): Float64Array {
   const n = Math.max(1, Math.ceil((duration - frame.start) * FOLLOW_RATE) + 1);
   const out = new Float64Array(n * 3);
   const dt = 1 / FOLLOW_RATE;
-  const k = frame.lag > 0 ? 1 - Math.exp(-dt / frame.lag) : 1;
+  // Smoothed by a critically damped spring: no jolt when the targets jump. A spring trails a target
+  // moving steadily by its speed × lag (in a tight close-up, someone running would leave the shot),
+  // so it aims ahead by the target's steady speed: its mean speed over each of the last two `lag`
+  // windows, the smaller where both agree (a head bobbing on a run averages out; a jump — someone
+  // turning round — is not a speed, and gets no lead).
   let cur: { x: number; y: number; z: number } | null = null;
+  let vel = { x: 0, y: 0, z: 0 };
+  const w = Math.max(1, Math.round(frame.lag * FOLLOW_RATE));
+  const fits: ({ x: number; y: number } | null)[] = [];
   for (let i = 0; i < n; i++) {
     const fit = fitAt(frame.start + i * dt);
+    fits.push(fit);
     if (fit) {
-      const target = { x: fit.x, y: fit.y, z: Math.log(fit.zoom) };
+      const b1 = i >= w ? fits[i - w] : null, b2 = i >= 2 * w ? fits[i - 2 * w] : null;
+      const steady = (a: number, b: number, c: number) => {
+        const v1 = a - b, v2 = b - c;
+        return v1 * v2 > 0 ? Math.sign(v1) * Math.min(Math.abs(v1), Math.abs(v2)) : 0;
+      };
+      const k = frame.lag / (w * dt);
+      const target = { x: fit.x + (b1 && b2 ? steady(fit.x, b1.x, b2.x) * k : 0), y: fit.y + (b1 && b2 ? steady(fit.y, b1.y, b2.y) * k : 0), z: Math.log(fit.zoom) };
       if (!cur) cur = target;
-      else cur = { x: cur.x + (target.x - cur.x) * k, y: cur.y + (target.y - cur.y) * k, z: cur.z + (target.z - cur.z) * k };
+      else {
+        const [x, vx] = smoothDamp(cur.x, target.x, vel.x, frame.lag, dt);
+        const [y, vy] = smoothDamp(cur.y, target.y, vel.y, frame.lag, dt);
+        const [z, vz] = smoothDamp(cur.z, target.z, vel.z, frame.lag, dt);
+        cur = { x, y, z };
+        vel = { x: vx, y: vy, z: vz };
+      }
     }
     out[i * 3] = cur?.x ?? NaN;
     out[i * 3 + 1] = cur?.y ?? NaN;
@@ -115,7 +152,7 @@ export interface CameraBounds {
 
 const FOLLOW_RATE = 60;
 
-/** Bakes a follow's smoothed camera position (dead zone, look-ahead, exponential lag). */
+/** Bakes a follow's smoothed camera position (dead zone, look-ahead, critically damped lag). */
 export function bakeFollow(
   follow: CameraFollow,
   duration: number,
@@ -133,7 +170,8 @@ export function bakeFollow(
     return [p[0] + follow.offset[0] + vx * follow.lookAhead, p[1] + follow.offset[1] + vy * follow.lookAhead];
   };
   let cam = desired(follow.start);
-  const k = follow.lag > 0 ? 1 - Math.exp(-dt / follow.lag) : 1;
+  // (Smoothed by a critically damped spring: the camera eases into and out of the move.)
+  const vel: Vec2 = [0, 0];
   for (let i = 0; i < n; i++) {
     const t = follow.start + i * dt;
     const d = desired(t);
@@ -143,7 +181,11 @@ export function bakeFollow(
       const zone = follow.deadZone[axis];
       if (Math.abs(delta) > zone) goal[axis] = d[axis] - Math.sign(delta) * zone;
     }
-    cam = [cam[0] + (goal[0] - cam[0]) * k, cam[1] + (goal[1] - cam[1]) * k];
+    const [x, vx] = smoothDamp(cam[0], goal[0], vel[0], follow.lag, dt);
+    const [y, vy] = smoothDamp(cam[1], goal[1], vel[1], follow.lag, dt);
+    cam = [x, y];
+    vel[0] = vx;
+    vel[1] = vy;
     out[i * 2] = cam[0];
     out[i * 2 + 1] = cam[1];
   }
