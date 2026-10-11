@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  type P2,
   bakeFrame,
+  contours,
+  curvePath,
+  refineEdges,
   smoothDamp,
   actorPlacement,
   anchorPosition,
@@ -550,5 +554,47 @@ describe("hidden props", () => {
     expect(a).toContain("SHOWN");
     expect(a).not.toContain("GONE");
     expect(b).toContain("GONE");
+  });
+});
+
+describe("clean outlines", () => {
+  it("refineEdges puts a cast field's crossing on the silhouette (a circle traced round, not lumpy)", () => {
+    // A disc of radius 20 on a 2-unit grid, cast the way a volume is: outside cells get their distance,
+    // inside cells "how deep the ray goes" (its chord), which is no distance at all.
+    const step = 2, w = 30, h = 30, R = 20;
+    const val = new Float32Array(w * h);
+    const xy = (c: number): [number, number] => [(c % w) * step - 29, Math.floor(c / w) * step - 29];
+    for (let c = 0; c < val.length; c++) {
+      const [x, y] = xy(c), d = Math.hypot(x, y) - R;
+      val[c] = d > 0 ? d : -Math.max(0.05, 2 * Math.sqrt(R * R - x * x - y * y));
+    }
+    const lumpy = contours(val, w, h)[0].map(([i, j]) => Math.hypot(i * step - 29, j * step - 29));
+    refineEdges(val, w, h, step);
+    const clean = contours(val, w, h)[0].map(([i, j]) => Math.hypot(i * step - 29, j * step - 29));
+    const spread = (rs: number[]) => Math.max(...rs) - Math.min(...rs);
+    expect(spread(lumpy)).toBeGreaterThan(0.8);
+    expect(spread(clean)).toBeLessThan(0.5);
+    expect(clean.reduce((s, r) => s + r, 0) / clean.length).toBeCloseTo(R, 0);
+  });
+  it("curvePath draws cubic curves, keeps a sharp corner and smooths a lumpy run", () => {
+    // A square with a notch: four corners stay corners.
+    const square: P2[] = [];
+    for (let t = 0; t < 40; t++) square.push([t, 0]);
+    for (let t = 0; t < 40; t++) square.push([40, t]);
+    for (let t = 0; t < 40; t++) square.push([40 - t, 40]);
+    for (let t = 0; t < 40; t++) square.push([0, 40 - t]);
+    const d = curvePath(square, 1, true);
+    expect(d).toMatch(/^M[\d. -]+( C[\d. -]+)+ Z$/);
+    for (const [x, y] of [[0, 0], [40, 0], [40, 40], [0, 40]]) expect(d).toContain(` ${x} ${y}`);
+    // A circle sampled with ±0.4 lumps comes out within 0.15 of round.
+    const n = 120, lumpy: P2[] = [];
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2, r = 30 + (k % 2 ? 0.4 : -0.4);
+      lumpy.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    const path = curvePath(lumpy, 1.5, true);
+    const pts = [...path.matchAll(/(-?[\d.]+) (-?[\d.]+)(?= C| Z|$)/g)].map((m) => Math.hypot(+m[1], +m[2]));
+    expect(pts.length).toBeGreaterThan(6);
+    expect(Math.max(...pts) - Math.min(...pts)).toBeLessThan(0.3);
   });
 });

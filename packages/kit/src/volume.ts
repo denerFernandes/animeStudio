@@ -12,6 +12,8 @@
  * Everything is deterministic and runs once, when the character is built.
  */
 
+import { refineEdges } from "@animestudio/core";
+
 export type V3 = [number, number, number];
 export type P2 = [number, number];
 /** Signed distance (approximate): negative inside. */
@@ -217,12 +219,14 @@ export function cast(f: Sdf, g: Grid & { zr: [number, number] }, view: ViewLike)
       val[k] = entered ? -Math.max(deepest, 0.05) : closest;
     }
   }
+  // (The crossing put on the silhouette: a clean outline.)
+  refineEdges(val, g.w, g.h, g.step);
   return { val, depth, hit };
 }
 
 // ------------------------------------------------------------------ outlines
 
-export { contours, fieldPath, smoothPath } from "@animestudio/core";
+export { contours, curvePath, fieldPath, smoothPath } from "@animestudio/core";
 
 // ------------------------------------------------------------------ surfaces
 

@@ -17,8 +17,8 @@ import { type ViewSpec, withViews } from "./views";
 import { aimForward, longHex, mix, shade } from "./util";
 import {
   type Box3, type Cast, type Grid, type P2, type Sdf, type V3, type View, type ViewLike, toCam,
-  above, blend, box, bumpy, capsule, cast, contours, depthOf, ellipsoid, fieldPath, grow, gridFor, intersect, normal, onSurface, project, surfaceZ,
-  smoothPath, smoothstep, sphere, taper, union,
+  above, blend, box, bumpy, capsule, cast, contours, curvePath, depthOf, ellipsoid, fieldPath, grow, gridFor, intersect, normal, onSurface, project, surfaceZ,
+  smoothstep, sphere, taper, union,
 } from "./volume";
 
 export type CartoonBuild = "baby" | "child" | "kid" | "teen" | "woman" | "man" | "big" | "elder";
@@ -292,6 +292,8 @@ interface Model {
   pupil: number;
   /** Room between the mouth and the bottom of the chin (an open mouth stays inside the face). */
   chinRoom: number;
+  /** Cel shadows drawn on the volumes (false: flat colours). */
+  shade: boolean;
 }
 
 /** Half width of the part of a face that looks at the camera at a height (a mouth must fit in it). */
@@ -319,7 +321,15 @@ const m_ry = (u: number) => u * 0.235;
  * side part, something behind an ear) — drawn for a character facing left (the rig is mirrored, so
  * the details land back on the same side of the body).
  */
-function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look)): Model {
+/** The style's settings from `CartoonOptions.style`. */
+function styleOf(style: CartoonOptions["style"]): Required<CartoonStyle> {
+  const base: Required<CartoonStyle> = { ink: "", shade: true };
+  if (style === "flat") return { ink: "#1b1b1b", shade: false };
+  if (!style || style === "painted") return base;
+  return { ...base, ...style };
+}
+
+function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look), shade = true): Model {
   const M = mirror ? -1 : 1;
   const A = a.body, F = a.face;
   const b: Build = { L: A.hip, T: A.torso, n: A.neck, u: A.head, S: A.shoulders, W: A.waist, H: A.hips, D: A.depth, arm: a.limbs.arm, leg: a.limbs.leg, hand: a.limbs.hand, shoe: a.limbs.shoe, eye: F.eye[1] / 0.235 };
@@ -680,7 +690,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { shade, b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -713,6 +723,8 @@ export interface PieceOpts {
   line?: string;
   /** Scale of the shading: normals averaged over this distance (curls shade as one mass). */
   smooth?: number;
+  /** Cel shadows drawn (default true; false: flat colour). */
+  shade?: boolean;
 }
 
 /**
@@ -746,7 +758,7 @@ export function piece(c: Cast, g: Grid, o: PieceOpts): string {
     if (d) out += `<path d="${d}" fill="palette(${k})" fill-rule="evenodd"${o.edges?.includes(k) ? ` ${stc(k, 1.8)}` : ""}/>`;
   }
   // Shadows, region by region (a smooth terminator: the lighting is a continuous field).
-  for (const k of keys) {
+  for (const k of o.shade === false ? [] : keys) {
     const f = new Float32Array(n);
     for (let i = 0; i < n; i++) f[i] = key[i] === k ? light[i] * 20 : 1;
     const d = fieldPath(f, g, 6);
@@ -767,16 +779,13 @@ function strokeWhere(val: ArrayLike<number>, g: Grid, keep: (i: number, j: numbe
     const n = loop.length;
     const ok = loop.map(([i, j]) => keep(Math.round(i), Math.round(j)));
     if (ok.every(Boolean)) {
-      d += " " + smoothPath(loop.filter((_, i) => i % 2 === 0).map(([i, j]) => [g.x0 + i * g.step, g.y0 + j * g.step] as P2));
+      d += " " + curvePath(loop.map(([i, j]) => [g.x0 + i * g.step, g.y0 + j * g.step] as P2), g.step, true);
       continue;
     }
     const start = ok.indexOf(false);
     let run: P2[] = [];
     const flush = () => {
-      if (run.length > 3) {
-        const p = run.filter((_, i) => i % 2 === 0 || i === run.length - 1);
-        d += ` M${r(p[0][0])} ${r(p[0][1])}` + p.slice(1).map((q, i) => (i < p.length - 2 ? ` Q${r(q[0])} ${r(q[1])} ${r((q[0] + p[i + 2][0]) / 2)} ${r((q[1] + p[i + 2][1]) / 2)}` : ` L${r(q[0])} ${r(q[1])}`)).join("");
-      }
+      if (run.length > 3) d += " " + curvePath(run, g.step, false);
       run = [];
     };
     for (let s = 1; s <= n; s++) {
@@ -852,18 +861,18 @@ function headView(m: Model, vw: View): HeadView {
   if (m.nose && theta < 1.6)
     for (let i = 0; i < n; i++) if (head.val[i] < 0 && !Number.isNaN(head.hit[i * 3])) noseVal[i] = m.nose(head.hit[i * 3], head.hit[i * 3 + 1], head.hit[i * 3 + 2]) - u * 0.015;
   // (Over the hair too: hair at the side of the face never hides the nose.)
-  const noseOver = m.nose && theta < 1.6 ? piece(head, g, { sdf: m.head, theta: vw, color: m.headColor, base: "skin", field: noseVal, keep: (i, j) => jump(i, j) && at(noseVal, i, j) < u * 0.02 }) : "";
-  const tailArt = m.tail ? piece(cast(m.tail.sdf, g, vw), g, { sdf: m.tail.sdf, theta: vw, color: m.tail.color, base: "hair", edges: ["accent"] }) : "";
+  const noseOver = m.nose && theta < 1.6 ? piece(head, g, { shade: m.shade, sdf: m.head, theta: vw, color: m.headColor, base: "skin", field: noseVal, keep: (i, j) => jump(i, j) && at(noseVal, i, j) < u * 0.02 }) : "";
+  const tailArt = m.tail ? piece(cast(m.tail.sdf, g, vw), g, { shade: m.shade, sdf: m.tail.sdf, theta: vw, color: m.tail.color, base: "hair", edges: ["accent"] }) : "";
   const tailInFront = !!m.tail && depthOf(m.tail.pivot, vw) > depthOf([0, m.y.head, 0], vw) + u * 0.2;
   // The front hair's outline is drawn against the face only, not where it meets the hair behind.
   const keepHair = (i: number, j: number) => !(at(hair.val, i, j) < -2 && at(head.val, i, j) > -1.5) && !(at(hair.val, i + 1, j) < -2 && at(hair.val, i - 1, j) < -2 && at(hair.val, i, j + 1) < -2 && at(hair.val, i, j - 1) < -2 && at(head.val, i, j) > -4);
   return {
-    hairBack: piece(hair, g, { sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], smooth: u * 0.18 }),
-    earsBack: piece(ears, g, { sdf: m.ears, theta: vw, base: "skin" }),
-    head: piece(head, g, { sdf: m.head, theta: vw, color: m.headColor, base: "skin", shadow: underHair }),
+    hairBack: piece(hair, g, { shade: m.shade, sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], smooth: u * 0.18 }),
+    earsBack: piece(ears, g, { shade: m.shade, sdf: m.ears, theta: vw, base: "skin" }),
+    head: piece(head, g, { shade: m.shade, sdf: m.head, theta: vw, color: m.headColor, base: "skin", shadow: underHair }),
     noseOver,
-    earsFront: theta > 0.2 && theta < 2 ? piece(ears, g, { sdf: m.ears, theta: vw, base: "skin", field: earF }) : "",
-    hairFront: piece(hair, g, { sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], field: front, keep: keepHair, smooth: u * 0.18 }),
+    earsFront: theta > 0.2 && theta < 2 ? piece(ears, g, { shade: m.shade, sdf: m.ears, theta: vw, base: "skin", field: earF }) : "",
+    hairFront: piece(hair, g, { shade: m.shade, sdf: m.hair, theta: vw, color: m.hairColor, base: "hair", edges: ["accent", "earItem", "earTip", "hat", "hatDark"], field: front, keep: keepHair, smooth: u * 0.18 }),
     tailBack: tailArt && !tailInFront ? tailArt : "",
     tailFront: tailArt && tailInFront ? tailArt : "",
     bounds: [x0, y0, x1, y1],
@@ -894,16 +903,16 @@ function bodyView(m: Model, look: CartoonLook, vw: View) {
     }
     return false;
   };
-  const torso = piece(tc, g, { sdf: m.torso, theta: vw, color: m.torsoColor, base: "top", edges, shadow: neckShadow, keep: (i, j) => !atCut(i, j) });
+  const torso = piece(tc, g, { shade: m.shade, sdf: m.torso, theta: vw, color: m.torsoColor, base: "top", edges, shadow: neckShadow, keep: (i, j) => !atCut(i, j) });
   const nb: Box3 = { x: [-m.neckR - 4, m.neckR + 4], y: [m.y.torsoTop - 4, m.y.head + m.b.u * 0.7], z: [-m.b.u, m.b.u * 0.5] };
   const ng = gridFor([nb], vw, 1.5);
   // The neck is in the head's shadow.
-  const neck = piece(cast(m.neck, ng, vw), ng, { sdf: m.neck, theta: vw, base: "skinShade", line: "skin" });
+  const neck = piece(cast(m.neck, ng, vw), ng, { shade: m.shade, sdf: m.neck, theta: vw, base: "skinShade", line: "skin" });
   let skirt = "";
   if (m.skirt) {
     const sb: Box3 = { x: [-b.H * 2 - 20, b.H * 2 + 20], y: [m.y.waist - 8, 0], z: [-b.D * 2, b.D * 2.4] };
     const sg = gridFor([sb], vw, 2);
-    skirt = piece(cast(m.skirt, sg, vw), sg, { sdf: m.skirt, theta: vw, color: m.skirtColor, base: m.skirtColor?.([0, m.y.hip, 0]) ?? "bottom", edges: ["apron"] });
+    skirt = piece(cast(m.skirt, sg, vw), sg, { shade: m.shade, sdf: m.skirt, theta: vw, color: m.skirtColor, base: m.skirtColor?.([0, m.y.hip, 0]) ?? "bottom", edges: ["apron"] });
   }
   return { torso, neck, skirt };
 }
@@ -1206,7 +1215,7 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
   const thigh: [number, number] = [r(b.leg[0] * THIGH_R * (1 + heavy * 0.35)), r(b.leg[0] * 0.6)];
   const shin: [number, number] = [r(b.leg[0] * 0.52), r(b.leg[1] * 0.5)];
   const pt = (bone: string, t = 0, at?: V3) => ({ bone, ...(t ? { t } : {}), ...(at ? { at: at.map(r) } : {}) });
-  const paint = (key: string) => ({ fill: `palette(${key})`, shade: `palette(${key}Shade)`, stroke: `palette(${key}Line)`, strokeWidth: SW });
+  const paint = (key: string) => ({ fill: `palette(${key})`, ...(m.shade ? { shade: `palette(${key}Shade)` } : {}), stroke: `palette(${key}Line)`, strokeWidth: SW });
   const bodies: Record<string, unknown>[] = [];
   const T = b.T, D = b.D * (1 + heavy * 0.6);
   bodies.push(torsoOccluder(m, look));
@@ -1278,8 +1287,22 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
   return { id: "legs", type: "solid", step: 2, bodies };
 }
 
+/**
+ * How the drawing is inked and painted. The default is a painted cartoon: lines in a dark tone of
+ * each colour, cel shadows on the side away from the light. `flat` is a flat TV cartoon — one ink
+ * for every line, flat colours with no cel shadow (the lighting's shading, if any, is the scene's).
+ */
+export interface CartoonStyle {
+  /** One ink for every line (e.g. `#1b1b1b`); default: a dark tone of each colour. */
+  ink?: string;
+  /** Cel shadows drawn (default true). */
+  shade?: boolean;
+}
+
 export interface CartoonOptions {
   pitch?: number;
+  /** Inking and painting (default painted; `"flat"`: one ink, no cel shadow). */
+  style?: "painted" | "flat" | CartoonStyle;
   /** The character's anatomy (default `cartoonAnatomy(look)`): an edited one changes its body, face and physics. */
   anatomy?: CartoonAnatomy;
 }
@@ -1290,7 +1313,8 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   const anatomy = opts.anatomy ?? cartoonAnatomy(look);
   const broken = checkAnatomy(anatomy).filter((x) => x.severity === "error");
   if (broken.length) throw new Error(`${look.name}: anatomy breaks ${broken.length} rule(s): ${broken.map((x) => `${x.rule} — ${x.message}`).join("; ")}`);
-  const m = model(look, false, anatomy);
+  const style = styleOf(opts.style);
+  const m = model(look, false, anatomy, style.shade);
   const { b } = m;
   const u = b.u;
   const pitch = deg(opts.pitch ?? 0);
@@ -1356,7 +1380,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // the character faces left (`side` control).
   const asym = look.top === "shirt" || !!look.pocketItem || !!look.earItem || look.hair === "sidePart" || !!look.hairLine || !!look.boutonniere;
   if (asym) {
-    const mm = model(look, true, anatomy);
+    const mm = model(look, true, anatomy, style.shade);
     for (const v of Object.keys(VIEWS) as ViewKey[]) {
       const s = SUFFIX[v], H = headView(mm, vh(v)), B = bodyView(mm, look, vw(v));
       art[`hairBack${s}M`] = H.hairBack;
@@ -1390,7 +1414,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
   // towards the camera in front of the upper arm, from any angle), cel shaded like the legs.
   const armBodies = (side: "F" | "B"): Record<string, unknown>[] => {
     const pt = (bone: string, t = 0) => ({ bone, ...(t ? { t } : {}) });
-    const key = (k: string) => ({ fill: `palette(${k})`, shade: `palette(${k}Shade)`, stroke: `palette(${k}Line)`, strokeWidth: SW });
+    const key = (k: string) => ({ fill: `palette(${k})`, ...(m.shade ? { shade: `palette(${k}Shade)` } : {}), stroke: `palette(${k}Line)`, strokeWidth: SW });
     const elbow = r((b.arm[0] + b.arm[1]) * 0.25), up = `arm${side}1`, lo = `arm${side}2`;
     const bodies: Record<string, unknown>[] = [
       { ...key(longSleeves ? "top2" : "skin"), blend: 3, shapes: [
@@ -1637,7 +1661,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
       ...humanClips(),
     }),
   };
-  (doc as { palette: Record<string, string> }).palette = withTones(doc.palette);
+  (doc as { palette: Record<string, string> }).palette = withTones(doc.palette, style.ink ? { ink: style.ink } : {});
   gestures3d(doc as never, { u, top: m.y.top, head: m.y.head, sh: j3.shoulderF[1], sx: -j3.shoulderF[0], T: b.T, W: b.W, hip: m.y.hip, D: b.D, arm: armLen });
   return withTurnaround(doc, views, sx, hx, !!tail, headPoints);
 }
@@ -1741,10 +1765,12 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
  * Every colour gets a shadow tone (`<key>Shade`, darker and a little cooler) and a line tone
  * (`<key>Line`, darker than its shadow: coloured lines instead of black ones).
  */
-export function withTones(palette: Record<string, string>): Record<string, string> {
+export function withTones(palette: Record<string, string>, o: { ink?: string } = {}): Record<string, string> {
   // Short hex colours (#abc) written out (#aabbcc).
   palette = Object.fromEntries(Object.entries(palette).map(([k, v]) => [k, longHex(v)]));
   const out = { ...palette };
+  // One ink for every line (a flat TV cartoon): the `ink` key and every `<key>Line`.
+  if (o.ink) out.ink = longHex(o.ink);
   // A painter's shadow layer: the colour multiplied by a dusty rose (warm shadows, never grey);
   // lines multiplied further, a dark tone of the same colour.
   const multiply = (hex: string, m: [number, number, number]) => {
@@ -1755,7 +1781,7 @@ export function withTones(palette: Record<string, string>): Record<string, strin
   for (const [k, v] of Object.entries(palette)) {
     if (!/^#[0-9a-f]{6}$/i.test(v)) continue;
     out[`${k}Shade`] = multiply(v, [0.86, 0.77, 0.8]);
-    out[`${k}Line`] = multiply(v, [0.46, 0.34, 0.36]);
+    out[`${k}Line`] = o.ink ? out.ink : multiply(v, [0.46, 0.34, 0.36]);
     // A shadow tone drawn as a base colour (a neck in the head's shadow) is outlined like its colour.
     out[`${k}ShadeLine`] = out[`${k}Line`];
   }

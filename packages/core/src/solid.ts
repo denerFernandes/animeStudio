@@ -11,7 +11,7 @@
  * solid shows there (the torso drawn by the rig, with the legs' solid over it only where they are
  * nearer than the torso).
  */
-import { type Grid, fieldPath, fieldStroke } from "./field";
+import { type Grid, fieldPath, fieldStroke, refineEdges } from "./field";
 import type { CompiledRig3d, Rig3dFrame, V3 } from "./pose3d";
 
 /** A point of the skeleton: along a 3D bone (`t`: 0 = its joint, 1 = its tip) plus an offset (body space, rest pose). */
@@ -247,6 +247,8 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
         val[c] = entered ? -Math.max(deepest, 0.05) : closest;
       }
     }
+    // (The crossing put on the silhouette: a clean outline.)
+    if (!only) refineEdges(val, g.w, g.h, step);
     vals[k] = val;
     depths[k] = depth;
   };
