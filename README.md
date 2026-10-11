@@ -83,6 +83,11 @@ pnpm --dir apps/video studio
 pnpm --dir apps/video exec remotion render Hello ../../out/hello.mp4
 ```
 
+Picture quality: `apps/video/remotion.config.ts` captures frames as PNG (JPEG rings round a cartoon's
+hard black lines and flat colours) and encodes at CRF 14 with x264's slow preset — near lossless.
+For the sharpest upload render at `--scale 2` (3840 × 2160): the compositions' `raster` path draws at
+the device pixel ratio, and video sites give a 4K upload a far higher bitrate than a 1080p one.
+
 ## Using it in a Remotion project
 
 ```tsx

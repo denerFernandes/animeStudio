@@ -169,3 +169,27 @@ describe("flat style", () => {
     expect(painted.parts.find((p) => p.id === "handF")!.default).toBe("fist");
   });
 });
+
+describe("flat style design", () => {
+  const look: CartoonLook = { name: "flatkid", build: "kid", skin: "#f6d3b5", hair: "bowl", hairColor: "#5a3a22", top: "tee", topColor: "#2d8f4e", bottom: "shorts", bottomColor: "#3a62b0", shoes: "sneakers" } as CartoonLook;
+  type Doc = { meta: { anatomy: ReturnType<typeof cartoonAnatomy> }; art: Record<string, string>; rig3d: { bones: Record<string, { from: [number, number, number]; to: [number, number, number] }> } };
+  const flat = cartoonCharacter(look, { style: "flat" } as never) as unknown as Doc;
+  const plain = cartoonCharacter(look) as unknown as Doc;
+  it("wide eyes closer together with dot pupils and no glint; a bigger head on a thinner neck", () => {
+    const f = flat.meta.anatomy.face, p = plain.meta.anatomy.face;
+    expect(f.eye[0]).toBeGreaterThan(p.eye[0] * 1.2);
+    expect(f.eyeX - f.eye[0]).toBeLessThan(p.eyeX - p.eye[0]);
+    expect(f.eyeX - f.eye[0]).toBeGreaterThanOrEqual(0.04);
+    expect(f.pupil).toBeLessThan(p.pupil * 0.7);
+    expect(flat.meta.anatomy.body.head).toBeCloseTo(plain.meta.anatomy.body.head * 1.12, 1);
+    // The glint is a white circle inside the pupil art.
+    expect(plain.art.pupils).toMatch(/fill="#fff"/);
+    expect(flat.art.pupils).not.toMatch(/fill="#fff"/);
+    expect(checkAnatomy(flat.meta.anatomy).filter((i) => i.severity === "error")).toEqual([]);
+  });
+  it("slouches: elbows back and hands forward of the upright rest", () => {
+    const b = (d: Doc, id: string) => d.rig3d.bones[id];
+    expect(b(flat, "armF2").from[2]).toBeLessThan(b(plain, "armF2").from[2] - 4);
+    expect(b(flat, "armF2").to[2]).toBeGreaterThan(b(plain, "armF2").to[2] + 6);
+  });
+});

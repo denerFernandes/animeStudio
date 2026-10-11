@@ -1,8 +1,13 @@
 import { existsSync } from "node:fs";
 import { Config } from "@remotion/cli/config";
 
-Config.setVideoImageFormat("jpeg");
-Config.setJpegQuality(92);
+// Picture quality first: frames captured as PNG (JPEG rings round a cartoon's hard black lines and
+// flat colours), encoded at a near-lossless CRF with x264's slow preset. For a sharper upload render
+// at `--scale 2` (4K): the raster path draws at the device pixel ratio, and video sites give a 4K
+// upload a far higher bitrate.
+Config.setVideoImageFormat("png");
+Config.setCrf(14);
+Config.setX264Preset("slow");
 Config.setOverwriteOutput(true);
 
 // Scene audio paths ("audio/l1.wav") resolve against the examples folder.
