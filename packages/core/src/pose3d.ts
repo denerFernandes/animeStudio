@@ -11,9 +11,10 @@
  * Limbs nearer or farther than the body are drawn in front of or behind it (`chains`).
  */
 import type { Mat, Vec2 } from "./math";
-import { DEG, apply, clamp, invert, matAngle, wrapAngle } from "./math";
+import { DEG, angleOf, apply, applyLinear, clamp, invert, matAngle, multiply, wrapAngle } from "./math";
 import type { PoseState } from "./pose";
 import type { Rig, RigIk, RigPart } from "./rig";
+import { boneLocalMatrix, composeWorld } from "./rig";
 import { occluderDepthAt } from "./solid";
 
 export type V3 = [number, number, number];
@@ -213,11 +214,11 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     const dx = t[0] - a[0], dy = t[1] - a[1];
     const len = Math.hypot(dx, dy);
     const rest = bone.length || Math.hypot(...sub3(B.to, B.from));
-    // Only limbs (the chains' bones) foreshorten: a torso or a head is a drawing of a volume, the
-    // same seen tilted (squashed, it would bare the scalp's edges under the hair).
-    const sq = rest > 1e-6 && limbs.has(B.index) ? clamp(len / rest, 0.1, 3) : 1;
     const ang = len > 1e-6 ? Math.atan2(dy, dx) / DEG : matAngle(world[B.index]);
-    // The 2D parent's world: a 3D bone's (as set here) or the current one.
+    // The 2D parent's world: a 3D bone's (as set here) or the current one — its unsquashed basis
+    // and its full matrix, scale included: the offsets are set so that `computeWorld`, composing
+    // the bone the way it always does (rest scale, scale channels, the parent's scale and squash),
+    // puts the joint on `o` pointing along `ang`.
     const p = bone.parent;
     const pw = p >= 0 ? (full.get(p) ?? world[p]) : undefined;
     const pb = p >= 0 ? (basis.get(p) ?? world[p]) : undefined;
@@ -225,17 +226,32 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       const lp = apply(invert(pw), o);
       s.bx[B.index] = lp[0] - bone.x;
       s.by[B.index] = lp[1] - bone.y;
-      s.brot[B.index] = wrapAngle(ang - (bone.inheritRotation ? matAngle(pb) : 0) - bone.rotation);
+      if (bone.inheritRotation && bone.inheritScale) {
+        // Inside a parent scaled unevenly a local direction is sheared: the local angle is the one
+        // whose image under the parent's linear part points along `ang` (a mirrored bone — its own
+        // x scale negative — points its x axis the other way).
+        const flip = bone.scaleX * s.bsx[B.index] < 0 ? -1 : 1;
+        const ld = applyLinear(invert(pb), [flip * Math.cos(ang * DEG), flip * Math.sin(ang * DEG)]);
+        s.brot[B.index] = wrapAngle(angleOf(ld) - bone.rotation);
+      } else s.brot[B.index] = wrapAngle(ang - (bone.inheritRotation ? matAngle(pb) : 0) - bone.rotation);
     } else {
       s.bx[B.index] = o[0] - bone.x;
       s.by[B.index] = o[1] - bone.y;
       s.brot[B.index] = wrapAngle(ang - bone.rotation);
     }
+    // The bone's unsquashed basis as `computeWorld` composes it (its joint lands on `o` by construction).
+    const local = boneLocalMatrix(bone, s.bx[B.index], s.by[B.index], s.brot[B.index], s.bsx[B.index], s.bsy[B.index], 0);
+    const cw = composeWorld(bone, pb, local, bone.rotation + s.brot[B.index]);
+    const bm: Mat = [cw[0], cw[1], cw[2], cw[3], o[0], o[1]];
+    // Only limbs (the chains' bones) foreshorten: a torso or a head is a drawing of a volume, the
+    // same seen tilted (squashed, it would bare the scalp's edges under the hair). The squash is
+    // what brings the tip — the bone's length, stretched by its world scale along itself — to the
+    // projected length.
+    const stretch = Math.hypot(bm[0], bm[1]) || 1;
+    const sq = rest > 1e-6 && limbs.has(B.index) ? clamp(len / (rest * stretch), 0.1, 3) : 1;
     s.bsq[B.index] = sq - 1;
-    const c = Math.cos(ang * DEG), sn = Math.sin(ang * DEG);
-    const bm: Mat = [c, sn, -sn, c, o[0], o[1]];
     basis.set(B.index, bm);
-    full.set(B.index, [c * sq, sn * sq, -sn / sq, c / sq, o[0], o[1]]);
+    full.set(B.index, sq === 1 ? bm : multiply(bm, [sq, 0, 0, 1 / sq, 0, 0]));
   }
   return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off, sideIk };
 }

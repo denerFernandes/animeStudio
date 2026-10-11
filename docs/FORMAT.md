@@ -239,7 +239,8 @@ it about the body's sideways axis (the plane of a side view: what a clip authore
 (+ swings a hanging limb towards −x: to the viewer's left in the front view) — and projected with the yaw of the
 current `view` (`views`, degrees: 0 faces the camera) and `pitch`; the 2D bones are set to match
 (place, direction, and for the chains' bones — limbs — foreshortening as a squash; a torso or a
-head is a drawing of a volume and is never squashed). A bone that does not inherit its parent's
+head is a drawing of a volume and is never squashed; the bones' 2D scales — rest, channels, a scaled
+parent — are composed as in the 2D pipeline, so a scaled rig projects where its 3D skeleton says). A bone that does not inherit its parent's
 rotation (`inheritRotation: false`: a foot staying level) turns with the body, not its parent. Leg IK (feet planted while walking) is solved in the
 side plane first — forward and height from the chain's `ik.<id>.x` / `.y`, folding the way `ik.<id>.bend` says, the
 ground under the foot by its height — so walks foreshorten from the front. A leg is a two-bone IK chain of 3D bones
