@@ -303,6 +303,8 @@ interface Model {
   shade: boolean;
   /** Radius of the shoulder caps (the torso's capsule across the shoulders). */
   sh: number;
+  /** The style it is drawn in. */
+  style: Required<CartoonStyle>;
 }
 
 /** Half width of the part of a face that looks at the camera at a height (a mouth must fit in it). */
@@ -332,10 +334,23 @@ const m_ry = (u: number) => u * 0.235;
  */
 /** The style's settings from `CartoonOptions.style`. */
 function styleOf(style: CartoonOptions["style"]): Required<CartoonStyle> {
-  const base: Required<CartoonStyle> = { ink: "", shade: true, line: undefined as unknown as number, limbs: "tapered", hands: "fist" };
-  if (style === "flat") return { ink: "#1b1b1b", shade: false, line: 2.4, limbs: "tube", hands: "open" };
+  const base: Required<CartoonStyle> = { ink: "", shade: true, line: undefined as unknown as number, limbs: "tapered", hands: "fist", eyes: "oval", posture: "upright", proportions: "normal" };
+  if (style === "flat") return { ink: "#1b1b1b", shade: false, line: 2.4, limbs: "tube", hands: "open", eyes: "wide", posture: "slouch", proportions: "bigHead" };
   if (!style || style === "painted") return base;
   return { ...base, ...style };
+}
+
+/** A look's anatomy as a style draws it: wide eyes closer together with dot pupils, a bigger head. */
+export function styledAnatomy(a: CartoonAnatomy, style: CartoonOptions["style"], look?: CartoonLook): CartoonAnatomy {
+  const st = styleOf(style);
+  const out: CartoonAnatomy = { ...a, body: { ...a.body }, face: { ...a.face } };
+  if (st.eyes === "wide") {
+    out.face.eye = [r(a.face.eye[0] * 1.25), r(a.face.eye[1] * 1.2)];
+    out.face.eyeX = r(Math.max(a.face.eyeX * 0.93, out.face.eye[0] + 0.045));
+    out.face.pupil = r(a.face.pupil * 0.6);
+  }
+  if (st.proportions === "bigHead") out.body.head = r(a.body.head * (["baby", "child", "kid"].includes(look?.build ?? "") ? 1.12 : 1.06));
+  return out;
 }
 
 function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAnatomy(look), style: Required<CartoonStyle> = styleOf(undefined)): Model {
@@ -570,7 +585,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
   }
 
   // Neck and torso (the pelvis is part of it: the trousers' top).
-  const neckR = u * (look.build === "big" ? 0.5 : look.build === "man" ? 0.36 : 0.26) * (1 + heavy * 0.2);
+  const neckR = u * (look.build === "big" ? 0.5 : look.build === "man" ? 0.36 : 0.26) * (1 + heavy * 0.2) * (style.proportions === "bigHead" ? 0.85 : 1);
   const neck = capsule([0, torsoTop + 10, -b.D * 0.15], [0, hy + u * 0.55, -u * 0.12], neckR);
   // The shoulders: round caps the arms come out of (a blouse's puffed), or, with tube arms, flush
   // with the arm — no ball shoulders.
@@ -702,7 +717,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { shade, sh, b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { shade, sh, style, b, y, head, headParts, headColor, ears, nose, hair, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -976,6 +991,8 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   const pupil = (k = 1) =>
     each((x) => {
       const c = s.point(x, ey + ry * 0.08);
+      // (A dot pupil has no glint.)
+      if (m.style.eyes === "wide") return `<circle cx="${r(c[0])}" cy="${r(c[1])}" r="${r(pupilR * k)}" fill="palette(ink)"/>`;
       return `<circle cx="${r(c[0])}" cy="${r(c[1])}" r="${r(pupilR * k)}" fill="palette(ink)"/><circle cx="${r(c[0] - pupilR * 0.35 * k)}" cy="${r(c[1] - pupilR * 0.4 * k)}" r="${r(pupilR * 0.32 * k)}" fill="#fff"/>`;
     });
   const lids = each((x) => {
@@ -1319,6 +1336,16 @@ export interface CartoonStyle {
   limbs?: "tapered" | "tube";
   /** The hands' resting shape (default `fist`; a flat TV cartoon's hang `open`). */
   hands?: "fist" | "open";
+  /**
+   * `oval` (default): the eyes of the look's anatomy, a glint in the pupil. `wide`: a flat TV
+   * cartoon's — bigger and closer together, a dot pupil with no glint. (No lower-lid line: under a
+   * nose this close to the eyes, two of them read as a moustache.)
+   */
+  eyes?: "oval" | "wide";
+  /** `upright` (default): the arms hang straight. `slouch`: shoulders a little lower, the elbows bent, the hands forward. */
+  posture?: "upright" | "slouch";
+  /** `normal` (default). `bigHead`: a bigger head (more on children) on a thinner neck. */
+  proportions?: "normal" | "bigHead";
 }
 
 export interface CartoonOptions {
@@ -1344,7 +1371,7 @@ export function cartoonCharacter(look: CartoonLook, opts: CartoonOptions = {}): 
 
 function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<CartoonStyle>): ToonDoc {
   const [LIPS, LIPS_W] = look.lipstick ? ["palette(lips)", lw(3.6)] : ["palette(mouthLine)", lw(2.4)];
-  const anatomy = opts.anatomy ?? cartoonAnatomy(look);
+  const anatomy = opts.anatomy ?? styledAnatomy(cartoonAnatomy(look), style, look);
   const broken = checkAnatomy(anatomy).filter((x) => x.severity === "error");
   if (broken.length) throw new Error(`${look.name}: anatomy breaks ${broken.length} rule(s): ${broken.map((x) => `${x.rule} — ${x.message}`).join("; ")}`);
   const m = model(look, false, anatomy, style);
@@ -1366,7 +1393,9 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   // Joints (front-view model) → the three-quarter skeleton.
   const sx = b.S - b.arm[0] * 0.35, hx = b.H * 0.5;
   const armLen = b.T * 0.9 + b.L * 0.34;
-  const shY = m.y.shoulder + 4;
+  // A slouch: the shoulders a little lower, the elbows bent back, the hands forward.
+  const slouch = style.posture === "slouch";
+  const shY = m.y.shoulder + 4 + (slouch ? b.T * 0.04 : 0);
   const belly = (look.heavy ?? 0) * b.W * 0.35;
   const waistX = b.W * (look.female ? 0.86 : 1) + (look.heavy ?? 0) * b.W * 0.35 - belly;
   const hipX = Math.max(waistX * 0.98, (b.H * (look.female ? 1.04 : 1) + (look.heavy ?? 0) * b.H * 0.2) * 0.95) - belly;
@@ -1374,8 +1403,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   const j = {
     // Arms at rest hang relaxed: the elbow a little bent, the hand a little forward, out past a belly.
     // (Outside the torso's sides — waist and hips — so a hanging arm is beside the body from any angle.)
-    shoulderF: joint("shoulderF", -sx, shY), elbowF: joint("elbowF", -Math.max(sx + 3, waistX + b.arm[0] * 0.55) - belly * 0.5, shY + armLen * 0.5, -2), handF: joint("handF", -Math.max(sx + 4, hipX + b.arm[1] * 0.6) - belly, shY + armLen * 0.98, 16),
-    shoulderB: joint("shoulderB", sx, shY), elbowB: joint("elbowB", Math.max(sx + 3, waistX + b.arm[0] * 0.55) + belly * 0.5, shY + armLen * 0.5, -2), handB: joint("handB", Math.max(sx + 4, hipX + b.arm[1] * 0.6) + belly, shY + armLen * 0.98, 16),
+    shoulderF: joint("shoulderF", -sx, shY), elbowF: joint("elbowF", -Math.max(sx + 3, waistX + b.arm[0] * 0.55) - belly * 0.5, shY + armLen * 0.5, slouch ? -9 : -2), handF: joint("handF", -Math.max(sx + 4, hipX + b.arm[1] * 0.6) - belly, shY + armLen * (slouch ? 0.93 : 0.98), slouch ? 28 : 16),
+    shoulderB: joint("shoulderB", sx, shY), elbowB: joint("elbowB", Math.max(sx + 3, waistX + b.arm[0] * 0.55) + belly * 0.5, shY + armLen * 0.5, slouch ? -9 : -2), handB: joint("handB", Math.max(sx + 4, hipX + b.arm[1] * 0.6) + belly, shY + armLen * (slouch ? 0.93 : 0.98), slouch ? 28 : 16),
     hipF: joint("hipF", -hx, m.y.hip), kneeF: joint("kneeF", -hx, m.y.hip / 2, 6), footF: joint("footF", -hx, -ankle),
     hipB: joint("hipB", hx, m.y.hip), kneeB: joint("kneeB", hx, m.y.hip / 2, 6), footB: joint("footB", hx, -ankle),
   };
@@ -2030,7 +2059,7 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
 
 /** Director measurements of a cartoon character. */
 export function cartoonInfo(doc: ToonDoc, look: CartoonLook, opts: CartoonOptions = {}): RigInfo {
-  const m = model(look, false, opts.anatomy ?? (doc.meta as { anatomy?: CartoonAnatomy } | undefined)?.anatomy ?? cartoonAnatomy(look));
+  const m = model(look, false, opts.anatomy ?? (doc.meta as { anatomy?: CartoonAnatomy } | undefined)?.anatomy ?? styledAnatomy(cartoonAnatomy(look), opts.style, look), styleOf(opts.style));
   const hv = headView(m, headAngle(m, Q, deg(opts.pitch ?? 0)));
   return rigInfo(doc, {
     extent: { front: r(Math.max(hv.bounds[2], m.b.S)), back: r(Math.max(-hv.bounds[0], m.b.S)) },
