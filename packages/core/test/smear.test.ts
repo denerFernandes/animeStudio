@@ -67,6 +67,8 @@ const ratio = (withM: Mat, withoutM: Mat): Mat => multiply(withM, invert(without
 const stretch = (m: Mat, v: [number, number]) => Math.hypot(...applyLinear(m, v));
 const expectMat = (a: Mat, b: Mat, digits = 6) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], digits));
 
+/** Body stretch for a move of `dx` px per drawing of the 160 px stick (smear 1): from 0.15 to 0.6 of its height. */
+const bodyF = (dx: number, tall = 160) => 1 + 0.9 * Math.min(1, Math.max(0, (dx / tall - 0.15) / 0.45));
 const walk = (x: number, duration: number) => ({ script: [{ at: 0, actor: "a", action: "walkTo", x, duration }] }) as Partial<SceneDoc>;
 const swing = (props: unknown[] = [], grab = false) =>
   ({
@@ -103,19 +105,22 @@ describe("smears off (default)", () => {
 });
 
 describe("whole-body smear", () => {
-  const plain = compile(sceneDoc(undefined, walk(700, 1)));
-  const smeared = compile(sceneDoc({ smear: 1 }, walk(700, 1)));
-  const F = 12;
+  // A dash: 600 px in 0.6 s (over 6 heights a second).
+  const plain = compile(sceneDoc(undefined, walk(700, 0.6)));
+  const smeared = compile(sceneDoc({ smear: 1 }, walk(700, 0.6)));
+  const F = 7;
 
   it("stretches a fast walker along its move and thins it across", () => {
     const mS = transformOf(smeared, F, "actor-a");
     const mP = transformOf(plain, F, "actor-a");
     const S = ratio(mS, mP);
     const dx = actorPlacement(smeared.actors[0], at(F))[4] - actorPlacement(smeared.actors[0], at(F - 1))[4];
-    expect(dx).toBeGreaterThan(10);
-    const f = 1 + 0.9 * Math.min(1, (dx - 6) / 40);
-    expect(stretch(S, [1, 0])).toBeCloseTo(f, 6);
-    expect(stretch(S, [0, 1])).toBeCloseTo(1 / Math.sqrt(f), 6);
+    expect(dx).toBeGreaterThan(30);
+    const f = bodyF(dx);
+    expect(f).toBeGreaterThan(1.2);
+    // (The posed height swings a little with the walk around the stick's 160 px.)
+    expect(stretch(S, [1, 0])).toBeCloseTo(f, 2);
+    expect(stretch(S, [0, 1])).toBeCloseTo(1 / Math.sqrt(stretch(S, [1, 0])), 6);
     expect(stretch(S, [1, 0])).toBeGreaterThan(stretch(S, [0, 1]));
   });
 
@@ -132,7 +137,14 @@ describe("whole-body smear", () => {
     expect(apply(mS, [0, 0])[0]).toBeLessThan(origin[0] - 5);
   });
 
-  it("leaves a slow move alone (under 6 px per drawing)", () => {
+  it("leaves a walk alone, even in a close-up following it (measured against the actor's size, not in screen px)", () => {
+    const follow = { script: [{ at: 0, actor: "a", action: "walkTo", x: 260, duration: 1 }, { at: 0, action: "camera", zoom: 4, x: 260, duration: 1, ease: "linear" }] } as unknown as Partial<SceneDoc>;
+    const closePlain = compile(sceneDoc(undefined, follow));
+    const close = compile(sceneDoc({ smear: 1 }, follow));
+    for (const f of [6, 12, 18]) expect(svg(close, f)).toBe(svg(closePlain, f));
+  });
+
+  it("leaves a slow move alone", () => {
     const slowPlain = compile(sceneDoc(undefined, walk(160, 2)));
     const slow = compile(sceneDoc({ smear: 1 }, walk(160, 2)));
     for (const f of [0, 5, 24, 40]) expect(svg(slow, f)).toBe(svg(slowPlain, f));
@@ -159,18 +171,20 @@ function ghostsOf(nodes: RenderNode[], part: string, prefix = "a-"): RenderNode[
   return out;
 }
 
-/** Normalised speed of a part's fastest bone (joint or tip) between two frames, on ones, unscaled actor. */
+/** Normalised speed of a part's fastest bone (joint or tip, against its length) between two frames, on ones, unscaled actor. */
 function partSpeed(sc: CompiledScene, bones: string[], f: number, prev = f - 1): number {
   const a = sc.actors[0];
   const now = actorPose(sc, a, at(f)).world, before = actorPose(sc, a, at(prev)).world;
-  let s = 0;
+  let q = 0;
   for (const id of bones) {
     const b = a.rig.bones.find((x) => x.id === id)!;
     const j = Math.hypot(now[b.index][4] - before[b.index][4], now[b.index][5] - before[b.index][5]);
     const tip = apply(now[b.index], [b.length, 0]), tipP = apply(before[b.index], [b.length, 0]);
-    s = Math.max(s, j, Math.hypot(tip[0] - tipP[0], tip[1] - tipP[1]));
+    const len = Math.hypot(tip[0] - now[b.index][4], tip[1] - now[b.index][5]);
+    // Against the bone's own length: from 0.3 to 1 of it per drawing.
+    q = Math.max(q, Math.min(1, Math.max(0, (Math.max(j, Math.hypot(tip[0] - tipP[0], tip[1] - tipP[1])) / len - 0.3) / 0.7)));
   }
-  return Math.min(1, Math.max(0, (s - 8) / 40));
+  return q;
 }
 
 const angle = (m: Mat) => (Math.atan2(m[1], m[0]) * 180) / Math.PI;
@@ -243,8 +257,8 @@ describe("free props", () => {
       tracks: { "props.ball.x": [[0, 0], [1, 800, "linear"]] },
     } as unknown as Partial<SceneDoc>;
     const S = ratio(transformOf(compile(sceneDoc({ smear: 1 }, flying)), 10, "prop-ball"), transformOf(compile(sceneDoc(undefined, flying)), 10, "prop-ball"));
-    // 33.3 px per frame: f = 1 + 0.9 · (33.3 − 6) / 40.
-    const f = 1 + (0.9 * (800 / 24 - 6)) / 40;
+    // 33.3 px per frame for a 40 px ball (0.83 of its size): f = 1 + 0.9 · (0.83 − 0.5) / 1.5.
+    const f = 1 + (0.9 * (800 / 24 / 40 - 0.5)) / 1.5;
     expect(stretch(S, [1, 0])).toBeCloseTo(f, 6);
     expect(stretch(S, [0, 1])).toBeCloseTo(1 / Math.sqrt(f), 6);
     // The first frame has nothing to compare with.
@@ -266,7 +280,7 @@ describe("on twos", () => {
     }
   });
 
-  const doc = (smear?: number) => sceneDoc({ twos: true, ...(smear ? { smear } : {}) }, walk(700, 2));
+  const doc = (smear?: number) => sceneDoc({ twos: true, ...(smear ? { smear } : {}) }, walk(700, 1.2));
   const plain = compile(doc());
   const smeared = compile(doc(1));
 
@@ -276,13 +290,13 @@ describe("on twos", () => {
   });
 
   it("smears the change frame by the whole two-frame move", () => {
-    for (const k of [10, 12, 14]) {
+    for (const k of [5, 7, 9]) {
       const S = ratio(transformOf(smeared, 2 * k, "actor-a"), transformOf(plain, 2 * k, "actor-a"));
       const a = smeared.actors[0];
       const dx = actorPlacement(a, at(2 * k))[4] - actorPlacement(a, at(2 * k - 2))[4];
-      const f = 1 + 0.9 * Math.min(1, Math.max(0, (dx - 6) / 40));
+      const f = bodyF(dx);
       expect(f).toBeGreaterThan(1);
-      expect(stretch(S, [1, 0])).toBeCloseTo(f, 6);
+      expect(stretch(S, [1, 0])).toBeCloseTo(f, 2);
     }
   });
 });

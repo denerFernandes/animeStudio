@@ -712,11 +712,16 @@ both the same `twos`.
 whole move, or a fast limb drawn several times along it (multiples). With `smear` on, a drawing is
 compared with the actor's previous drawing (`twos` frames earlier: on twos both frames of a drawing
 show the same smear, the smear of the two-frame move). Both are seen through the current camera, so
-a camera move never smears anything.
+a camera move never smears anything. Every threshold is measured against the moving thing's own
+size, never in screen pixels, so a close-up of a move smears exactly as the wide shot does: the
+strobing rule — a drawing that jumps more than about half its size along the move from one drawing
+to the next stops reading as one thing moving and is drawn over the gap. A walk or an ordinary run
+never smears; a dash, a leap, a throw-back, a hard swing does.
 
-- **Whole actor.** The actor's origin moves Δ screen px since its previous drawing. Below 6 px
-  nothing happens. Above that, the drawing stretches along Δ by
-  `f = 1 + smear × 0.9 × clamp((|Δ| − 6) / 40, 0, 1)` (at most 1.9×) and thins across it by `1/√f`.
+- **Whole actor.** The actor's origin moves Δ screen px since its previous drawing; `h` is its
+  posed height on screen. Below `|Δ| = 0.15 h` (half a figure's width) nothing happens. Above that,
+  the drawing stretches along Δ by `f = 1 + smear × 0.9 × clamp((|Δ|/h − 0.15) / 0.45, 0, 1)` (at
+  most 1.9×, from 0.6 h per drawing) and thins across it by `1/√f`.
   The stretch is about the actor's leading point, a quarter of its height ahead of its origin along
   the move: the front stays where it is and the rest trails back over the path. The held hand drawn
   over a prop and the parts drawn behind a mount stretch with it. It is a stretch of the whole
@@ -724,8 +729,8 @@ a camera move never smears anything.
 - **Limbs (multiples).** A fast-swinging arm or leg is not stretched: it is drawn several times (the
   classic multiple-image smear), so it stays attached at the joint. Each bone's joint and tip are
   compared with the previous drawing's pose in the actor's own space (the actor's travel is not
-  counted twice); the faster of the two gives the speed s, on screen, in px per drawing, and
-  `q = clamp((s − 8) / 40, 0, 1)`. A part moves as fast as its fastest bone (rigid, switch and morph
+  counted twice); the faster of the two gives the move s per drawing, measured against the bone's own
+  length L (both on screen), and `q = clamp((s/L − 0.3) / 0.7, 0, 1)`. A part moves as fast as its fastest bone (rigid, switch and morph
   parts: their bone; hoses and skinned parts: their chain; hulls: their points' bones; solids are not
   smeared). When `q > 0` the part is also drawn at in-between poses between the previous drawing and
   the current one — one ghost halfway when `q < 0.5`, else two at ⅓ and ⅔ of the way — evaluated in
@@ -735,8 +740,9 @@ a camera move never smears anything.
 - **Props.** A held prop stretches with its holder's whole body and has as many ghosts as the hand
   holding it, at the same opacities, each where that in-between hand holds it, drawn just before the
   prop. A free prop (tracks, rigid body) is smooth, so it is compared with the previous frame and
-  stretches by the whole-actor rule, its leading point half its size ahead (40 px of art at its
-  scale).
+  stretches like a whole actor, measured against its size d (40 px of art at its scale): from
+  `0.5 d` per frame, whole at `2 d` (`f = 1 + smear × 0.9 × clamp((|Δ|/d − 0.5) / 1.5, 0, 1)`), its
+  leading point half its size ahead.
 - The first drawing of a scene has nothing to compare with and is never smeared.
 
 **Arcs.** A limb moving from one place to another follows an arc, never a straight line (the

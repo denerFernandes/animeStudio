@@ -1884,11 +1884,20 @@ export function screenPoint(scene: CompiledScene, target: string | Vec2, t: numb
 
 /** Most a smear stretches a drawing, on top of 1 (at `smear` 1: 1.9×). */
 const SMEAR_MAX = 0.9;
-/** Speed range (px per drawing) over which a smear grows from nothing to its full stretch. */
-const SMEAR_RANGE = 40;
-/** Below these speeds (px per drawing) nothing smears: a whole actor or a free prop, a limb. */
-const SMEAR_BODY_MIN = 6;
-const SMEAR_LIMB_MIN = 8;
+/**
+ * When something smears, measured against its own size, not in screen pixels (so a close-up of a
+ * walk is no faster than the wide shot): the strobing rule — a drawing that jumps more than about
+ * half its size along the move from one drawing to the next no longer reads as one thing moving, and
+ * is drawn stretched over the gap. [start, full]: the move per drawing, as a fraction of the size,
+ * where the stretch begins and where it is whole.
+ *   body: of the actor's height (a figure is ~0.3 of its height across: half of it, 0.15) — a walk
+ *         or an ordinary run stays under it; a dash, a leap, a throw-back goes over;
+ *   limb: of the bone's own length (an arm swinging a third of its length per drawing and more);
+ *   prop: of a free prop's size.
+ */
+const SMEAR_BODY: [number, number] = [0.15, 0.6];
+const SMEAR_LIMB: [number, number] = [0.3, 1];
+const SMEAR_PROP: [number, number] = [0.5, 2];
 
 /**
  * Smear stretch about `p` along the unit direction `dir`: `T(p)·R(θ)·diag(f, 1/√f)·R(−θ)·T(−p)`, so
@@ -1903,18 +1912,19 @@ function smearMatrix(p: Vec2, dir: Vec2, f: number): Mat {
   return [a, b, b, d, p[0] - (a * p[0] + b * p[1]), p[1] - (b * p[0] + d * p[1])];
 }
 
-/** Stretch factor of a smear for a move of `speed` px per drawing (1: none). */
-const smearFactor = (amount: number, speed: number, min: number): number => 1 + amount * SMEAR_MAX * clamp((speed - min) / SMEAR_RANGE, 0, 1);
+/** 0..1: how far a move of `rel` (per drawing, a fraction of the size) is into the smear range. */
+const smearDegree = (rel: number, [start, full]: [number, number]): number => clamp((rel - start) / (full - start), 0, 1);
 
 /**
- * Smear of something that moved by `delta` (px per drawing) to `at`: stretched about its leading
- * point, `lead` px ahead of `at` along the move, so the front stays put and the drawing trails back
- * over its path. `speed` is the move's length on screen (defaults to `|delta|`). None when too slow.
+ * Smear of something of on-screen `size` that moved by `delta` (px per drawing) to `at`: stretched
+ * about its leading point, `lead` px ahead of `at` along the move, so the front stays put and the
+ * drawing trails back over its path. None when too slow for its size.
  */
-function smearAlong(amount: number, at: Vec2, delta: Vec2, min: number, lead: number, speed = Math.hypot(delta[0], delta[1])): { m: Mat; f: number } | undefined {
-  const f = smearFactor(amount, speed, min);
+function smearAlong(amount: number, at: Vec2, delta: Vec2, size: number, range: [number, number], lead: number): { m: Mat; f: number } | undefined {
   const len = Math.hypot(delta[0], delta[1]);
-  if (!(f > 1) || !(len > 0)) return undefined;
+  if (!(len > 0) || !(size > 0)) return undefined;
+  const f = 1 + amount * SMEAR_MAX * smearDegree(len / size, range);
+  if (!(f > 1)) return undefined;
   const dir: Vec2 = [delta[0] / len, delta[1] / len];
   return { m: smearMatrix([at[0] + dir[0] * lead, at[1] + dir[1] * lead], dir, f), f };
 }
@@ -1935,16 +1945,19 @@ function poseHeight(rig: Rig, pose: EvaluatedPose): number {
 /**
  * How fast each bone moves since the previous drawing, normalised 0..1 (0: under the limb smear
  * threshold). Joints and tips are compared in character space, so the actor's own move (its
- * placement) is not counted again; the faster of the two is measured on screen through `linear`.
+ * placement) is not counted again; the faster of the two is measured against the bone's own length
+ * (both seen through `linear`), so the shot's zoom does not change it.
  */
 function limbSpeeds(rig: Rig, pose: EvaluatedPose, prev: EvaluatedPose, linear: Mat): number[] {
   return rig.bones.map((bone) => {
     const w = pose.world[bone.index], wp = prev.world[bone.index];
     const tip = apply(w, [bone.length, 0]);
     const tipP = apply(wp, [bone.length, 0]);
+    const len = Math.hypot(...applyLinear(linear, [tip[0] - w[4], tip[1] - w[5]]));
+    if (!(len > 1e-6)) return 0;
     const sJoint = Math.hypot(...applyLinear(linear, [w[4] - wp[4], w[5] - wp[5]]));
     const sTip = Math.hypot(...applyLinear(linear, [tip[0] - tipP[0], tip[1] - tipP[1]]));
-    return clamp((Math.max(sJoint, sTip) - SMEAR_LIMB_MIN) / SMEAR_RANGE, 0, 1);
+    return smearDegree(Math.max(sJoint, sTip) / len, SMEAR_LIMB);
   });
 }
 
@@ -2148,7 +2161,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
         const q = limbSpeeds(actor.rig, pose, actorPose(scene, actor, tp), m0);
         sm = {
           place: placementMatrix(p),
-          body: smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], SMEAR_BODY_MIN, 0.25 * tall)?.m,
+          body: smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], tall, SMEAR_BODY, 0.25 * tall)?.m,
           ...limbGhosts(scene, actor, td, tp, q, smear),
         };
         smears.set(actor.id, sm);
@@ -2249,7 +2262,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       const o = apply(view, [p.x, p.y]);
       const op = apply(view, [pp.x, pp.y]);
       const extent = 40 * Math.sqrt(Math.abs(m0[0] * m0[3] - m0[1] * m0[2]));
-      const st = smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], SMEAR_BODY_MIN, 0.5 * extent);
+      const st = smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], extent, SMEAR_PROP, 0.5 * extent);
       if (st) m = multiply(st.m, m0);
     }
     if (prop.def.cord) {
