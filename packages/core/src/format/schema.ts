@@ -468,8 +468,14 @@ const AnimationSchema = z
   .strictObject({
     twos: Twos.optional().describe("Frames per drawing of the characters: `true` = 2 (classic \"on twos\"), a number 1..4 (1 = on ones, default)"),
     holds: z.number().min(0).max(1).optional().describe("Moving holds 0..1 (default 0): a held pose never stands still, every actor drifts subtly"),
+    smear: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .describe("Smears 0..1 (default 0: off): a fast move is drawn stretched along its path (the whole actor, a swinging limb, a held or flying prop) instead of blurred"),
   })
-  .describe("Cartoon timing: characters on twos (the camera, layers and free props stay smooth) and moving holds");
+  .describe("Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds and smears");
 
 export const ActorSchema = z.strictObject({
   id: z.string(),

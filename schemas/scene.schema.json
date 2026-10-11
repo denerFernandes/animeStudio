@@ -396,10 +396,16 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "smear": {
+          "description": "Smears 0..1 (default 0: off): a fast move is drawn stretched along its path (the whole actor, a swinging limb, a held or flying prop) instead of blurred",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false,
-      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth) and moving holds"
+      "description": "Cartoon timing: characters on twos (the camera, layers and free props stay smooth), moving holds and smears"
     },
     "layers": {
       "type": "array",

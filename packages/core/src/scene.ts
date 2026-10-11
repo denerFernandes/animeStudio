@@ -55,7 +55,7 @@ import {
 } from "./lighting";
 import { type ClipInstance, type EvaluatedPose, applyPhysicsSample, evaluatePose } from "./pose";
 import { type RenderFrame, type RenderNode, nodeToString, renderCharacter } from "./render";
-import { type ChannelRef, type Rig, type RigTrack, RigError, compileRig, resolveChannel } from "./rig";
+import { type ChannelRef, type Rig, type RigPart, type RigTrack, RigError, compileRig, resolveChannel } from "./rig";
 
 export class SceneError extends Error {
   constructor(
@@ -212,8 +212,11 @@ export interface CompiledScene {
   fx: CompiledFx[];
   audio: AudioEvent[];
   lighting?: { def: LightingDef; tracks: Record<string, Track> };
-  /** Cartoon timing, resolved: frames per drawing of the characters and the moving-hold amount (0..1). */
-  animation: { twos: number; holds: number };
+  /**
+   * Cartoon timing, resolved: frames per drawing of the characters, the moving-hold amount (0..1) and
+   * the smear amount (0..1; only present when smears are on).
+   */
+  animation: { twos: number; holds: number; smear?: number };
   rigid?: RigidBodySampler;
 }
 
@@ -366,7 +369,8 @@ const framesPerDrawing = (v: boolean | number | undefined, fallback: number): nu
 /** Compiles a validated scene and its assets into an evaluable scene. */
 export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene {
   const rigCache = new Map<string, Rig>();
-  const animation = { twos: framesPerDrawing(doc.animation?.twos, 1), holds: clamp(doc.animation?.holds ?? 0, 0, 1) };
+  const smear = clamp(doc.animation?.smear ?? 0, 0, 1);
+  const animation = { twos: framesPerDrawing(doc.animation?.twos, 1), holds: clamp(doc.animation?.holds ?? 0, 0, 1), ...(smear > 0 ? { smear } : {}) };
 
   // Actors -----------------------------------------------------------------
   const actorBuffers = new Map<
@@ -1752,6 +1756,167 @@ export function screenPoint(scene: CompiledScene, target: string | Vec2, t: numb
   return transitionCenter(scene, cameraAt(scene, t), target, t);
 }
 
+// ---------------------------------------------------------------------------
+// Smears
+// ---------------------------------------------------------------------------
+
+/** Most a smear stretches a drawing, on top of 1 (at `smear` 1: 1.9×). */
+const SMEAR_MAX = 0.9;
+/** Speed range (px per drawing) over which a smear grows from nothing to its full stretch. */
+const SMEAR_RANGE = 40;
+/** Below these speeds (px per drawing) nothing smears: a whole actor or a free prop, a limb. */
+const SMEAR_BODY_MIN = 6;
+const SMEAR_LIMB_MIN = 8;
+
+/**
+ * Smear stretch about `p` along the unit direction `dir`: `T(p)·R(θ)·diag(f, 1/√f)·R(−θ)·T(−p)`, so
+ * the drawing grows by `f` along its move and thins by `1/√f` across it, and `p` stays put.
+ */
+function smearMatrix(p: Vec2, dir: Vec2, f: number): Mat {
+  const g = 1 / Math.sqrt(f);
+  const [c, s] = dir;
+  const a = f * c * c + g * s * s;
+  const b = (f - g) * c * s;
+  const d = f * s * s + g * c * c;
+  return [a, b, b, d, p[0] - (a * p[0] + b * p[1]), p[1] - (b * p[0] + d * p[1])];
+}
+
+/** Stretch factor of a smear for a move of `speed` px per drawing (1: none). */
+const smearFactor = (amount: number, speed: number, min: number): number => 1 + amount * SMEAR_MAX * clamp((speed - min) / SMEAR_RANGE, 0, 1);
+
+/**
+ * Smear of something that moved by `delta` (px per drawing) to `at`: stretched about its leading
+ * point, `lead` px ahead of `at` along the move, so the front stays put and the drawing trails back
+ * over its path. `speed` is the move's length on screen (defaults to `|delta|`). None when too slow.
+ */
+function smearAlong(amount: number, at: Vec2, delta: Vec2, min: number, lead: number, speed = Math.hypot(delta[0], delta[1])): { m: Mat; f: number } | undefined {
+  const f = smearFactor(amount, speed, min);
+  const len = Math.hypot(delta[0], delta[1]);
+  if (!(f > 1) || !(len > 0)) return undefined;
+  const dir: Vec2 = [delta[0] / len, delta[1] / len];
+  return { m: smearMatrix([at[0] + dir[0] * lead, at[1] + dir[1] * lead], dir, f), f };
+}
+
+/** Vertical extent of an actor's posed bones and its origin (character px): what its smear's lead is measured against. */
+function poseHeight(rig: Rig, pose: EvaluatedPose): number {
+  let y0 = 0, y1 = 0;
+  for (const bone of rig.bones) {
+    const w = pose.world[bone.index];
+    for (const y of [w[5], w[1] * bone.length + w[5]]) {
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+  }
+  return y1 - y0;
+}
+
+/**
+ * How fast each bone moves since the previous drawing, normalised 0..1 (0: under the limb smear
+ * threshold). Joints and tips are compared in character space, so the actor's own move (its
+ * placement) is not counted again; the faster of the two is measured on screen through `linear`.
+ */
+function limbSpeeds(rig: Rig, pose: EvaluatedPose, prev: EvaluatedPose, linear: Mat): number[] {
+  return rig.bones.map((bone) => {
+    const w = pose.world[bone.index], wp = prev.world[bone.index];
+    const tip = apply(w, [bone.length, 0]);
+    const tipP = apply(wp, [bone.length, 0]);
+    const sJoint = Math.hypot(...applyLinear(linear, [w[4] - wp[4], w[5] - wp[5]]));
+    const sTip = Math.hypot(...applyLinear(linear, [tip[0] - tipP[0], tip[1] - tipP[1]]));
+    return clamp((Math.max(sJoint, sTip) - SMEAR_LIMB_MIN) / SMEAR_RANGE, 0, 1);
+  });
+}
+
+/** Bones that carry a part (a part smears as much as its fastest bone). Solids are not smeared. */
+function partBones(part: RigPart): number[] {
+  switch (part.type) {
+    case "rigid":
+    case "switch":
+    case "morph":
+      return [part.bone];
+    case "hose":
+      return part.bones;
+    case "skinned":
+      return part.influences;
+    case "hull":
+      return part.points.map((q) => q.bone);
+    case "solid":
+      return [];
+  }
+}
+
+/**
+ * Ghost slots of a multiple-image smear: a part with one ghost (normalised speed under 0.5) uses
+ * the middle slot, a part with two the slots at a third and two thirds. `k` numbers a part's ghosts
+ * from the previous drawing; the one nearest the current drawing is the strongest.
+ */
+const GHOST_SLOTS = [
+  { u: 1 / 3, ghosts: 2, k: 1, opacity: 0.3 },
+  { u: 1 / 2, ghosts: 1, k: 1, opacity: 0.45 },
+  { u: 2 / 3, ghosts: 2, k: 2, opacity: 0.45 },
+] as const;
+
+/** One ghost of a multiple-image smear: an in-between pose (smooth time) and the parts drawn from it, with their opacities. */
+interface SmearGhost {
+  k: number;
+  /** Ghosts of the parts drawn from it (1 or 2) and their opacity at full speed and `smear` 1. */
+  of: number;
+  opacity: number;
+  /** Smooth time of the in-between. */
+  time: number;
+  pose: EvaluatedPose;
+  parts: Map<string, number>;
+}
+
+/** An actor's smears in a frame: its placement, the whole-body stretch (screen space), the limb ghosts (farthest first) and how fast each bone's parts move. */
+interface ActorSmear {
+  place: Mat;
+  body?: Mat;
+  ghosts: SmearGhost[];
+  /** Normalised speed of each bone's fastest part (0: not smeared). */
+  boneQ: number[];
+}
+
+/**
+ * Limb ghosts of a drawing: each part whose bones moved fast since the previous drawing (`tp`) is
+ * also drawn at one or two in-between poses, evaluated in smooth time (on twos they are real
+ * in-betweens, not the held drawing), faded by `smear` and its speed.
+ */
+function limbGhosts(scene: CompiledScene, actor: CompiledActor, td: number, tp: number, q: number[], amount: number): { ghosts: SmearGhost[]; boneQ: number[] } {
+  const rig = actor.rig;
+  const boneQ = rig.bones.map(() => 0);
+  const ghosts: SmearGhost[] = [];
+  const partQ = new Map<string, number>();
+  for (const part of rig.parts) {
+    let pq = 0;
+    for (const b of partBones(part)) pq = Math.max(pq, q[b]);
+    if (!(pq > 0)) continue;
+    partQ.set(part.id, pq);
+    for (const b of partBones(part)) boneQ[b] = Math.max(boneQ[b], pq);
+  }
+  if (!partQ.size) return { ghosts, boneQ };
+  for (const slot of GHOST_SLOTS) {
+    const parts = new Map<string, number>();
+    for (const [id, pq] of partQ) if ((pq < 0.5 ? 1 : 2) === slot.ghosts) parts.set(id, slot.opacity * amount * pq);
+    if (!parts.size) continue;
+    const time = tp + slot.u * (td - tp);
+    ghosts.push({ k: slot.k, of: slot.ghosts, opacity: slot.opacity, time, pose: inSmoothTime(() => actorPose(scene, actor, time)), parts });
+  }
+  return { ghosts, boneQ };
+}
+
+/** Ghosts of `only`'s parts (keys `<prefix>g<k>-<part>`), faded, drawn before the main drawing. */
+function ghostNodes(rig: Rig, ghosts: SmearGhost[], prefix: string, only?: (partId: string) => boolean): RenderNode[] {
+  const out: RenderNode[] = [];
+  for (const g of ghosts) {
+    const gp = `${prefix}g${g.k}-`;
+    for (const node of renderCharacter(rig, g.pose, gp, (id) => g.parts.has(id) && (!only || only(id)))) {
+      const fade = g.parts.get(node.key.slice(gp.length)) ?? 1;
+      out.push({ ...node, opacity: (node.opacity ?? 1) * fade });
+    }
+  }
+  return out;
+}
+
 /** Screen point of a transition target (posed actor head / prop / scene point; default: center). */
 function transitionCenter(scene: CompiledScene, cam: CameraState, target: string | Vec2 | undefined, t: number, poses?: Map<string, EvaluatedPose>): Vec2 {
   const p = target === undefined ? null : resolveTargetPoint(scene, target, t, true, poses);
@@ -1803,6 +1968,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   const key = light ? keyLight(light, screenLights) : undefined;
 
   const poses = new Map<string, EvaluatedPose>();
+  // Smears: a fast move drawn stretched along its path (cartoon timing). Off: nothing below runs.
+  const smear = scene.animation.smear ?? 0;
+  const smears = new Map<string, ActorSmear>();
   // Crowd shots: more lit actors on screen than `shading.crowd` → no rim light.
   const crowded = !!(light?.shading.crowd && scene.actors.filter((a) => a.def.shading !== false && actorPlacementState(a, t).opacity > 0.01 && a.rig.anchors.head).length > light.shading.crowd);
   for (const actor of scene.actors) {
@@ -1810,8 +1978,36 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const pose = actorPose(scene, actor, t);
     poses.set(actor.id, pose);
     const p = actorPlacementState(actor, t);
-    const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
+    const view = viewMatrix(scene, cam, depth);
+    const m0 = multiply(view, placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), actorPlacement(actor, t - dtPrev)) : null;
+    // Smears compare this drawing with the previous one (on twos, a held frame shows its change
+    // frame's smear: it is the same drawing), both seen through this frame's camera — the camera's
+    // own move is not a smear. The first drawing has nothing to compare with.
+    let sm: ActorSmear | undefined;
+    if (smear > 0) {
+      const td = drawingTime(scene, actor, t);
+      const tp = td - actor.twos / scene.fps;
+      if (tp >= -1e-9) {
+        const pp = actorPlacementState(actor, tp);
+        const o = apply(view, [p.x, p.y]);
+        const op = apply(view, [pp.x, pp.y]);
+        const tall = poseHeight(actor.rig, pose) * Math.hypot(m0[2], m0[3]);
+        const q = limbSpeeds(actor.rig, pose, actorPose(scene, actor, tp), m0);
+        sm = {
+          place: placementMatrix(p),
+          body: smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], SMEAR_BODY_MIN, 0.25 * tall)?.m,
+          ...limbGhosts(scene, actor, td, tp, q, smear),
+        };
+        smears.set(actor.id, sm);
+      }
+    }
+    const m = sm?.body ? multiply(sm.body, m0) : m0;
+    /** The parts `only` keeps: their limb ghosts (if any), then the drawing itself. */
+    const draw = (prefix: string, only?: (id: string) => boolean): RenderNode[] => [
+      ...(sm?.ghosts.length ? ghostNodes(actor.rig, sm.ghosts, prefix, only) : []),
+      ...renderCharacter(actor.rig, pose, prefix, only),
+    ];
     const z = p.z;
     const artId = `actor-art-${actor.id}`;
     // Riding: some parts (the far leg…) are drawn just behind the ridden actor.
@@ -1826,15 +2022,16 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       id: artId,
       transform: m,
       opacity: p.opacity < 1 ? p.opacity : undefined,
-      filter: blurFor(depth, m, mPrev),
-      children: renderCharacter(actor.rig, pose, `${actor.id}-`, under || overParts.size ? (id) => !under?.parts.has(id) && !overParts.has(id) : undefined),
+      // Motion blur measures the unsmeared move; with smears on, it blurs the smeared drawing.
+      filter: blurFor(depth, m0, mPrev),
+      children: draw(`${actor.id}-`, under || overParts.size ? (id) => !under?.parts.has(id) && !overParts.has(id) : undefined),
     };
     if (overParts.size) {
-      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-hand`, id: undefined, children: renderCharacter(actor.rig, pose, `${actor.id}-h-`, (id) => overParts.has(id)) };
+      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-hand`, id: undefined, children: draw(`${actor.id}-h-`, (id) => overParts.has(id)) };
       items.push({ z: z + 2e-3, order: order++, node });
     }
     if (under) {
-      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-behind`, id: undefined, children: renderCharacter(actor.rig, pose, `${actor.id}-b-`, (id) => under.parts.has(id)) };
+      const node: RenderNode = { ...actorNode, key: `actor-${actor.id}-behind`, id: undefined, children: draw(`${actor.id}-b-`, (id) => under.parts.has(id)) };
       items.push({ z: under.z - 1e-3, order: order++, node });
     }
     items.push({ z, order: order++, node: actorNode });
@@ -1850,7 +2047,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       // The masks get their own copy of the (unfiltered, id-less) actor art.
       const art = nodeToString({ ...actorNode, id: undefined, filter: undefined, opacity: undefined });
       const lit = crowded ? { ...light, shading: { ...light.shading, rimOpacity: 0 } } : light;
-      const markup = shadingMarkup(lit, key, actor.id, art, apply(m, local), Math.hypot(m[0], m[1]), scene.width, scene.height, box);
+      const markup = shadingMarkup(lit, key, actor.id, art, apply(m0, local), Math.hypot(m0[0], m0[1]), scene.width, scene.height, box);
       if (markup) items.push({ z, order: order++, node: { kind: "markup", key: `shade-${actor.id}`, markup: p.opacity < 1 ? `<g opacity="${p.opacity}">${markup}</g>` : markup } });
     }
   }
@@ -1863,8 +2060,39 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const holder = prop.grabs.find((g) => t >= g.start && t < g.end);
     const holderActor = holder ? scene.actors.find((a) => a.id === holder.actor) : undefined;
     const holderZ = holderActor ? actorPlacementState(holderActor, t).z : undefined;
-    const m = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
+    const m0 = multiply(viewMatrix(scene, cam, depth), placementMatrix(p));
     const mPrev = camPrev ? multiply(viewMatrix(scene, camPrev, depth), placementMatrix(propPlacement(scene, prop, t - dtPrev))) : null;
+    let m = m0;
+    const ghosts: RenderNode[] = [];
+    if (smear > 0 && holder && holderActor) {
+      // Held: it stretches with its holder's whole body, and has ghosts with the holding hand's
+      // (as many, as faded): the prop where the in-between pose's hand holds it, carried from the
+      // holder's place at that smooth time to its place now.
+      const sm = smears.get(holder.actor);
+      if (sm?.body) m = multiply(sm.body, m0);
+      const bone = holderActor.rig.anchors[holder.anchor]?.bone;
+      const hq = sm && bone !== undefined ? sm.boneQ[bone] : 0;
+      if (sm && hq > 0) {
+        const view = viewMatrix(scene, cam, depth);
+        for (const g of sm.ghosts) {
+          if (g.of !== (hq < 0.5 ? 1 : 2) || g.time < holder.start || g.time >= holder.end) continue;
+          const gp = inSmoothTime(() => placementMatrix(propPlacement(scene, prop, g.time, new Map([[holder.actor, g.pose]]))));
+          const ga = inSmoothTime(() => actorPlacement(holderActor, g.time));
+          const gm = multiply(view, multiply(sm.place, multiply(invert(ga), gp)));
+          ghosts.push({ kind: "markup", key: `prop-${prop.id}-g${g.k}`, transform: sm.body ? multiply(sm.body, gm) : gm, opacity: p.opacity * g.opacity * smear * hq, markup: prop.markup });
+        }
+      }
+    } else if (smear > 0 && t - dtPrev >= -1e-9) {
+      // Free: smooth, so it is compared with the previous frame, through this frame's camera. Its
+      // size is estimated from its scale (40 px art at scale 1).
+      const view = viewMatrix(scene, cam, depth);
+      const pp = propPlacement(scene, prop, t - dtPrev);
+      const o = apply(view, [p.x, p.y]);
+      const op = apply(view, [pp.x, pp.y]);
+      const extent = 40 * Math.sqrt(Math.abs(m0[0] * m0[3] - m0[1] * m0[2]));
+      const st = smearAlong(smear, o, [o[0] - op[0], o[1] - op[1]], SMEAR_BODY_MIN, 0.5 * extent);
+      if (st) m = multiply(st.m, m0);
+    }
     if (prop.def.cord) {
       const vm = viewMatrix(scene, cam, depth);
       const d = cordPath(scene, prop.def.cord, placementMatrix(p), vm, t, poses);
@@ -1877,16 +2105,18 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
         });
       }
     }
+    // Held: just above its holder (under the holding hand, above the rest of the body).
+    const propZ = holder ? (holderZ ?? 0) + 1e-3 : p.z;
+    for (const node of ghosts) items.push({ z: propZ, order: order++, node });
     items.push({
-      // Held: just above its holder (under the holding hand, above the rest of the body).
-      z: holder ? (holderZ ?? 0) + 1e-3 : p.z,
+      z: propZ,
       order: order++,
       node: {
         kind: "markup",
         key: `prop-${prop.id}`,
         transform: m,
         opacity: p.opacity < 1 ? p.opacity : undefined,
-        filter: blurFor(depth, m, mPrev),
+        filter: blurFor(depth, m0, mPrev),
         markup: prop.markup,
       },
     });

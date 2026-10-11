@@ -88,6 +88,8 @@ export const MOODS: Record<string, { grade: string; opacity: number; ambient?: {
 /** Lead time: a block (and its camera) starts this much before its first line. */
 const LEAD = 0.25;
 const SLOT = 230;
+/** A limb's angle channels (they turn the short way round; free moves of them may settle). */
+const LIMB = /^bones\.(arm|leg|hand|foot)\w*\.(rotation|turn|spread)$/;
 
 // ------------------------------------------------------------------ timing
 
@@ -253,6 +255,11 @@ class BlockScene {
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
   private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean; hipY?: number }[] = [];
   private propStates = new Map<string, PropState>();
+  /** Walks of the cast, leaning into the move once the block is staged (`animation.anticipation`). */
+  private leans: { walk: Walk; run: boolean }[] = [];
+  /** Limb keys of `arm3d`'s arcs (their in-betweens are timed already: no settle is added), and whether one is being set. */
+  private arcKeys = new Set<Action>();
+  private inArc = false;
   private cam: Record<string, unknown>;
   readonly present: string[] = [];
   readonly t0: number;
@@ -281,6 +288,10 @@ class BlockScene {
 
   // -------------------------------------------------- helpers
   t = (abs: number) => r3(Math.min(this.t1 - this.t0, Math.max(0, abs - this.t0)));
+  /** Anticipation and settle, 0..1 (the block's `animation`, else the staging's; 0: off). */
+  private get anticipation() {
+    return Math.min(1, Math.max(0, Number(this.animation?.anticipation ?? 0) || 0));
+  }
   push(a: Action) {
     this.script.push(a);
   }
@@ -536,7 +547,10 @@ class BlockScene {
     abs = Math.max(abs, this.t0);
     const x0 = this.xAt(actor, abs);
     const d = Math.max(0.4, o.until !== undefined ? o.until - abs : dur);
-    this.walks.push({ actor, t0: abs, t1: abs + d, x0, x1: x });
+    const walk: Walk = { actor, t0: abs, t1: abs + d, x0, x1: x };
+    this.walks.push(walk);
+    // (The cast leans into it once the block is staged; vehicles never do.)
+    if (this.present.includes(actor) && !this.vehicleOf.has(actor)) this.leans.push({ walk, run: o.clip === "run" });
     this.busy.push({ actor, t0: abs, t1: abs + d });
     // Walking, one looks where one goes: the gaze and a head turned on its own come back ahead.
     if (Object.values((this.kit.characters[this.characterOf(actor)]?.controls ?? {}) as Record<string, { type: string }>).some((c) => c.type === "aim")) this.push({ at: this.t(abs), actor, action: "lookAt", target: null });
@@ -608,13 +622,15 @@ class BlockScene {
   }
   set(actor: string, channel: string, value: unknown, abs: number, dur = 0, ease?: string) {
     // A limb's angle goes the short way round from where it was (never a full turn of the arm).
-    if (typeof value === "number" && /^bones\.(arm|leg|hand|foot)\w*\.(rotation|turn|spread)$/.test(channel)) {
+    if (typeof value === "number" && LIMB.test(channel)) {
       const key = `${actor}|${channel}`, hist = (this.angles.get(key) ?? this.angles.set(key, []).get(key)!);
       const prev = [...hist].filter((h) => h[0] <= abs + 1e-6).sort((a, b) => a[0] - b[0]).pop();
       if (prev) value = r3(value + 360 * Math.round((prev[1] - value) / 360));
       hist.push([abs + dur, value as number, abs]);
     }
-    this.push({ at: this.t(abs), actor, action: "set", channel, value, duration: r3(dur), ...(ease ? { ease } : {}) });
+    const a: Action = { at: this.t(abs), actor, action: "set", channel, value, duration: r3(dur), ...(ease ? { ease } : {}) };
+    this.push(a);
+    if (this.inArc) this.arcKeys.add(a);
   }
   face(actor: string, dir: "left" | "right", abs: number) {
     // Walking, one faces where one goes: turning the other way waits for the walk to end.
@@ -1182,7 +1198,9 @@ class BlockScene {
     let guess = this.armNow(actor, side, at - dur);
     const solve = (p: [number, number, number]) => (guess = reach3d(doc, `arm${side}1`, `arm${side}2`, p, pose, pole, guess));
     const apply = (v: Rig3dValues, t: number, d: number, ease: string) => {
+      this.inArc = true;
       for (const [b, val] of Object.entries(v)) for (const [k, x] of Object.entries(val)) this.set(actor, `bones.${b}.${k}`, x!, t, d, ease);
+      this.inArc = false;
     };
     // The hand travels from where it is along an arc in front of the body (the arm swings round the
     // front, never through the chest): in-betweens solved again, not angles blended.
@@ -2181,6 +2199,7 @@ class BlockScene {
     this.bendNeck(actor, g.neck, at, dur);
     this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y });
     this.shadow(actor, at, { hide: true }, dur);
+    if (this.anticipation > 0) this.squash(actor, at + dur, { ...g, dir, y });
     this.sfx("fall", at + dur);
     if (this.hasControl(actor, "emotion")) this.push({ at: this.t(at - 0.2), actor, action: "pose", control: "emotion", value: "scared", duration: 0.2 });
     this.push({ at: this.t(at + dur + 0.05), action: "fx", type: "stars", actor });
@@ -2287,6 +2306,7 @@ class BlockScene {
     this.bendNeck(target, g.neck, hitT + fly, 0.2);
     this.shadow(target, hitT, { hide: true }, 0.2);
     this.rests.push({ actor: target, kind: "fallen", on: null, t0: hitT, t1: Infinity, y });
+    if (this.anticipation > 0) this.squash(target, hitT + fly, { ...g, dir: facing, y });
     this.push({ at: this.t(hitT + fly), action: "fx", type: "dust", actor: target, anchor: "origin", scale: 2 });
     this.push({ at: this.t(hitT + fly), action: "fx", type: "stars", actor: target, scale: 1.3 });
     this.push({ at: this.t(hitT + fly), action: "shake", duration: 0.4, amount: 10, frequency: 22 });
@@ -2583,6 +2603,7 @@ class BlockScene {
   }
   /** A little squash on touching down. */
   private touchDown(actor: string, at: number) {
+    if (this.anticipation > 0) return this.squash(actor, at);
     const s = this.scaleOf(actor);
     this.set(actor, "scale", [r3(s * 1.1), r3(s * 0.88)], at, 0.08, "easeOut");
     this.set(actor, "scale", s, at + 0.08, 0.22, "backOut");
@@ -3626,6 +3647,132 @@ class BlockScene {
   }
 
   // -------------------------------------------------- build
+  // -------------------------------------------------- anticipation and settle
+  /** The scene's `animation`: the staging's cartoon timing without what the director stages itself. */
+  private sceneAnimation(): { animation?: Animation } {
+    if (!this.animation) return {};
+    const { anticipation, ...rest } = this.animation;
+    return anticipation === undefined || Object.keys(rest).length ? { animation: rest } : {};
+  }
+  /**
+   * Everything that turns or holds the whole body other than the walks' leans — rotations of the
+   * placement (lying, falls, flights, getting up), sitting, lying, riding or being carried — as
+   * [from, to] intervals (episode time).
+   */
+  private bodyHeld(actor: string): [number, number][] {
+    return [
+      ...this.script.filter((x) => x.action === "set" && x.actor === actor && x.channel === "rotation").map((x) => [x.at + this.t0, x.at + this.t0 + ((x.duration as number | undefined) ?? 0)] as [number, number]),
+      ...this.rests.filter((r) => r.actor === actor).map((r) => [r.t0, r.t1] as [number, number]),
+      ...this.rides.filter((r) => r.rider === actor).map((r) => [r.t0, r.t1] as [number, number]),
+    ];
+  }
+  /**
+   * Walks lean from the feet (the placement's rotation; the origin is between the feet, and a
+   * positive angle turns the top towards +x whatever the flip): a little back before setting off,
+   * into the move while going (more for a run), past upright the other way on arrival and back to
+   * upright. Walks one after the other keep leaning. Nothing of it while something else turns or
+   * holds the body; one that holds it right after the arrival gets it upright first, without the
+   * overshoot.
+   */
+  private leanWalks() {
+    const a = this.anticipation;
+    if (!(a > 0)) return;
+    const PRE = 0.18, INTO = 0.25, OVER = 0.15, SETTLE = 0.3;
+    for (const actor of new Set(this.leans.map((l) => l.walk.actor))) {
+      const held = this.bodyHeld(actor);
+      // (Times are kept to the millisecond: what ends as another starts does not overlap it.)
+      const clear = (from: number, to: number) => !held.some(([p, q]) => p < to - 0.003 && q > from + 0.003);
+      const walks = this.leans
+        .filter((l) => l.walk.actor === actor && Math.abs(l.walk.x1 - l.walk.x0) > 4 && l.walk.t1 - l.walk.t0 > 0.1 && clear(l.walk.t0, l.walk.t1))
+        .sort((p, q) => p.walk.t0 - q.walk.t0);
+      // (The next walk takes the lean over when it starts before this one would have settled.)
+      const chained = (w: Walk, n: Walk | undefined) => !!n && n.t0 - w.t1 < PRE + OVER + SETTLE && clear(w.t1, n.t0);
+      walks.forEach((l, i) => {
+        const w = l.walk, prev = walks[i - 1]?.walk, next = walks[i + 1]?.walk;
+        const dir = Math.sign(w.x1 - w.x0);
+        const into = Math.min(INTO, (w.t1 - w.t0) / 2);
+        if (prev && chained(prev, w)) {
+          // Turning back the other way: from the old lean to this one's wind-up as the first ends.
+          if (Math.sign(prev.x1 - prev.x0) !== dir) {
+            const from = Math.max(prev.t0 + Math.min(INTO, (prev.t1 - prev.t0) / 2), w.t0 - PRE);
+            this.set(actor, "rotation", r3(-dir * 3 * a), from, w.t0 - from, "sineInOut");
+          }
+        } else if (w.t0 - PRE >= this.t0 && clear(w.t0 - PRE, w.t0)) this.set(actor, "rotation", r3(-dir * 3 * a), w.t0 - PRE, PRE, "sineInOut");
+        this.set(actor, "rotation", r3(dir * 5 * a * (l.run ? 1.5 : 1)), w.t0, into, "sineInOut");
+        if (chained(w, next)) return;
+        const stop = held.map(([p]) => p).filter((p) => p >= w.t1 - 0.003 && p < w.t1 + OVER + SETTLE).sort((p, q) => p - q)[0];
+        if (stop === undefined) {
+          this.set(actor, "rotation", r3(-dir * 2.5 * a), w.t1, OVER, "sineInOut");
+          this.set(actor, "rotation", 0, w.t1 + OVER, SETTLE, "sineInOut");
+        } else {
+          const from = Math.max(w.t0 + into, stop - 0.25);
+          this.set(actor, "rotation", 0, from, Math.max(0, stop - from), "sineInOut");
+        }
+      });
+    }
+  }
+  /** The actor's scale as last set by a moment (else its own), and whether it is a single number. */
+  private scaleAt(actor: string, abs: number): { base: [number, number]; single: boolean } {
+    const last = this.script.filter((x) => x.action === "set" && x.actor === actor && x.channel === "scale" && x.at <= this.t(abs) + 1e-6).sort((p, q) => p.at - q.at).pop();
+    const v = (last?.value ?? (this.actors.find((x) => x.id === actor)?.scale as number | [number, number] | undefined) ?? 1) as number | [number, number];
+    return Array.isArray(v) ? { base: [v[0], v[1]], single: false } : { base: [v, v], single: true };
+  }
+  /**
+   * A landing's squash and settle (`animation.anticipation`): wider and shorter on touching the
+   * ground, a little taller after, back to the actor's own scale — about the origin, between the
+   * feet, so the feet stay on the ground. Thrown down lying (`lying`: where the body rests, as
+   * `lying()` gives it), the body flattens across instead and its `y` keeps the back on the ground.
+   * Not over another change of the scale (or, lying, of the height) under way.
+   */
+  private squash(actor: string, at: number, lying?: { rotation: number; contact: [number, number]; dir: number; y: number }) {
+    // A landing squashes fully whenever anticipation is on (the option switches it, it does not
+    // scale it): a small value must never land softer than the plain touch-down it replaces.
+    const a = 1;
+    const END = 0.3;
+    const busy = (channel: string) => this.script.some((x) => x.action === "set" && x.actor === actor && x.channel === channel && x.at + this.t0 < at + END && x.at + this.t0 + ((x.duration as number | undefined) ?? 0) > at + 0.003);
+    if (busy("scale") || (lying && busy("y"))) return;
+    const { base, single } = this.scaleAt(actor, at);
+    const rad = ((lying?.rotation ?? 0) * Math.PI) / 180;
+    // (Lying, the body's own x is across it: the squash is on that axis.)
+    const across = Math.abs(Math.sin(rad)) > 0.7;
+    const keys: [number, [number, number], string][] = [
+      [0.06, [1 + 0.12 * a, 1 - 0.12 * a], "easeOut"],
+      [0.16, [1 - 0.03 * a, 1 + 0.04 * a], "sineInOut"],
+      [END, [1, 1], "sineInOut"],
+    ];
+    // (A pair from here on: a number would step to a pair instead of easing into it.)
+    this.set(actor, "scale", base, at - 0.002, 0);
+    let t = at;
+    for (const [k, [u, v], ease] of keys) {
+      const [kx, ky] = across ? [v, u] : [u, v];
+      this.set(actor, "scale", [r3(base[0] * kx), r3(base[1] * ky)], t, at + k - t, ease);
+      if (lying) {
+        // Where the resting point lands with this scale (as `lying()` places it): kept on the ground.
+        const px = lying.contact[0] * lying.dir * base[0] * kx, py = lying.contact[1] * base[1] * ky;
+        const y = lying.y - (px * Math.sin(rad) + py * Math.cos(rad));
+        this.set(actor, "y", k === END ? Math.round(y) : r3(y), t, at + k - t, ease);
+      }
+      t = at + k;
+    }
+    if (single) this.set(actor, "scale", base[0], at + END + 0.002, 0);
+  }
+  /**
+   * Free moves of the limbs end with an overshoot that settles (`backOut`) from `anticipation` 0.5
+   * (below that they keep their ease): a move of 0.25 s or more eased in and out, not taken over
+   * within 0.1 s of its end. Not `arm3d`'s arcs (timed in-betweens), nor moves eased out into a
+   * contact (sitting, hands on the knees, hiding), nor the short holds.
+   */
+  private settleLimbs() {
+    if (this.anticipation < 0.5) return;
+    const sets = this.script.filter((x) => x.action === "set" && typeof x.channel === "string" && LIMB.test(x.channel));
+    for (const x of sets) {
+      const dur = (x.duration as number | undefined) ?? 0;
+      if (dur < 0.25 || this.arcKeys.has(x) || !(x.ease === undefined || x.ease === "sineInOut" || x.ease === "easeInOut")) continue;
+      if (sets.some((y) => y !== x && y.actor === x.actor && y.channel === x.channel && y.at >= x.at - 1e-6 && y.at <= x.at + dur + 0.1 + 1e-6)) continue;
+      x.ease = "backOut";
+    }
+  }
+
   build(): SceneDoc {
     this.placeCast();
     this.placeVehicles();
@@ -3693,6 +3840,9 @@ class BlockScene {
     this.snores();
     this.dialogue(noTurn);
     this.checkOverlaps();
+    // Anticipation and settle, once every move is known (they keep out of the way of the others).
+    this.leanWalks();
+    this.settleLimbs();
     for (const st of this.propStates.values()) {
       for (const [ch, keys] of [["x", st.x], ["y", st.y], ["scale", st.scale], ["rotation", st.rotation]] as const)
         if (keys.length) this.tracks[`props.${st.id}.${ch}`] = [...keys].sort((a, b) => a[0] - b[0]);
@@ -3720,7 +3870,7 @@ class BlockScene {
       props: this.props,
       tracks: this.tracks,
       ...(this.setDef.lighting ? { lighting: this.sceneLighting() } : {}),
-      ...(this.animation ? { animation: this.animation } : {}),
+      ...this.sceneAnimation(),
       script: [...this.script].sort((a, b) => a.at - b.at),
     } as unknown as SceneDoc;
     if (this.pendingGestures.length) {

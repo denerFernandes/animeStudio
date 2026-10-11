@@ -196,11 +196,15 @@ export interface Music {
 /**
  * Cartoon timing of the characters (the scene's `animation`, FORMAT §3.8): `twos` — frames per
  * drawing (`true` = 2: the classic "on twos"; the camera, free props and lighting stay smooth);
- * `holds` — moving holds, 0..1: a held pose keeps drifting subtly instead of freezing.
+ * `holds` — moving holds, 0..1: a held pose keeps drifting subtly instead of freezing;
+ * `anticipation` — 0..1 (default 0: off): walks lean back before setting off, into the move and
+ * past upright on arrival, landings squash and settle, free limb moves overshoot and settle
+ * (from 0.5). Staged by the director: it never reaches the scene's `animation`.
  */
 export interface Animation {
   twos?: boolean | number;
   holds?: number;
+  anticipation?: number;
 }
 
 export interface Staging {

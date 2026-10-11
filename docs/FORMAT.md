@@ -612,7 +612,7 @@ segments come `punch`, handheld drift, `shake` and `bounds`. All of it is determ
 | Handheld | `handheld: px` (scene camera or action) | Continuous organic drift (position + slight roll). A roll turns every depth by the same angle; screen-fixed items (parallax 0) stay upright |
 | Vertigo / dolly zoom | `dolly: value` | Scales depths relative to the subject plane (parallax 1): `> 0` pushes the background away while the subject keeps its size; screen-fixed items (parallax 0) are left alone; combine with a zoom-in for the classic effect |
 | Depth of field | `blur` (max px), `focus` (parallax depth or an actor/prop/layer id), `focusRange` (0.5) | Items blur by their depth distance from the focus; animate `focus` for a rack focus |
-| Motion blur | `motionBlur: 0..1` (shutter) | Blur proportional to each item's on-screen motion between frames (fast pans, hops) |
+| Motion blur | `motionBlur: 0..1` (shutter) | Blur proportional to each item's on-screen motion between frames (fast pans, hops). For a hand-drawn look use `animation.smear` instead (3.8) |
 | Bounds | scene `camera.bounds: [minX, minY, maxX, maxY]` | The view never shows outside this area |
 | Shake | `shake` action | Seeded noise that fades out |
 
@@ -669,17 +669,19 @@ or audio amplitude — see `@animestudio/lipsync`.
 
 ### 3.8 Cartoon timing
 
-Hand-drawn cartoons hold each drawing for two frames ("on twos"), and a character that holds a
-pose is never completely still. The optional scene `animation` gives you both:
+Hand-drawn cartoons hold each drawing for two frames ("on twos"), a character that holds a pose
+is never completely still, and a fast move is drawn as a smear rather than blurred. The optional
+scene `animation` gives you all three:
 
 ```jsonc
-"animation": { "twos": true, "holds": 0.5 }
+"animation": { "twos": true, "holds": 0.5, "smear": 0.8 }
 ```
 
 | Field | Value | Effect |
 |---|---|---|
 | `twos` | `true` (= 2), or a number 1–4 (default 1 = on ones) | Frames per drawing of the characters. On twos at 24 fps, frames 2k and 2k+1 show the same drawing and the next drawing appears at 2k+2; `3` steps every three frames |
 | `holds` | 0–1 (default 0) | Moving holds: every actor drifts slightly (up to ±1.2 px across, ±0.8 px up and down and ±0.35° at 1), a mix of a slow and a quicker drift seeded by the actor id. It is the same in every render and is never written into the tracks |
+| `smear` | 0–1 (default 0: off) | Smears: a fast-moving actor or flying prop is drawn stretched along its path (up to 1.9× at 1) and thinned across it; a fast-swinging limb, and a prop held in that hand, are drawn as faded multiples at in-between poses. See **Smears** below |
 
 An actor's own `twos` overrides the scene's value: `false` (or 1) keeps that actor smooth (a
 clock, a car), and a number puts just that actor on twos or threes. Its own `holds` overrides the
@@ -701,10 +703,42 @@ then the thrown prop flies smoothly. A grab or release still happens at its own 
 rider on twos follows its mount's drawings, so to keep a rider steady on a smooth vehicle, give
 both the same `twos`.
 
+**Smears.** A hand-drawn cartoon shows a fast move with a smear: the drawing stretched over the
+whole move, or a fast limb drawn several times along it (multiples). With `smear` on, a drawing is
+compared with the actor's previous drawing (`twos` frames earlier: on twos both frames of a drawing
+show the same smear, the smear of the two-frame move). Both are seen through the current camera, so
+a camera move never smears anything.
+
+- **Whole actor.** The actor's origin moves Δ screen px since its previous drawing. Below 6 px
+  nothing happens. Above that, the drawing stretches along Δ by
+  `f = 1 + smear × 0.9 × clamp((|Δ| − 6) / 40, 0, 1)` (at most 1.9×) and thins across it by `1/√f`.
+  The stretch is about the actor's leading point, a quarter of its height ahead of its origin along
+  the move: the front stays where it is and the rest trails back over the path. The held hand drawn
+  over a prop and the parts drawn behind a mount stretch with it. It is a stretch of the whole
+  drawing, so nothing comes apart.
+- **Limbs (multiples).** A fast-swinging arm or leg is not stretched: it is drawn several times (the
+  classic multiple-image smear), so it stays attached at the joint. Each bone's joint and tip are
+  compared with the previous drawing's pose in the actor's own space (the actor's travel is not
+  counted twice); the faster of the two gives the speed s, on screen, in px per drawing, and
+  `q = clamp((s − 8) / 40, 0, 1)`. A part moves as fast as its fastest bone (rigid, switch and morph
+  parts: their bone; hoses and skinned parts: their chain; hulls: their points' bones; solids are not
+  smeared). When `q > 0` the part is also drawn at in-between poses between the previous drawing and
+  the current one — one ghost halfway when `q < 0.5`, else two at ⅓ and ⅔ of the way — evaluated in
+  smooth time (on twos they are real in-betweens, not the held drawing), the nearest at opacity
+  `0.45 × smear × q`, the farther at `0.3 × smear × q`, in the actor's group just before the drawing
+  itself, which is not changed.
+- **Props.** A held prop stretches with its holder's whole body and has as many ghosts as the hand
+  holding it, at the same opacities, each where that in-between hand holds it, drawn just before the
+  prop. A free prop (tracks, rigid body) is smooth, so it is compared with the previous frame and
+  stretches by the whole-actor rule, its leading point half its size ahead (40 px of art at its
+  scale).
+- The first drawing of a scene has nothing to compare with and is never smeared.
+
 **Motion blur** compares each item with the previous frame. For an actor on twos, a held frame
 shows the same drawing as the frame before it, so it gets no motion blur. A frame where the
 drawing changes is compared with the previous drawing, so it gets the blur of the whole
-two-frame move.
+two-frame move. Smears and motion blur can both be on (usually one uses one or the other): the blur
+is measured on the unsmeared move and applied to the smeared drawing.
 
 ---
 

@@ -150,7 +150,7 @@ reaching): its mix is multiplied by `1 − ik mix`.
 | Function | Description |
 |---|---|
 | `compileScene(doc, assets: SceneAssets): CompiledScene` | Compiles actors, props, layers, camera, user tracks, script actions and lighting into tracks and clip instances. Throws `SceneError` with a path |
-| `evaluateScene(scene, t): RenderFrame` | Full frame at time t: layers, actors (with baked physics and shading), props (rigid bodies, grabs), cartoon effects, lighting overlays, sorted by `z` |
+| `evaluateScene(scene, t): RenderFrame` | Full frame at time t: layers, actors (with baked physics and shading), props (rigid bodies, grabs), cartoon effects, lighting overlays, sorted by `z`. With `animation.smear` on, fast actors and free props are drawn stretched along their move and fast limbs (and props held in those hands) get faded ghost copies at in-between poses (FORMAT §3.8): ghost part nodes are keyed `<prefix>g<k>-<part>` just before the main drawing in the same group, ghost props `prop-<id>-g<k>` |
 | `actorPose(scene, actor, t)` | Final pose of an actor (including physics). On twos it is the pose of the drawing shown at t: the pose, its aim and reach targets and the physics sample are all taken at `drawingTime` |
 | `drawingTime(scene, actor, t)` | Time of the drawing an actor shows at t: `t` on ones (`actor.twos` ≤ 1), else `⌊t × fps / n⌋ × n / fps` (on twos, frames 2k and 2k+1 show frame 2k's drawing). Its pose and placement are evaluated at that time; the camera, layers, free props, lighting and audio stay smooth |
 | `inSmoothTime(fn)` | Runs `fn` with every actor on ones and without moving holds — what the bakes do (springs, camera follow/frame, rigid bodies): a simulation reads the motion as authored, its samples are then shown at drawing times |
@@ -166,7 +166,7 @@ reaching): its mix is multiplied by `1 − ik mix`.
 | `cuesToVisemeKeys(cues, offset, blend?)` | Mouth cues → cross-faded viseme weight keys |
 | `frameTime(scene, frame)`, `frameCount(scene)` | Frame ↔ seconds helpers (`frameCount` = ⌈duration × fps⌉ without the extra frame floating point noise would add: 2.2 s × 25 = 55) |
 
-Types: `CompiledScene` (with `animation: { twos, holds }`, the resolved cartoon timing: frames per drawing of the characters and the moving-hold amount), `CompiledActor` (with `twos` and `holds`: the actor's own values, else the scene's), `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
+Types: `CompiledScene` (with `animation: { twos, holds, smear? }`, the resolved cartoon timing: frames per drawing of the characters, the moving-hold amount and, when on, the smear amount), `CompiledActor` (with `twos` and `holds`: the actor's own values, else the scene's), `CompiledActor`, `CompiledProp`, `CompiledLayer`, `CompiledFx`,
 `CompiledTransition`, `SceneAssets`, `AudioEvent`, `Shake`, `Grab`, `RigidBodySampler`,
 `SceneError`.
 
