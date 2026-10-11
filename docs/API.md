@@ -73,7 +73,7 @@ Types: `Rig`, `RigBone`, `RigPart`, `RigClip`, `RigIk`, `RigPhysics`, `RigContro
 
 | Function | Description |
 |---|---|
-| `evaluatePose(rig, input: CharacterInput, resolveAim?): EvaluatedPose` | Pipeline steps 1–7: clips (mixer), direct tracks, pose / viseme controls, behaviors, limits + FK, the 2.5D pose and projection, IK, aim. `input`: `time`, `clips`, `tracks`, `seed`, `aim` overrides, `ikOffset` (extra IK target offsets, e.g. feet on slopes — a 2.5D rig's legs take its height in the side plane). A clip's control value that cannot be blended (a name) switches at half the clip's weight |
+| `evaluatePose(rig, input: CharacterInput, resolveAim?): EvaluatedPose` | Pipeline steps 1–7: clips (mixer), direct tracks, pose / viseme controls, behaviors, limits + FK, the 2.5D pose and projection, IK, aim. `input`: `time`, `clips`, `tracks`, `seed`, `aim` overrides, `ikOffset` (extra IK target offsets, e.g. feet on slopes — a 2.5D rig's legs take its height in the side plane), `variants` (switch part variants set over clips and controls: the scene passes a holding hand's `grip`). A clip's control value that cannot be blended (a name) switches at half the clip's weight |
 | `applyPhysicsSample(rig, pose, sample)` | Step 8: applies a baked physics sample in place |
 | `computeWorld(rig, state, out?)` | Forward kinematics (squash is local: children are not distorted) |
 | `createPoseState(rig)` | Empty channel state |

@@ -1405,6 +1405,28 @@ function groundFeet(actor: CompiledActor, placement: Mat): Record<string, Vec2> 
 const resolvingAim = new Set<CompiledActor>();
 
 /** Pose of an actor before physics. */
+/**
+ * The hand variants of an actor holding props at `t`: every switch part on a holding anchor's bone
+ * shows the variant named after the anchor when it has one (a prop held at `fist`), else its `grip`
+ * (the fingers close around what they hold) — whatever the clips and controls chose for the hand.
+ */
+function holdingVariants(scene: CompiledScene, actor: CompiledActor, t: number): Record<string, string> | undefined {
+  let out: Record<string, string> | undefined;
+  for (const prop of scene.props) {
+    for (const g of prop.grabs) {
+      if (g.actor !== actor.id || t < g.start || t >= g.end) continue;
+      const anchor = actor.rig.anchors[g.anchor];
+      if (!anchor) continue;
+      for (const part of actor.rig.parts) {
+        if (part.type !== "switch" || part.bone !== anchor.bone) continue;
+        const variant = g.anchor in part.variants ? g.anchor : "grip" in part.variants ? "grip" : undefined;
+        if (variant) (out ??= {})[part.id] = variant;
+      }
+    }
+  }
+  return out;
+}
+
 function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): EvaluatedPose {
   const placement = actorPlacement(actor, t);
   const toChar = invert(placement);
@@ -1432,6 +1454,8 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
     // A rig with a `side` control keeps its asymmetric details (a breast pocket, a wristwatch) on the
     // same side of the body when it faces left (the drawing is mirrored).
     ...(actor.rig.controls.side ? { controls: { side: placement[0] * placement[3] - placement[1] * placement[2] < 0 ? "left" : "right" } } : {}),
+    // A hand holding a prop closes around it (its `grip` variant, or the one named after the anchor).
+    variants: holdingVariants(scene, actor, t),
   });
 }
 

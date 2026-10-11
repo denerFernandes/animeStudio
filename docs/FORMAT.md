@@ -199,7 +199,9 @@ Named points attached to bones, used by the script (`lookAt` targets, `grab`, sp
 A rig with a pose control named `side` (`right` / `left`) gets it from the actor's facing every frame
 (`left` when the actor is mirrored): use it to keep asymmetric details on the same side of the body.
 A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
-above the prop: the fingers wrap around it. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
+above the prop: the fingers wrap around it — a `switch` part on that bone shows its `grip` variant
+while the prop is held (or the variant named after the anchor when it has one: a prop held at `fist`),
+over whatever the clips and controls chose for the hand, and goes back to them on release. A `grab` action may `fit` the prop to the body: `fit: [{ point, anchor }, { point, anchor }?]` puts the
 prop's first point (its art's coordinates, scaled and mirrored as the prop is drawn — a flipped prop keeps its
 point on the anchor) on the first anchor, turned so its second point points at the second anchor, every frame; with one point it turns with that anchor's bone. The second entry may be a
 direction instead, `{ point, angle }` (degrees in the actor's frame: 0 forward, -90 up), turning with

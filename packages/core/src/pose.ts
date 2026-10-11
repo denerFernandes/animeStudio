@@ -379,6 +379,11 @@ export interface CharacterInput {
   ikTarget?: Record<string, { point: Vec2; weight: number; from?: Vec2 }>;
   /** Control values set from outside the tracks (the scene sets `side` from the actor's facing). */
   controls?: Record<string, Value>;
+  /**
+   * Switch part variants set from outside the tracks, over clips and controls (the scene shows a
+   * holding hand's `grip` while it holds a prop): part id → variant.
+   */
+  variants?: Record<string, string>;
 }
 
 export interface EvaluatedPose {
@@ -462,6 +467,13 @@ export function evaluatePose(
         }
       }
     }
+  }
+
+  // 4b. Variants set by the scene (a holding hand), over whatever the clips and controls chose.
+  for (const [id, v] of Object.entries(input.variants ?? {})) {
+    const index = rig.partIndex.get(id);
+    const part = index !== undefined ? rig.parts[index] : undefined;
+    if (part?.type === "switch" && v in part.variants) s.variant[index!] = v;
   }
 
   // 5. Behaviors.
