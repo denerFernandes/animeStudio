@@ -247,8 +247,10 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     // same seen tilted (squashed, it would bare the scalp's edges under the hair). The squash is
     // what brings the tip — the bone's length, stretched by its world scale along itself — to the
     // projected length.
+    // (Bounded only against degenerate values: a limb seen end-on squashes to a tenth, a limb drawn
+    // inside a strongly squashed parent may need to stretch many times to reach its projected length.)
     const stretch = Math.hypot(bm[0], bm[1]) || 1;
-    const sq = rest > 1e-6 && limbs.has(B.index) ? clamp(len / (rest * stretch), 0.1, 3) : 1;
+    const sq = rest > 1e-6 && limbs.has(B.index) ? clamp(len / (rest * stretch), 0.1, 20) : 1;
     s.bsq[B.index] = sq - 1;
     basis.set(B.index, bm);
     full.set(B.index, sq === 1 ? bm : multiply(bm, [sq, 0, 0, 1 / sq, 0, 0]));

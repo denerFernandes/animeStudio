@@ -36,6 +36,7 @@ const cases: [string, Record<string, { scaleX?: number; scaleY?: number }>][] = 
   ["unit scales", {}],
   ["a uniformly scaled torso", { body: { scaleX: 1.5, scaleY: 1.5 } }],
   ["unevenly scaled hips (every 3D bone under them)", { hips: { scaleX: 1.5, scaleY: 0.8 } }],
+  ["strongly uneven hips (a limb drawn sideways stretches past 3×)", { hips: { scaleX: 2, scaleY: 0.5 } }],
   ["a limb bone with its own rest scale", { legF1: { scaleX: 1.4 }, armF1: { scaleY: 0.7 } }],
   ["a mirrored parent", { body: { scaleX: -1 } }],
 ];
