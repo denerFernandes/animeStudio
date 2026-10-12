@@ -87,6 +87,8 @@ export interface CartoonLook {
   /** Print on the top (colour `stripe`, default `top2`). */
   pattern?: CartoonPattern;
   stripe?: string;
+  /** Height of each band of a `stripes` print or top, as a fraction of the torso (default 0.13; a football hoop ≈ 0.25). */
+  stripeWidth?: number;
   /** Something in the shirt pocket, sticking out (a small box: a pack of cards, cigarettes…): its colour and top band. */
   pocketItem?: { color: string; band?: string };
   /** Something resting behind the ear: a pencil or a cigarette. */
@@ -606,7 +608,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     switch (look.top) {
       case "stripes":
         if (nearNeck) return "topDark";
-        return Math.floor((yy - torsoTop) / (T * 0.13)) % 2 ? "top2" : "top";
+        return Math.floor((yy - torsoTop) / (T * (look.stripeWidth ?? 0.13))) % 2 ? "top2" : "top";
       case "jersey":
         if (nearNeck || (z > 0 && Math.abs(x) < (torsoTop + T * 0.24 - yy) * 0.5)) return "top2";
         return Math.floor((x + b.S * 2) / (b.S * 0.32)) % 2 ? "top2" : "top";
@@ -647,7 +649,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     // Vertical stripes follow the cloth around the body (the angle around it), not straight x.
     const around = Math.atan2(x, p[2] + b.D * 0.2) * b.S * 0.9 + b.S * 4;
     if (look.pattern === "pinstripes") return Math.abs((around % period) - period / 2) < period * 0.13 ? "stripe" : k;
-    if (look.pattern === "stripes") return Math.floor((yy - torsoTop) / (T * 0.13)) % 2 ? "stripe" : k;
+    if (look.pattern === "stripes") return Math.floor((yy - torsoTop) / (T * (look.stripeWidth ?? 0.13))) % 2 ? "stripe" : k;
     if (look.pattern === "polka") {
       // Dots on a grid around the body (every other row shifted).
       const row = Math.floor((yy - torsoTop) / (period * 1.6)), ax = around + (row % 2) * period * 0.8;
