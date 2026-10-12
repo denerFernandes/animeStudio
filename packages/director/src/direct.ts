@@ -4865,6 +4865,25 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
         }
         if (!covered) coveredFor.delete(`${actor.id}:${other.id}`);
       }
+      // Two characters standing nose to nose: their faces closer than their heads' reach (`extent.front`, scaled) for
+      // more than half a second while still — they need a step between them (a hug or hand in hand brings them close
+      // on purpose: those blocks' beats are skipped).
+      const intimate = (block.beats ?? []).some((b) => ["hug", "hold", "carry", "cradle", "highFive", "give", "hit"].includes(b.do as string));
+      if (intimate) continue;
+      for (const other of sc.actors) {
+        if (other.id <= actor.id || !cast.has(other.id) || opacityAt(other.id, t) <= 0.01 || hidingAt(other.id, t)) continue;
+        const oa = other.rig.anchors.face ? "face" : other.rig.anchors.head ? "head" : undefined;
+        const ma = kit.cast[actor.id], mo = kit.cast[other.id];
+        if (!oa || !ma?.rig || !mo?.rig) continue;
+        const [ox, oy] = anchorPosition(sc, other.id, oa, t);
+        const need = 0.9 * (ma.rig.extent.front * (ma.scale ?? 1) + mo.rig.extent.front * (mo.scale ?? 1));
+        const key = `close:${actor.id}:${other.id}`;
+        if (Math.abs(fx - ox) < need && Math.abs(fy - oy) < need && !moving(actor, t) && !moving(other, t)) {
+          const run = (coveredFor.get(key) ?? 0) + 0.25;
+          coveredFor.set(key, run);
+          if (run > 0.5) report(key, t, `${actor.id} and ${other.id} stand too close (faces ${Math.round(Math.abs(fx - ox))} px apart, at least ${Math.round(need)}): keep a step between them — stop at a mark further away`);
+        } else coveredFor.delete(key);
+      }
     }
   }
   return issues;
