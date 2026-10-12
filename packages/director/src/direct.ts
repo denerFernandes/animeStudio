@@ -4782,6 +4782,23 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
     }
     return artBoxes.get(character)!;
   };
+  // A rig with switch parts (a door open or closed, a gate sliding): only the variant shown at that moment covers.
+  const boxesAt = (other: (typeof sc.actors)[number], t: number) => {
+    const doc = kit.characters[other.def.character] as unknown as { art?: Record<string, string>; parts?: { id: string; art?: string; variants?: Record<string, string>; default?: string; space?: string }[] } | undefined;
+    const parts = (doc?.parts ?? []).filter((p) => p.space !== "bone");
+    if (!parts.some((p) => p.variants)) return boxesOf(other.def.character);
+    const pose = actorPose(sc, other, t);
+    const index = new Map(other.rig.parts.map((p, i) => [p.id, i]));
+    const shown = parts.map((p) => {
+      if (!p.variants) return p.art;
+      const i = index.get(p.id);
+      const v = (i !== undefined ? pose.state.variant[i] : undefined) ?? p.default;
+      return v !== undefined ? p.variants[v] : undefined;
+    }).filter(Boolean) as string[];
+    const key = `${other.def.character}|${shown.join("|")}`;
+    if (!artBoxes.has(key)) artBoxes.set(key, shown.map((a) => (a.trim().startsWith("<") ? a : (doc?.art?.[a] ?? ""))).flatMap(markupBoxes));
+    return artBoxes.get(key)!;
+  };
   // Blankets (a bed's `meta.cover`) are meant to lie over whoever sleeps there, up to the chin.
   const covers = new Set(
     Object.values(kit.furniture ?? {})
@@ -4832,7 +4849,7 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
         let covered = false;
         if (other === actor || cast.has(other.id) || covers.has(other.def.character) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
         const m = actorPlacement(other, t);
-        for (const b of boxesOf(other.def.character)) {
+        for (const b of boxesAt(other, t)) {
           const c = [apply(m, [b[0], b[1]]), apply(m, [b[2], b[3]])];
           const [bx0, bx1] = [Math.min(c[0][0], c[1][0]), Math.max(c[0][0], c[1][0])], [by0, by1] = [Math.min(c[0][1], c[1][1]), Math.max(c[0][1], c[1][1])];
           if (fx > bx0 && fx < bx1 && fy > by0 && fy < by1) {
