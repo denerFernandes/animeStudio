@@ -289,10 +289,12 @@ picture — half of it peeking out as a crescent, a stump of forearm cut off at 
 face clearance, an arm clearly behind the torso (its upper arm farther than the torso's middle by more
 than 2 × `torsoGap`), hanging down (the wrist well below the elbow) and not held on a target, whose
 centre line (the middle of the upper arm, the elbow, the middle of the forearm, near the wrist) has a
-point on the outline — outside the outline shrunk by the gap, inside it grown by the gap — has its
-upper bone's `spread` turned the least that leaves none there: out (shown clear beside the torso) or in
-(tucked behind it), at most 20°, searched in 0.5° steps and bisected. Where both ways are about as near
-(within 4°) the two are blended with a smoothstep, so the turn never jumps between frames.
+point on the outline — outside the outline shrunk by the gap, inside it grown by the gap — is squeezed
+towards the nearer edge of that band, continuously: with tOut and tIn the least `spread` turns that
+show it clear beside the torso or tuck it behind (0.5° steps, bisected), x = tIn / (tIn + tOut) is
+mapped through an S-curve (power 3) and the arm turned by the difference × (tIn + tOut). A still arm
+hardly lies on the outline; a swinging one (a walk) crosses it quickly but never jumps between
+frames. A band wider than 36° (neither way near) fades out of the rule.
 
 **Face clearance.** After the 3D pose and the 3D reaches every arm is kept off the face, in two
 stages. An arm is a `chains` entry whose last bone and that bone's 3D parent make a two-bone limb

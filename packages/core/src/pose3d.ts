@@ -506,10 +506,10 @@ const FACE_STEP = 2;
  * `strength` and written into the pose. Returns whether the arm was moved.
  */
 /** The most an arm swings out or in to clear the torso's outline (degrees of `spread`), and the step. */
-const TORSO_TURN = 20;
+const TORSO_TURN = 36;
 const TORSO_STEP = 0.5;
-/** Degrees over which the turn blends between out and in when both are about as near. */
-const TORSO_BLEND = 4;
+/** How hard an arm on the torso's outline is squeezed towards the nearer edge (the S-curve's power). */
+const TORSO_SQUEEZE = 3;
 
 /**
  * The torso clearance for one arm (`rig3d.torso`, `torsoGap` = r): its centre line sampled — the middle
@@ -590,12 +590,17 @@ function clearTorso(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V
     return Infinity;
   };
   const tOut = least(outDir), tIn = least(-outDir);
-  if (!Number.isFinite(tOut) && !Number.isFinite(tIn)) return false;
-  // The nearer way wins; where both are about as near the two are blended (the arm crosses the
-  // outline in between), so the turn never jumps from one way to the other between frames.
-  const a = Number.isFinite(tOut) ? tOut : TORSO_TURN * 2, b = Number.isFinite(tIn) ? tIn : TORSO_TURN * 2;
-  const u = clamp((b - a) / TORSO_BLEND + 0.5, 0, 1), w = u * u * (3 - 2 * u);
-  s.bspread[Ub.index] = sp0 + outDir * (w * a - (1 - w) * b);
+  if (!Number.isFinite(tOut) || !Number.isFinite(tIn)) return false;
+  // Continuous: x, where the arm is across the band (0: just tucked behind, 1: just clear), is
+  // squeezed towards the nearer edge (x' = an S-curve of x), so a still arm hardly lies on the
+  // outline, and a swinging one crosses it quickly but never jumps; a wide band (an arm far from
+  // both ways out) fades out of the rule.
+  const span = tOut + tIn, x = tIn / span;
+  const xs = x < 0.5 ? 0.5 * (2 * x) ** TORSO_SQUEEZE : 1 - 0.5 * (2 * (1 - x)) ** TORSO_SQUEEZE;
+  const fade = clamp((TORSO_TURN - span) / (TORSO_TURN * 0.35), 0, 1);
+  const turn = (xs - x) * span * fade;
+  if (Math.abs(turn) < 1e-6) return false;
+  s.bspread[Ub.index] = sp0 + outDir * turn;
   return true;
 }
 
