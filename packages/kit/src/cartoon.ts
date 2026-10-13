@@ -1572,6 +1572,13 @@ function legsSolid(m: Model, look: CartoonLook, j: Record<string, P>, calf = 1.1
         { from: pt(`leg${side}1`, 0.05), to: pt(`leg${side}1`, long ? 1 : 0.9), r: [r(thigh[0] + 5), r(kneeR)] },
         ...(long ? [{ from: pt(`leg${side}2`), to: pt(`leg${side}2`, 0.72), r: [r(kneeR), r(kneeR + b.H * 0.3)] }] : []),
       ]),
+      // One cloth, not two trouser legs: it spans the gap between the legs as they part (a stride,
+      // a step to the side) — across the thighs, at the knees and, long, at the hem.
+      ...[
+        [`legF1`, `legB1`, 0.5, thigh[0] + 5],
+        [`legF1`, `legB1`, long ? 1 : 0.9, kneeR],
+        ...(long ? [[`legF2`, `legB2`, 0.4, kneeR + b.H * 0.12], [`legF2`, `legB2`, 0.72, kneeR + b.H * 0.3]] : []),
+      ].map(([a, c, t, rad]) => ({ from: pt(a as string, t as number), to: pt(c as string, t as number), r: [r(rad as number), r(rad as number)] })),
     ] });
   }
   return { id: "legs", type: "solid", step: 2, bodies };
