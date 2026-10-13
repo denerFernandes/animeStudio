@@ -353,6 +353,11 @@ export const ToonSchema = z.strictObject({
         .array(z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]), radii: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]) }))
         .optional()
         .describe("Ellipsoids on bones (offset from the joint, body space; radii) a reached hand never goes into: the torso, the head"),
+      torso: z
+        .array(z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]), radii: z.tuple([z.number().positive(), z.number().positive(), z.number().positive()]) }))
+        .optional()
+        .describe("The torso as drawn (ellipsoids on bones, like keepOut) for the torso clearance: a far arm never lies along its outline in the picture"),
+      torsoGap: z.number().positive().optional().describe("The torso clearance: an arm's half width (rig units)"),
       points: z
         .record(z.string(), z.strictObject({ bone: z.string(), at: z.tuple([z.number(), z.number(), z.number()]).describe("Offset from the bone's rest joint, body space") }))
         .optional()

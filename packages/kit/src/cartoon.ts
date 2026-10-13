@@ -1969,6 +1969,10 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
       front: "handB",
       back: "shadow",
+      // The torso as drawn (its occluder's ellipsoids) and the arm's half width: a far arm never lies
+      // along the torso's outline in the picture (the torso clearance).
+      torso: ((torsoOccluder(m, look).shapes as { from?: { at: number[] }; ellipsoid?: number[] }[]) ?? []).filter((x) => x.ellipsoid).map((x) => ({ bone: "body", at: x.from!.at, radii: x.ellipsoid! })),
+      torsoGap: r((b.arm[0] + b.arm[1]) * 0.25),
       // Where a reached hand never goes: into the torso or the head, as drawn (a hand's half thickness
       // out of them).
       keepOut: [

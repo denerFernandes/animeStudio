@@ -283,6 +283,17 @@ the director's 3D reaches go (a hand taking something from the mouth, holding it
 (the torso, the head — the kit's cartoon rigs make them from the drawn volumes, the cranium with its
 hair, the face and the torso, grown by a hand's half thickness).
 
+**Torso clearance.** With `torso` (ellipsoids on bones, like `keepOut`: the torso as drawn) and
+`torsoGap` (an arm's half width, rig units), a far arm never lies along the torso's outline in the
+picture — half of it peeking out as a crescent, a stump of forearm cut off at the waist. After the
+face clearance, an arm clearly behind the torso (its upper arm farther than the torso's middle by more
+than 2 × `torsoGap`), hanging down (the wrist well below the elbow) and not held on a target, whose
+centre line (the middle of the upper arm, the elbow, the middle of the forearm, near the wrist) has a
+point on the outline — outside the outline shrunk by the gap, inside it grown by the gap — has its
+upper bone's `spread` turned the least that leaves none there: out (shown clear beside the torso) or in
+(tucked behind it), at most 20°, searched in 0.5° steps and bisected. Where both ways are about as near
+(within 4°) the two are blended with a smoothstep, so the turn never jumps between frames.
+
 **Face clearance.** After the 3D pose and the 3D reaches every arm is kept off the face, in two
 stages. An arm is a `chains` entry whose last bone and that bone's 3D parent make a two-bone limb
 that is not a leg; the keep-outs it is kept off are those on bones that are neither an ancestor of

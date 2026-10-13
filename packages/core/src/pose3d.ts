@@ -46,6 +46,9 @@ export interface CompiledRig3d {
    * of the limb's root (the torso's, on `body`, which the shoulder hangs from) nor in the limb itself.
    */
   clear: { upper: number; lower: number; keepOut: number[] }[];
+  /** The torso as drawn (`rig3d.torso`: ellipsoids on 3D bones) and an arm's half width (`torsoGap`), for the torso clearance. */
+  torso: { bone: number; at: V3; radii: V3 }[];
+  torsoGap?: number;
 }
 
 /**
@@ -70,7 +73,7 @@ function sidePlaneChains(ik: RigIk[], bones: CompiledRig3d["bones"], byIndex: Ma
   return out;
 }
 
-export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex"> & { ik?: RigIk[] }, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string; limb?: boolean }[]; front?: string; back?: string; body?: string[]; keepOut?: { bone: string; at: V3; radii: V3 }[] }): CompiledRig3d {
+export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex"> & { ik?: RigIk[] }, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string; limb?: boolean }[]; front?: string; back?: string; body?: string[]; keepOut?: { bone: string; at: V3; radii: V3 }[]; torso?: { bone: string; at: V3; radii: V3 }[]; torsoGap?: number }): CompiledRig3d {
   const listed = new Set(Object.keys(def.bones));
   const bones: CompiledRig3d["bones"] = [];
   const byIndex = new Map<number, number>();
@@ -104,6 +107,10 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     const ks = keepOut.flatMap((k, i) => (ancestorOrSelf(k.bone, upper) || ancestorOrSelf(upper, k.bone) ? [] : [i]));
     if (ks.length) clear.push({ upper, lower, keepOut: ks });
   }
+  const torso = (def.torso ?? []).flatMap((k) => {
+    const b = bi(k.bone);
+    return b !== undefined && byIndex.has(b) ? [{ bone: b, at: k.at, radii: k.radii }] : [];
+  });
   return {
     bones,
     byIndex,
@@ -116,6 +123,8 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     sideIk,
     keepOut,
     clear,
+    torso,
+    ...(def.torsoGap ? { torsoGap: def.torsoGap } : {}),
   };
 }
 
@@ -354,6 +363,12 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       clear3d(cl);
     }
   });
+  // The torso clearance, in the picture: a far arm never lies along the torso's drawn outline (half
+  // of it peeking out as a crescent, a stump of forearm cut off at the waist): it swings out or in,
+  // the least that shows it clear of the torso or tucks it behind, wherever it is along it.
+  // (An arm held on a target — a reach, a grip — goes where it is held.)
+  const held = new Set(rig.ik.flatMap((k, c) => (ik3d.includes(c) || ikTargets?.[k.id] ? k.bones : [])));
+  if (r3.torso.length && r3.torsoGap) for (const cl of r3.clear) if (!held.has(cl.lower) && clearTorso(rig, r3, s, rot, pos, cl, yaw, pitch)) fk();
   const depth = new Map<number, number>(), tipDepth = new Map<number, number>(), tipView = new Map<number, V3>();
   const limbs = new Set(r3.chains.flatMap((c) => (c.limb === false ? [] : c.bones)));
   // Desired world (unsquashed basis + squash) of each 3D bone, set into the 2D state in rig order.
@@ -490,6 +505,100 @@ const FACE_STEP = 2;
  * hand crosses the middle of the head the side switches, a jump). The change is scaled by
  * `strength` and written into the pose. Returns whether the arm was moved.
  */
+/** The most an arm swings out or in to clear the torso's outline (degrees of `spread`), and the step. */
+const TORSO_TURN = 20;
+const TORSO_STEP = 0.5;
+/** Degrees over which the turn blends between out and in when both are about as near. */
+const TORSO_BLEND = 4;
+
+/**
+ * The torso clearance for one arm (`rig3d.torso`, `torsoGap` = r): its centre line sampled — the middle
+ * of the upper arm, the elbow, the middle of the forearm, the wrist — against the torso's drawn
+ * outlines in the picture. A sample is clear when it is outside every outline grown by r (the arm's
+ * edge outside the torso), covered when it is inside one shrunk by r (the arm wholly behind it there),
+ * and on the outline otherwise. An arm behind the torso (its upper arm farther than the torso's
+ * middle: the far arm) hanging down (the wrist well below the elbow), not held on a target, with a
+ * sample on the outline has its upper bone's `spread` turned by the least
+ * (in `TORSO_STEP`s, either way, at most `TORSO_TURN`; outward on a tie) that leaves none on it.
+ */
+function clearTorso(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V3[], cl: CompiledRig3d["clear"][number], yaw: number, pitch: number): boolean {
+  const ia = r3.byIndex.get(cl.upper)!, ib = r3.byIndex.get(cl.lower)!;
+  const Ub = r3.bones[ia], Lb = r3.bones[ib], gap = r3.torsoGap!;
+  const outline = (R: number[], at: V3, j: number, rad: V3) => {
+    const c = viewPoint(add3(pos[j], mv(R, at)), yaw, pitch);
+    let A = 0, B = 0, C = 0;
+    for (let m = 0; m < 3; m++) {
+      const a = viewPoint([R[m] * rad[m], R[3 + m] * rad[m], R[6 + m] * rad[m]], yaw, pitch);
+      A += a[0] * a[0]; B += a[0] * a[1]; C += a[1] * a[1];
+    }
+    const det = A * C - B * B || 1e-9;
+    const n11 = C / det, n12 = -B / det, n22 = A / det, w11 = Math.sqrt(n11), w12 = n12 / w11, w22 = Math.sqrt(Math.max(1e-12, n22 - n12 * w12));
+    return { c, w11, w12, w22 };
+  };
+  const shapes = r3.torso.map((k) => {
+    const j = r3.byIndex.get(k.bone)!, R = rot[j];
+    return {
+      grown: outline(R, k.at, j, [k.radii[0] + gap, k.radii[1] + gap, k.radii[2] + gap]),
+      shrunk: outline(R, k.at, j, [Math.max(1, k.radii[0] - gap), Math.max(1, k.radii[1] - gap), Math.max(1, k.radii[2] - gap)]),
+    };
+  });
+  const norm = (o: ReturnType<typeof outline>, v: V3) => {
+    const x = v[0] - o.c[0], y = v[1] - o.c[1];
+    return Math.hypot(o.w11 * x + o.w12 * y, o.w22 * y);
+  };
+  const onOutline = (p: V3) => {
+    const v = viewPoint(p, yaw, pitch);
+    const clear = shapes.every((sh) => norm(sh.grown, v) >= 1), covered = shapes.some((sh) => norm(sh.shrunk, v) <= 1);
+    return !clear && !covered;
+  };
+  const P = Ub.parent < 0 ? I3 : rig.bones[Ub.index].inheritRotation ? rot[r3.byIndex.get(Ub.parent)!] : rot[0];
+  const r0 = s.brot[Ub.index], sp0 = s.bspread[Ub.index], t0 = s.bturn[Ub.index] * DEG;
+  const local2 = mul(mul(ry(s.bturn[Lb.index] * DEG), rz(s.bspread[Lb.index] * DEG)), rx(s.brot[Lb.index] * DEG));
+  const e1 = sub3(Lb.from, Ub.from), e2 = sub3(Lb.to, Lb.from), S = pos[ia];
+  const samples = (sp: number): V3[] => {
+    const R1 = mul(P, mul(ry(t0), mul(rz(sp * DEG), rx(r0 * DEG))));
+    const E = add3(S, mv(R1, e1));
+    const H = add3(E, mv(mul(rig.bones[Lb.index].inheritRotation ? R1 : rot[0], local2), e2));
+    return [lerp3(S, E, 0.5), E, lerp3(E, H, 0.5), lerp3(E, H, 0.9)];
+  };
+  const pts = samples(sp0);
+  // (Only an arm hanging down — the wrist below the elbow, y down: a hand at the face, raised or
+  // brought up to the chest is left as it is.)
+  if (!(pts[3][1] > pts[1][1] + 0.25 * Math.hypot(...e2))) return false;
+  const middle = shapes.reduce((a, sh) => a + sh.grown.c[2], 0) / shapes.length;
+  // (Clearly behind: an arm level with the torso — at its side, seen from the front — is not.)
+  if (!(viewPoint(pts[0], yaw, pitch)[2] < middle - 2 * gap)) return false;
+  if (!pts.some(onOutline)) return false;
+  // The least turn either way that leaves no sample on the outline: out (the arm shown clear of the
+  // torso) and in (tucked behind it).
+  const free = (sp: number) => !samples(sp).some(onOutline);
+  const cx = shapes.reduce((a, sh) => a + sh.grown.c[0], 0) / shapes.length;
+  const away = (sp: number) => Math.abs(viewPoint(samples(sp)[3], yaw, pitch)[0] - cx);
+  const outDir = away(sp0 + 1) >= away(sp0 - 1) ? 1 : -1;
+  const least = (dir: number) => {
+    let lo = 0;
+    for (let t = TORSO_STEP; t <= TORSO_TURN + 1e-9; t += TORSO_STEP) {
+      if (!free(sp0 + dir * t)) { lo = t; continue; }
+      let hi = t;
+      for (let k = 0; k < 10; k++) {
+        const m = (lo + hi) / 2;
+        if (free(sp0 + dir * m)) hi = m;
+        else lo = m;
+      }
+      return hi;
+    }
+    return Infinity;
+  };
+  const tOut = least(outDir), tIn = least(-outDir);
+  if (!Number.isFinite(tOut) && !Number.isFinite(tIn)) return false;
+  // The nearer way wins; where both are about as near the two are blended (the arm crosses the
+  // outline in between), so the turn never jumps from one way to the other between frames.
+  const a = Number.isFinite(tOut) ? tOut : TORSO_TURN * 2, b = Number.isFinite(tIn) ? tIn : TORSO_TURN * 2;
+  const u = clamp((b - a) / TORSO_BLEND + 0.5, 0, 1), w = u * u * (3 - 2 * u);
+  s.bspread[Ub.index] = sp0 + outDir * (w * a - (1 - w) * b);
+  return true;
+}
+
 function clearPicture(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V3[], cl: CompiledRig3d["clear"][number], yaw: number, pitch: number, strength: number): boolean {
   const ia = r3.byIndex.get(cl.upper)!, ib = r3.byIndex.get(cl.lower)!;
   const Ub = r3.bones[ia], Lb = r3.bones[ib];

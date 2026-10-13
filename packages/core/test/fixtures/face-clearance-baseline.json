@@ -1,71 +1,71 @@
 {
- "note": "Captured from the committed code (e6cf558) before the 3D reaches and the face clearance: the face-touching gestures' hands (2D joints of handF / handB) and a hash of the 3D bones' matrices over a walk cycle.",
+ "note": "Captured from the committed code (e6cf558) before the 3D reaches and the face clearance: the face-touching gestures' hands (2D joints of handF / handB) and a hash of the 3D bones' matrices over a walk cycle. Updated for the torso clearance (a far arm hanging along the torso's outline swings clear of it): the far hands (handB) where they hang, and the walk.",
  "tito": {
-  "walk": "73623fe8:64",
+  "walk": "880c66f3:64",
   "gestures": {
    "facepalm/profile/0/handF": [
     -19.72,
     -97.748
    ],
    "facepalm/profile/0/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "facepalm/profile/0.13/handF": [
     45.229,
     -178.864
    ],
    "facepalm/profile/0.13/handB": [
-    35.296,
-    -96.371
+    19.429,
+    -96.847
    ],
    "facepalm/profile/0.27/handF": [
     50.212,
     -282.952
    ],
    "facepalm/profile/0.27/handB": [
-    35.267,
-    -96.362
+    19.079,
+    -96.877
    ],
    "facepalm/profile/0.4/handF": [
     57.55,
     -288.853
    ],
    "facepalm/profile/0.4/handB": [
-    35.267,
-    -96.362
+    19.079,
+    -96.877
    ],
    "facepalm/profile/0.5/handF": [
     58.061,
     -285.475
    ],
    "facepalm/profile/0.5/handB": [
-    35.267,
-    -96.362
+    19.079,
+    -96.877
    ],
    "facepalm/profile/0.63/handF": [
     57.751,
     -285.536
    ],
    "facepalm/profile/0.63/handB": [
-    35.267,
-    -96.362
+    19.079,
+    -96.877
    ],
    "facepalm/profile/0.77/handF": [
     57.612,
     -239.262
    ],
    "facepalm/profile/0.77/handB": [
-    35.267,
-    -96.362
+    19.079,
+    -96.877
    ],
    "facepalm/profile/0.9/handF": [
     33.556,
     -158.499
    ],
    "facepalm/profile/0.9/handB": [
-    36.746,
-    -96.914
+    39.476,
+    -97.119
    ],
    "facepalm/half/0/handF": [
     -31.887,
@@ -264,64 +264,64 @@
     -263.691
    ],
    "think/profile/0/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.13/handF": [
     40.951,
     -263.691
    ],
    "think/profile/0.13/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.27/handF": [
     40.951,
     -263.689
    ],
    "think/profile/0.27/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.4/handF": [
     40.95,
     -263.688
    ],
    "think/profile/0.4/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.5/handF": [
     40.949,
     -263.686
    ],
    "think/profile/0.5/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.63/handF": [
     40.949,
     -263.684
    ],
    "think/profile/0.63/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.77/handF": [
     40.948,
     -263.683
    ],
    "think/profile/0.77/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/profile/0.9/handF": [
     40.948,
     -263.682
    ],
    "think/profile/0.9/handB": [
-    39.595,
-    -98.338
+    64.829,
+    -103.605
    ],
    "think/half/0/handF": [
     14.489,
@@ -776,64 +776,64 @@
     -260.739
    ],
    "phone/profile/0/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.13/handF": [
     -15.84,
     -260.739
    ],
    "phone/profile/0.13/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.27/handF": [
     -15.842,
     -260.738
    ],
    "phone/profile/0.27/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.4/handF": [
     -15.844,
     -260.737
    ],
    "phone/profile/0.4/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.5/handF": [
     -15.846,
     -260.736
    ],
    "phone/profile/0.5/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.63/handF": [
     -15.848,
     -260.735
    ],
    "phone/profile/0.63/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.77/handF": [
     -15.85,
     -260.734
    ],
    "phone/profile/0.77/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/profile/0.9/handF": [
     -15.851,
     -260.734
    ],
    "phone/profile/0.9/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "phone/half/0/handF": [
     -35.085,
@@ -1032,64 +1032,64 @@
     -97.748
    ],
    "drink/profile/0/handB": [
-    38.529,
-    -97.748
+    60.061,
+    -101.732
    ],
    "drink/profile/0.13/handF": [
     41.514,
     -194.405
    ],
    "drink/profile/0.13/handB": [
-    40.299,
-    -98.767
+    65.006,
+    -103.863
    ],
    "drink/profile/0.27/handF": [
     42.331,
     -286.602
    ],
    "drink/profile/0.27/handB": [
-    41.329,
-    -99.452
+    65.229,
+    -104.284
    ],
    "drink/profile/0.4/handF": [
     41.683,
     -288.031
    ],
    "drink/profile/0.4/handB": [
-    41.542,
-    -99.602
+    65.278,
+    -104.38
    ],
    "drink/profile/0.5/handF": [
     41.23,
     -289.48
    ],
    "drink/profile/0.5/handB": [
-    41.63,
-    -99.665
+    65.299,
+    -104.421
    ],
    "drink/profile/0.63/handF": [
     40.735,
     -290.907
    ],
    "drink/profile/0.63/handB": [
-    41.68,
-    -99.701
+    65.31,
+    -104.444
    ],
    "drink/profile/0.77/handF": [
     48.703,
     -280.277
    ],
    "drink/profile/0.77/handB": [
-    41.688,
-    -99.707
+    65.313,
+    -104.449
    ],
    "drink/profile/0.9/handF": [
     34.548,
     -173.965
    ],
    "drink/profile/0.9/handB": [
-    39.84,
-    -98.484
+    64.914,
+    -103.7
    ],
    "drink/half/0/handF": [
     -31.887,
@@ -1286,71 +1286,71 @@
   }
  },
  "kid": {
-  "walk": "6af042d9:64",
+  "walk": "e0e35c76:64",
   "gestures": {
    "facepalm/profile/0/handF": [
     -20.998,
     -126.006
    ],
    "facepalm/profile/0/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "facepalm/profile/0.13/handF": [
     46.648,
     -221.16
    ],
    "facepalm/profile/0.13/handB": [
-    35.737,
-    -124.703
+    39.357,
+    -124.888
    ],
    "facepalm/profile/0.27/handF": [
     62.246,
     -342.357
    ],
    "facepalm/profile/0.27/handB": [
-    35.701,
-    -124.695
+    39.002,
+    -124.858
    ],
    "facepalm/profile/0.4/handF": [
     51.777,
     -350.428
    ],
    "facepalm/profile/0.4/handB": [
-    35.701,
-    -124.695
+    39.002,
+    -124.858
    ],
    "facepalm/profile/0.5/handF": [
     51.996,
     -349.463
    ],
    "facepalm/profile/0.5/handB": [
-    35.701,
-    -124.695
+    39.002,
+    -124.858
    ],
    "facepalm/profile/0.63/handF": [
     51.664,
     -346.739
    ],
    "facepalm/profile/0.63/handB": [
-    35.701,
-    -124.695
+    39.002,
+    -124.858
    ],
    "facepalm/profile/0.77/handF": [
     60.701,
     -295.006
    ],
    "facepalm/profile/0.77/handB": [
-    35.701,
-    -124.695
+    39.002,
+    -124.858
    ],
    "facepalm/profile/0.9/handF": [
     35.066,
     -197.768
    ],
    "facepalm/profile/0.9/handB": [
-    37.559,
-    -125.194
+    55.405,
+    -127.315
    ],
    "facepalm/half/0/handF": [
     -33.432,
@@ -1549,64 +1549,64 @@
     -327.435
    ],
    "think/profile/0/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.13/handF": [
     34.523,
     -327.435
    ],
    "think/profile/0.13/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.27/handF": [
     34.524,
     -327.435
    ],
    "think/profile/0.27/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.4/handF": [
     34.526,
     -327.435
    ],
    "think/profile/0.4/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.5/handF": [
     34.528,
     -327.435
    ],
    "think/profile/0.5/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.63/handF": [
     34.53,
     -327.435
    ],
    "think/profile/0.63/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.77/handF": [
     34.532,
     -327.436
    ],
    "think/profile/0.77/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/profile/0.9/handF": [
     34.533,
     -327.436
    ],
    "think/profile/0.9/handB": [
-    41.155,
-    -126.604
+    67.181,
+    -130.79
    ],
    "think/half/0/handF": [
     12.21,
@@ -2061,64 +2061,64 @@
     -323.676
    ],
    "phone/profile/0/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.13/handF": [
     -13.68,
     -323.676
    ],
    "phone/profile/0.13/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.27/handF": [
     -13.681,
     -323.676
    ],
    "phone/profile/0.27/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.4/handF": [
     -13.683,
     -323.676
    ],
    "phone/profile/0.4/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.5/handF": [
     -13.684,
     -323.676
    ],
    "phone/profile/0.5/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.63/handF": [
     -13.686,
     -323.676
    ],
    "phone/profile/0.63/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.77/handF": [
     -13.687,
     -323.676
    ],
    "phone/profile/0.77/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/profile/0.9/handF": [
     -13.688,
     -323.676
    ],
    "phone/profile/0.9/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "phone/half/0/handF": [
     -30.481,
@@ -2317,64 +2317,64 @@
     -126.006
    ],
    "drink/profile/0/handB": [
-    39.807,
-    -126.006
+    66.276,
+    -130.298
    ],
    "drink/profile/0.13/handF": [
     41.095,
     -239.248
    ],
    "drink/profile/0.13/handB": [
-    42.047,
-    -127.048
+    67.531,
+    -131.088
    ],
    "drink/profile/0.27/handF": [
     34.449,
     -347.053
    ],
    "drink/profile/0.27/handB": [
-    43.355,
-    -127.768
+    68.066,
+    -131.602
    ],
    "drink/profile/0.4/handF": [
     33.684,
     -348.151
    ],
    "drink/profile/0.4/handB": [
-    43.624,
-    -127.928
+    68.178,
+    -131.719
    ],
    "drink/profile/0.5/handF": [
     33.224,
     -349.313
    ],
    "drink/profile/0.5/handB": [
-    43.737,
-    -127.995
+    68.226,
+    -131.769
    ],
    "drink/profile/0.63/handF": [
     32.806,
     -350.632
    ],
    "drink/profile/0.63/handB": [
-    43.8,
-    -128.033
+    68.253,
+    -131.797
    ],
    "drink/profile/0.77/handF": [
     41.15,
     -335.72
    ],
    "drink/profile/0.77/handB": [
-    43.811,
-    -128.04
+    68.257,
+    -131.802
    ],
    "drink/profile/0.9/handF": [
     35.457,
     -215.365
    ],
    "drink/profile/0.9/handB": [
-    41.465,
-    -126.754
+    67.302,
+    -130.889
    ],
    "drink/half/0/handF": [
     -33.432,
