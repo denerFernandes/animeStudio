@@ -538,6 +538,7 @@ export const CordSchema = z
 export const PropSchema = z.strictObject({
   id: z.string(),
   art: z.string(),
+  back: z.string().optional().describe("The prop's other side (a phone's case behind its screen), drawn as seen from behind: shown instead of `art` while a grab's `fit` with `face` turns the front (`art`) away from the camera"),
   body: BodySchema.optional(),
   ground: GroundRef.optional(),
   cord: CordSchema.optional(),
@@ -671,6 +672,7 @@ export const ActionSchema = z.discriminatedUnion("action", [
     action: z.literal("grab"),
     prop: z.string(),
     anchor: z.string(),
+    also: z.array(z.string()).optional().describe("Other anchors whose hands hold it too (a two-handed hold: a phone in both thumbs, a tray): their hands are drawn over it like the holding hand's"),
     fit: z
       .array(
         z.union([
@@ -684,6 +686,8 @@ export const ActionSchema = z.discriminatedUnion("action", [
             point: Vec2Schema,
             dir: z.tuple([z.number(), z.number(), z.number()]).describe("Second point only (2.5D rigs): the direction from the first point to this one in body space (x right, y down, z towards the viewer seen from the front), projected for the view every frame — the prop turns and foreshortens (along its x axis) as the body or head turns"),
             view: z.string().optional().describe("The pose control whose view the direction is seen in (default `view`; `head` for something on a head turned on its own)"),
+            fixed: z.boolean().optional().describe("Keep the direction in the body's frame, not turning with the first anchor's bone (a phone held upright in front of the face, however the wrist bends)"),
+            face: z.tuple([z.number(), z.number(), z.number()]).optional().describe("A flat prop (a phone, a book, a card): the direction its front (`art`, the screen) faces, body space like `dir` (towards the eyes for a phone being looked at). Seen from the current view, it is foreshortened across its axis by how squarely the front faces the camera (never thinner than its edge) and shows its `back` art while the front faces away; the holding hand wraps over the back and stays behind the front"),
           }),
         ]),
       )

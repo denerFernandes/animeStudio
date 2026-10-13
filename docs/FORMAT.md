@@ -220,7 +220,14 @@ the first anchor's bone — or, with `fixed: true`, not (a cigarette held uprigh
 On a 2.5D rig it may be a 3D direction, `{ point, dir: [x, y, z], view? }` (body space: z towards the
 viewer seen from the front), projected every frame for the view named by the control `view` (default
 `"view"`; `"head"` for a head turned on its own): the prop turns and foreshortens (along its x axis)
-as the head turns — a cigarette on the lips points at the camera from the front, sideways in profile. A `reach` target can be a
+as the head turns — a cigarette on the lips points at the camera from the front, sideways in profile. With `fixed: true` the 3D
+direction stays in the body's frame instead of turning with the first anchor's bone (a phone held upright
+in front of the face however the wrist bends). With `face: [x, y, z]` (body space, like `dir`) the prop
+is **flat and two-sided** (a phone, a book, a card): `face` is where its front (`art`) faces — towards the
+eyes for something being looked at. Seen from the current view it is foreshortened across its axis by
+how squarely the front faces the camera (never thinner than its edge, 0.3 of its width: thicker than life, to read), shows the prop's
+`back` art (drawn as seen from behind: a phone's case) while the front faces away, and the holding hand
+is drawn over the back (the fingers wrap it) but behind the front. A prop held in a hand that a 2.5D rig draws behind its body (seen from behind, a phone in front of the chest) is drawn behind the body too. A `reach` target can be a
 prop's point (`{ prop, point, from? }`), even on a prop fitted to the reaching actor's own body (a hand
 holding the phone at its ear); `from` (degrees in the actor's frame: 0 forward, 90 from below) is where
 the forearm comes from — the elbow goes there, the upper arm foreshortened when the hand is close to
@@ -288,7 +295,7 @@ hair, the face and the torso, grown by a hand's half thickness).
 picture — half of it peeking out as a crescent, a stump of forearm cut off at the waist. After the
 face clearance, an arm clearly behind the torso (its upper arm farther than the torso's middle by more
 than 2 × `torsoGap`), hanging down (the wrist well below the elbow) and not held on a target, whose
-centre line (the middle of the upper arm, the elbow, the middle of the forearm, near the wrist) has a
+centre line (the middle of the upper arm, the elbow, the middle of the forearm, near the wrist, the hand) has a
 point on the outline — outside the outline shrunk by the gap, inside it grown by the gap — is squeezed
 towards the nearer edge of that band, continuously: with tOut and tIn the least `spread` turns that
 show it clear beside the torso or tuck it behind (0.5° steps, bisected), x = tIn / (tIn + tOut) is
@@ -569,7 +576,7 @@ All three share placement fields: `x`, `y`, `rotation`, `scale` (number or `[sx,
 |---|---|
 | Layer | `id`, `art` |
 | Actor | `id`, `character`, `flip` (face left), `palette` overrides, `seed`, `shading` (receive cel shading, default true), `ground?` (3.6), `twos?` and `holds?` (its own cartoon timing, overriding the scene's; 3.8) |
-| Prop | `id`, `art`, `body?`, `ground?` (3.6), `cord?` |
+| Prop | `id`, `art`, `back?` (its other side, drawn as seen from behind: shown while a `fit` with `face` turns the front away), `body?`, `ground?` (3.6), `cord?` |
 
 `cord`: a cord or string drawn every frame from the prop (`point`, its art's coordinates) to `to` —
 a scene point `[x, y]`, `{ actor, anchor }`, `{ prop, point? }` or `"up"` (straight up out of the
@@ -612,7 +619,7 @@ Actions are compiled into clip instances and tracks before rendering.
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
 | `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line. On a 2.5D rig a chain of 3D bones (an arm) is reached in 3D (2.6b): the target on the plane through the shoulder parallel to the picture, the arm's channels blended with the pose's by the blend weight; a target inside the head is moved out of it (the face clearance) |
 | `say` | `audio?`, `lipsync?` (cues id), `cues?` (inline), `text?` + `duration?`, `control` (first `viseme` control) | Plays audio and lip syncs |
-| `grab` | `prop`, `anchor`, `fit?`, `hang?` | Attaches a prop to an actor anchor. With `fit`, the prop is fitted to the body (2.6). With `hang`, it hangs from the hand by its handle and swings (below) |
+| `grab` | `prop`, `anchor`, `also?` (other anchors holding it too: their hands drawn over it — a two-handed hold), `fit?`, `hang?` | Attaches a prop to an actor anchor. With `fit`, the prop is fitted to the body (2.6). With `hang`, it hangs from the hand by its handle and swings (below) |
 | `release` | `prop`, `velocity?` | Releases a grabbed prop |
 | `impulse` | `prop`, `vector` | Changes a dynamic prop's velocity by `vector` (px/s) |
 | `camera` | `x?`, `y?`, `zoom?`, `rotation?`, `duration` (1), `ease` (`sineInOut`) | Camera move |

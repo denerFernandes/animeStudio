@@ -119,8 +119,10 @@ export interface ReachKey {
 export interface Grab {
   actor: string;
   anchor: string;
+  /** Other anchors whose hands hold it too (two-handed): drawn over it like the holding hand. */
+  also?: string[];
   /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
-  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })[];
+  fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string; face?: [number, number, number]; fixed?: boolean })[];
   /** Hung from the hand by its handle, swinging like a pendulum (see the `grab` action's `hang`), resolved. */
   hang?: GrabHang;
   start: number;
@@ -802,7 +804,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         requireActor(a.actor, path);
         const prop = props.find((p) => p.id === a.prop);
         if (!prop) throw new SceneError(`unknown prop "${a.prop}"`, path);
-        for (const an of [a.anchor, ...(a.fit ?? []).flatMap((f) => ("anchor" in f ? [f.anchor] : []))]) {
+        for (const an of [a.anchor, ...(a.also ?? []), ...(a.fit ?? []).flatMap((f) => ("anchor" in f ? [f.anchor] : []))]) {
           if (!rigCache.get(a.actor)!.anchors[an]) throw new SceneError(`unknown anchor "${an}" on actor "${a.actor}"`, path);
         }
         if (a.fit && a.hang) throw new SceneError("a grab cannot both `fit` the prop to the body and `hang` it from the hand", path);
@@ -817,7 +819,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
             gravity: a.hang.gravity ?? doc.world?.gravity?.[1] ?? 1800,
           };
         }
-        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}), ...(hang ? { hang } : {}) });
+        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.also?.length ? { also: a.also } : {}), ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}), ...(hang ? { hang } : {}) });
         return;
       }
       case "release": {
@@ -1060,6 +1062,8 @@ interface Placement {
   flip: boolean;
   /** Draw order (stepped). */
   z: number;
+  /** A sided prop held with `fit` `face`: which side the camera sees. */
+  side?: "front" | "back";
 }
 
 function samplePlacement(
@@ -1866,8 +1870,8 @@ function hungPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: 
  * at the second anchor (or, with one point, turning with that anchor's bone). The points are taken
  * in the prop's own drawing: scaled, and mirrored when the prop is flipped.
  */
-function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], flip: boolean, pose?: EvaluatedPose): { x: number; y: number; rotation: number; scale?: [number, number] } {
-  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })?];
+function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, scale: [number, number], flip: boolean, pose?: EvaluatedPose): { x: number; y: number; rotation: number; scale?: [number, number]; side?: "front" | "back" } {
+  const [f1, f2] = grab.fit! as [{ point: Vec2; anchor: string }, ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string; face?: [number, number, number]; fixed?: boolean })?];
   const fs = flip ? -1 : 1;
   /** A prop point as drawn (scaled, mirrored when flipped). */
   const drawn = (p: Vec2, sc: [number, number]): Vec2 => [p[0] * sc[0] * fs, p[1] * sc[1]];
@@ -1886,6 +1890,7 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
   const boneTurn = mirrored ? -Math.atan2(m[1], -m[0]) : Math.atan2(m[1], m[0]);
   let rot: number;
   let shortened: [number, number] | undefined;
+  let side: "front" | "back" | undefined;
   if (f2 && "anchor" in f2) {
     const a2 = anchorPosition(scene, grab.actor, f2.anchor, t, pose);
     rot = Math.atan2(a2[1] - a1[1], a2[0] - a1[0]) - axis(scale);
@@ -1906,7 +1911,15 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
     // Foreshortened along the prop's own axis (from its first point to its second).
     const alongX = Math.abs(f2.point[0] - f1.point[0]) >= Math.abs(f2.point[1] - f1.point[1]);
     shortened = alongX ? [scale[0] * Math.max(0.2, len), scale[1]] : [scale[0], scale[1] * Math.max(0.2, len)];
-    const dir = Math.atan2(v[1], v[0]) + (mirrored ? -boneTurn : boneTurn);
+    if (f2.face) {
+      // A flat prop: as wide across its axis as its front squarely faces the camera (an edge-on phone
+      // is its thickness), showing its front or its back.
+      const n = viewPoint(f2.face, yaw, pitch), nz = n[2] / (Math.hypot(...f2.face) || 1);
+      const across = Math.max(FLAT_EDGE, Math.abs(nz));
+      shortened = alongX ? [shortened[0], shortened[1] * across] : [shortened[0] * across, shortened[1]];
+      side = nz >= 0 ? "front" : "back";
+    }
+    const dir = Math.atan2(v[1], v[0]) + (f2.fixed ? 0 : mirrored ? -boneTurn : boneTurn);
     const world = mirrored ? Math.PI - dir : dir;
     rot = world - axis(shortened);
   } else if (f2) {
@@ -1918,8 +1931,11 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
   const c = Math.cos(rot), s = Math.sin(rot);
   const [px, py] = drawn(f1.point, shortened ?? scale);
   void prop;
-  return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI, ...(shortened ? { scale: shortened } : {}) };
+  return { x: a1[0] - (px * c - py * s), y: a1[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI, ...(shortened ? { scale: shortened } : {}), ...(side ? { side } : {}) };
 }
+
+/** The thinnest a flat prop held with `fit` `face` is drawn across, as a fraction of its width (seen edge-on: its thickness, thicker than life to read). */
+const FLAT_EDGE = 0.3;
 
 /**
  * Placement of a prop: held, in the hand (fitted to the body, hung from it swinging, or on the anchor,
@@ -2259,6 +2275,9 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
   let boilDefs = "";
   // Crowd shots: more lit actors on screen than `shading.crowd` → no rim light.
   const crowded = !!(light?.shading.crowd && scene.actors.filter((a) => a.def.shading !== false && actorPlacementState(a, t).opacity > 0.01 && a.rig.anchors.head).length > light.shading.crowd);
+  // Props held in a hand drawn behind the body (seen from behind, the phone in front of the chest): drawn
+  // behind their holder too.
+  const heldBehind = new Set<string>();
   for (const actor of scene.actors) {
     const depth = actor.def.parallax ?? 1;
     const pose = actorPose(scene, actor, t);
@@ -2300,7 +2319,21 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
     const under = behindRidden(scene, actor, t);
     // Holding a prop: the prop is drawn just above the actor and the holding hand above the prop
     // (the fingers wrap around it).
-    const holdBones = new Set(scene.props.flatMap((pr) => pr.grabs.filter((g) => g.actor === actor.id && t >= g.start && t < g.end).map((g) => actor.rig.anchors[g.anchor]?.bone)).filter((b): b is number => b !== undefined));
+    // A 2.5D rig's hand drawn before the body (behind it, from this view): what it holds goes behind too.
+    if (actor.rig.rig3d) {
+      const ord = pose.drawOrder ?? actor.rig.drawOrder;
+      const body = new Set(actor.rig.rig3d.body);
+      const start = ord.findIndex((pt) => "bone" in pt && body.has((pt as { bone: number }).bone));
+      for (const pr of scene.props) for (const g of pr.grabs) {
+        if (g.actor !== actor.id || t < g.start || t >= g.end || g.hang) continue;
+        const bone = actor.rig.anchors[g.anchor]?.bone;
+        const at = ord.findIndex((pt) => "bone" in pt && (pt as { bone: number }).bone === bone);
+        if (start >= 0 && at >= 0 && at < start) heldBehind.add(pr.id);
+      }
+    }
+    // (Not over a flat prop's front: the hand holds it from behind, only its back is wrapped by the
+    // fingers; nor over a prop held behind the body.)
+    const holdBones = new Set(scene.props.flatMap((pr) => pr.grabs.filter((g) => g.actor === actor.id && t >= g.start && t < g.end && !heldBehind.has(pr.id) && !(pr.def.back && propPlacement(scene, pr, t, poses).side === "front")).flatMap((g) => [g.anchor, ...(g.also ?? [])].map((an) => actor.rig.anchors[an]?.bone))).filter((b): b is number => b !== undefined));
     const overParts = new Set(holdBones.size ? actor.rig.parts.filter((pt) => "bone" in pt && holdBones.has((pt as { bone: number }).bone)).map((pt) => pt.id) : []);
     // The boil follows the actor's drawings; the held hand and the parts behind a mount share it.
     const boiled = boil > 0 ? boilFilter(`actor-${actor.id}`, boil, drawingTime(scene, actor, t), scene.fps, m) : undefined;
@@ -2399,7 +2432,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
       }
     }
     // Held: just above its holder (under the holding hand, above the rest of the body).
-    const propZ = holder ? (holderZ ?? 0) + 1e-3 : p.z;
+    const propZ = holder ? (holderZ ?? 0) + (heldBehind.has(prop.id) ? -1e-3 : 1e-3) : p.z;
     // A held prop boils with its holder's drawings; a free prop is smooth (every two frames).
     const boiled = boil > 0 ? boilFilter(`prop-${prop.id}`, boil, holderActor ? drawingTime(scene, holderActor, t) : t, scene.fps, m) : undefined;
     if (boiled) boilDefs += boiled.def;
@@ -2414,7 +2447,7 @@ export function evaluateScene(scene: CompiledScene, t: number): RenderFrame {
         opacity: p.opacity < 1 ? p.opacity : undefined,
         filter: blurFor(depth, m0, mPrev),
         ...(boiled ? { svgFilter: boiled.ref } : {}),
-        markup: prop.markup,
+        markup: p.side === "back" && prop.def.back ? prop.def.back : prop.markup,
       },
     });
   }

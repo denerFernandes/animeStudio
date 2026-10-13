@@ -2068,7 +2068,14 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
   // Beside the head, a little above its middle and forward (pushed out of the head as drawn).
   const up: V3 = [-(sx + u * 0.35), head - u * 0.2, u * 0.35];
   // `head`: the targets are on the head (they move with its nod); `touch`: the hand rests on it.
-  const G: Record<string, { F?: Key[]; B?: Key[]; pole?: (side: number) => V3; body?: [number, number][]; hips?: [number, number][]; duration?: number; head?: boolean; touch?: boolean }> = {
+  // `nod`: the head bent forward (degrees) all through the clip — looking down at a phone in the hands;
+  // `down`: the eyes lowered too (the pupils down, the lids half closed: reading a screen from any view).
+  const G: Record<string, { F?: Key[]; B?: Key[]; pole?: (side: number) => V3; body?: [number, number][]; hips?: [number, number][]; duration?: number; head?: boolean; touch?: boolean; nod?: number; down?: boolean }> = {
+    // Using a phone (ergonomics studies: held in front of the lower chest, near the middle, about a
+    // forearm's length from the eyes, the elbow down by the side, the head bent towards it). One hand,
+    // its thumb scrolling (the commonest grip); `textingTwo`: both thumbs typing.
+    texting: { duration: 2.4, nod: 24, down: true, F: [[0, [-sx * 0.05, sh + T * 0.48, T * 0.6]], [0.5, [-sx * 0.05, sh + T * 0.48 - 2, T * 0.61]], [1, [-sx * 0.05, sh + T * 0.48, T * 0.6]]], pole: (sd) => [sd * 0.5, 1, -0.5] },
+    textingTwo: { duration: 1.2, nod: 24, down: true, F: [[0, [-sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [-sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [-sx * 0.2, sh + T * 0.48, T * 0.55]]], B: [[0, [sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [sx * 0.2, sh + T * 0.48, T * 0.55]]], pole: (sd) => [sd * 0.6, 1, -0.4] },
     // Holding a game controller in both hands, thumbs busy (in front of the belly, elbows in).
     gamepad: { duration: 1, F: [[0, [-sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [-sx * 0.12, sh + T * 0.55 - 3, T * 0.52]], [1, [-sx * 0.12, sh + T * 0.55, T * 0.5]]], B: [[0, [sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [sx * 0.12, sh + T * 0.56, T * 0.48]], [1, [sx * 0.12, sh + T * 0.55, T * 0.5]]], pole: (sd) => [sd * 0.7, 1, -0.3] },
     // Leaning over a pool table: the near hand far forward (the bridge), the far one back by the hip
@@ -2128,6 +2135,13 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
     if (!clip) continue;
     if (g.body) clip.tracks["bones.body.rotation"] = g.body.map(([f, v]) => [r(f * clip.duration), v, "sineInOut"]);
     if (g.hips) clip.tracks["bones.hips.y"] = g.hips.map(([f, v]) => [r(f * clip.duration), v, "sineInOut"]);
+    if (g.nod) clip.tracks["bones.head.rotation"] = [[0, g.nod], [r(clip.duration), g.nod]];
+    if (g.down) {
+      clip.tracks["bones.pupils.y"] = [[0, r(u * 0.07)], [r(clip.duration), r(u * 0.07)]];
+      // (The chin tucked: the head lower on the neck reads as looking down from the front too.)
+      clip.tracks["bones.head.y"] = [[0, r(u * 0.14)], [r(clip.duration), r(u * 0.14)]];
+      clip.tracks["parts.eyes.variant"] = [[0, "half"]];
+    }
     const tracks: Record<string, unknown> = Object.fromEntries(Object.entries(clip.tracks as Record<string, unknown>).filter(([k]) => !/^bones\.arm[FB][12]\./.test(k)));
     // The clip's pose of the body and head at a fraction of it (its own tracks: a lean, a nod).
     const own = Object.entries(tracks).flatMap(([k, keys]) => {
@@ -2478,3 +2492,29 @@ export function cartoonInfo(doc: ToonDoc, look: CartoonLook, opts: CartoonOption
   return rigInfo(doc, { depth: { back: D, front: D * (1 + (look.heavy ?? 0) * 0.6) } });
 }
 
+
+/**
+ * How things are held (2.5D characters): for each kind of hand-held object, the gesture clip, the
+ * 3D direction of the object's long axis and of its front (body space: x right, y down, z towards the
+ * viewer seen from the front), and its size relative to the holder's scale. From ergonomics studies of
+ * phone use (held in front of the lower chest about a forearm from the eyes, the screen tilted up
+ * towards them, the head bent forward) and from life drawing (the palm and fingers behind the object,
+ * the thumb over its edge: seen from the front or the side you see the phone's back).
+ *
+ * `holdFit(kind, grip, top)` is the `grab` action's `fit` for an object drawn upright with its grip at
+ * `grip` and its top at `top` (its own art's coordinates), its front (`art`) the face the holder looks
+ * at and its `back` drawn as seen from behind.
+ */
+export const HOLD = {
+  /** A phone being used: one hand, thumb scrolling (`textingTwo`: both thumbs). */
+  phone: { clip: "texting", dir: [0, -0.8, 0.6] as V3, face: [0, -0.6, -0.8] as V3, scale: 0.5 },
+  /** A book or a tablet being read in both hands, a little lower and further than a phone. */
+  book: { clip: "read", dir: [0, -0.7, 0.7] as V3, face: [0, -0.7, -0.7] as V3, scale: 0.9 },
+} as const;
+
+export function holdFit(kind: keyof typeof HOLD, grip: [number, number], top: [number, number]) {
+  const h = HOLD[kind];
+  return [{ point: grip, anchor: "hand" }, { point: top, dir: [...h.dir] as V3, face: [...h.face] as V3, fixed: true }];
+}
+/** The `grab`'s `also` for a two-handed hold (`textingTwo`, `read`): the far hand holds it too. */
+export const holdBoth = ["handB"];

@@ -559,7 +559,8 @@ function clearTorso(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V
     const R1 = mul(P, mul(ry(t0), mul(rz(sp * DEG), rx(r0 * DEG))));
     const E = add3(S, mv(R1, e1));
     const H = add3(E, mv(mul(rig.bones[Lb.index].inheritRotation ? R1 : rot[0], local2), e2));
-    return [lerp3(S, E, 0.5), E, lerp3(E, H, 0.5), lerp3(E, H, 0.9)];
+    // (The hand too, past the wrist: wider than the arm, it would peek out first.)
+    return [lerp3(S, E, 0.5), E, lerp3(E, H, 0.5), lerp3(E, H, 0.9), lerp3(E, H, 1.15)];
   };
   const pts = samples(sp0);
   // (Only an arm hanging down — the wrist below the elbow, y down: a hand at the face, raised or
