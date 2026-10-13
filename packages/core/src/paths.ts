@@ -231,3 +231,59 @@ export function hoseOutline(joints: Vec2[], widths: number[], cap: "round" | "bu
   d += cap === "round" ? `A${f(ws)} ${f(ws)} 0 0 0 ${p(left[0])}` : "";
   return d + "Z";
 }
+
+/**
+ * Rough bounding box `[minX, minY, maxX, maxY]` of an SVG drawing in its own coordinates: its paths
+ * (control points included, so a curve's box may be a little generous), rects, circles, ellipses,
+ * lines, polygons and polylines. Transforms are ignored. Undefined when nothing is measurable.
+ */
+export function markupBounds(svg: string): [number, number, number, number] | undefined {
+  let box: [number, number, number, number] | undefined;
+  const add = (x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    box = box ? [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)] : [x, y, x, y];
+  };
+  for (const m of svg.matchAll(/<(path|rect|circle|ellipse|line|polygon|polyline)\b([^>]*)>/g)) {
+    const attrs = m[2];
+    const str = (k: string) => new RegExp(`(?:^|\\s)${k}\\s*=\\s*["']([^"']*)["']`).exec(attrs)?.[1];
+    const num = (k: string, d = 0) => {
+      const v = str(k);
+      return v === undefined ? d : Number.parseFloat(v);
+    };
+    switch (m[1]) {
+      case "path": {
+        const d = str("d");
+        if (!d) break;
+        try {
+          for (const p of pathPoints(parsePath(d))) add(p[0], p[1]);
+        } catch {
+          // Unparsable path data: not measured.
+        }
+        break;
+      }
+      case "rect": {
+        const x = num("x"), y = num("y");
+        add(x, y);
+        add(x + num("width"), y + num("height"));
+        break;
+      }
+      case "circle":
+      case "ellipse": {
+        const cx = num("cx"), cy = num("cy");
+        const rx = m[1] === "circle" ? num("r") : num("rx", num("ry")), ry = m[1] === "circle" ? num("r") : num("ry", num("rx"));
+        add(cx - rx, cy - ry);
+        add(cx + rx, cy + ry);
+        break;
+      }
+      case "line":
+        add(num("x1"), num("y1"));
+        add(num("x2"), num("y2"));
+        break;
+      default: {
+        const v = (str("points") ?? "").trim().split(/[\s,]+/).map(Number);
+        for (let i = 0; i + 1 < v.length; i += 2) add(v[i], v[i + 1]);
+      }
+    }
+  }
+  return box;
+}

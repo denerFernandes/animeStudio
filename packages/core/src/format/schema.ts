@@ -542,6 +542,25 @@ export const MouthCueSchema = z.strictObject({
 
 export const LipsyncSchema = z.object({ mouthCues: z.array(MouthCueSchema) });
 
+/**
+ * A prop hung from the hand by its handle (a bag, a bucket, a lantern): it swings like a pendulum
+ * about the holding anchor, driven by the hand's motion (see the `grab` action's `hang`).
+ */
+export const HangSchema = z
+  .strictObject({
+    point: Vec2Schema.optional().describe("The prop's handle, in its art's coordinates, placed on the holding anchor (default the art's origin)"),
+    length: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Distance from the handle to the centre of mass, in the prop's art px (scaled with the prop): the longer, the slower the swing (default: half the art's extent below the handle)"),
+    damping: z.number().min(0).max(1).optional().describe("0..1, mapped to a damping ratio of 0.04–1 (default 0.25: a loose swing that settles in about 2 s; 1: critically damped, it lags and comes back without overshooting)"),
+    limit: z.number().positive().max(180).optional().describe("Largest swing either side of the vertical, in degrees: a soft stop (default 70)"),
+    gravity: z.number().min(0).optional().describe("px/s² pulling the prop down (default the scene's `world.gravity` y, else 1800)"),
+  })
+  .describe("Hang the prop from the hand by its handle: it swings like a pendulum with the holder's walk and settles hanging straight down (draw it hanging at rest). Not with `fit`; the anchor's `turn` is ignored");
+export type HangDef = z.infer<typeof HangSchema>;
+
 const At = { at: z.number().min(0).describe("Start time in seconds") };
 const ActorRef = { actor: z.string() };
 
@@ -662,7 +681,8 @@ export const ActionSchema = z.discriminatedUnion("action", [
       .max(2)
       .optional()
       .describe("Fit the prop to the body: its first point on the first anchor, turned so its second point points at the second anchor (a phone: ear on the ear, mouthpiece towards the mouth) or in a direction (`angle`: a bottle's bottom up and forward); one point keeps the prop turning with that anchor's bone"),
-  }),
+    hang: HangSchema.optional(),
+  }).refine((a) => !(a.fit && a.hang), { message: "a grab cannot both `fit` the prop to the body and `hang` it from the hand", path: ["hang"] }),
   z.strictObject({
     ...At,
     ...ActorRef,

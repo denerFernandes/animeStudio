@@ -1989,6 +1989,50 @@
                     }
                   ]
                 }
+              },
+              "hang": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "description": "The prop's handle, in its art's coordinates, placed on the holding anchor (default the art's origin)",
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "length": {
+                    "description": "Distance from the handle to the centre of mass, in the prop's art px (scaled with the prop): the longer, the slower the swing (default: half the art's extent below the handle)",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "damping": {
+                    "description": "0..1, mapped to a damping ratio of 0.04–1 (default 0.25: a loose swing that settles in about 2 s; 1: critically damped, it lags and comes back without overshooting)",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "limit": {
+                    "description": "Largest swing either side of the vertical, in degrees: a soft stop (default 70)",
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 180
+                  },
+                  "gravity": {
+                    "description": "px/s² pulling the prop down (default the scene's `world.gravity` y, else 1800)",
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Hang the prop from the hand by its handle: it swings like a pendulum with the holder's walk and settles hanging straight down (draw it hanging at rest). Not with `fit`; the anchor's `turn` is ignored"
               }
             },
             "required": [

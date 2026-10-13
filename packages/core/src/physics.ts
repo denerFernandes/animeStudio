@@ -174,3 +174,131 @@ export function samplePhysics(bake: PhysicsBake | undefined, t: number): Physics
   if (bake.resets?.includes(i + 1)) return f < 0.5 ? a : b;
   return { values: a.values.map((row, k) => row.map((v, j) => lerp(v, b.values[k][j], f))) };
 }
+
+// ---------------------------------------------------------------------------
+// Hung props: a rigid pendulum about the holding hand
+// ---------------------------------------------------------------------------
+
+/**
+ * Baked swing of a prop hung from a hand (`grab` with `hang`): its angle from the vertical (degrees,
+ * scene space, positive = the prop swung towards +x) at fixed steps from the grab's start.
+ */
+export interface HangBake {
+  /** Scene time of the first sample (the grab's start). */
+  start: number;
+  rate: number;
+  /** Angle at `start + n / rate`, degrees. */
+  angles: number[];
+  /** Sample indices where the swing restarted at rest (the holder flipped): never interpolated across. */
+  resets: number[];
+}
+
+export interface HangBakeOptions {
+  /** Scene time the swing starts at, at rest hanging straight down. */
+  start: number;
+  duration: number;
+  /** Simulation rate in Hz (default 120). */
+  rate?: number;
+  /** Scene-space position of the pivot (the holding anchor) at time t. Must be deterministic. */
+  pivotAt: (t: number) => Vec2;
+  /** Whether the holder is mirrored at time t: a change restarts the swing at rest (a turn-around is a cut). */
+  mirroredAt: (t: number) => boolean;
+  /** Pivot → centre of mass distance at time t (scene px). */
+  lengthAt: (t: number) => number;
+  /** px/s², pulling down (+y). */
+  gravity: number;
+  /** 0..1, mapped to a damping ratio of 0.04–1 like the springs'. */
+  damping: number;
+  /** Largest angle either side of the vertical (degrees). */
+  limit: number;
+}
+
+/** Gravity the damping is measured against when the scene has none (a swing in free fall still settles). */
+const HANG_REFERENCE_GRAVITY = 1800;
+
+/**
+ * Bakes a hung prop's swing: a rigid pendulum of length L about a pivot moving along p(t), seen
+ * from the pivot (an accelerating frame). With θ the angle from the vertical (positive towards +x),
+ * the pivot's acceleration a (y down, by central finite differences of p at the fixed rate) and
+ * ω₀ = √(g / L):
+ *
+ *   θ'' = −(g − a_y) / L · sin θ − a_x / L · cos θ − 2 ζ ω₀ · θ'
+ *
+ * integrated semi-implicitly (θ' first, then θ) at the fixed rate, θ clamped to ±limit with the
+ * velocity into the stop zeroed. ζ maps `damping` 0..1 to 0.04–1 as for the springs. The swing starts
+ * at rest hanging straight down, and restarts so whenever the holder's mirroring changes.
+ */
+export function bakeHang(opts: HangBakeOptions): HangBake {
+  const rate = opts.rate ?? 120;
+  const dt = 1 / rate;
+  const count = Math.max(1, Math.ceil(opts.duration * rate) + 1);
+  const at = (n: number) => opts.start + n * dt;
+  // One sample past the end for the last central difference.
+  const pivots: Vec2[] = [];
+  const mirrored: boolean[] = [];
+  for (let n = 0; n <= count; n++) {
+    pivots.push(opts.pivotAt(at(n)));
+    mirrored.push(opts.mirroredAt(at(n)));
+  }
+  const zeta = lerp(0.04, 1, clamp(opts.damping, 0, 1));
+  const limit = (clamp(opts.limit, 0, 180) * Math.PI) / 180;
+  const g = opts.gravity;
+  const angles: number[] = [];
+  const resets: number[] = [];
+  let theta = 0;
+  let omega = 0;
+  // The run of samples with the same mirroring the current step belongs to: [segStart, segEnd].
+  let segStart = 0;
+  let segEnd = 0;
+  for (let n = 0; n < count; n++) {
+    if (n > 0 && mirrored[n] !== mirrored[n - 1]) {
+      // An instant turn is a cartoon cut, not a physical motion: hang straight again.
+      theta = 0;
+      omega = 0;
+      segStart = n;
+      resets.push(n);
+    }
+    if (segEnd < n || n === segStart) {
+      segEnd = n;
+      while (segEnd < count && mirrored[segEnd + 1] === mirrored[n]) segEnd++;
+    }
+    angles.push((theta * 180) / Math.PI);
+    // The pivot's acceleration from three samples of this run (one-sided at its ends); none in a run
+    // too short to tell (a flip right after another).
+    let ax = 0;
+    let ay = 0;
+    if (segEnd - segStart >= 2) {
+      const c = clamp(n, segStart + 1, segEnd - 1);
+      const [p0, p1, p2] = [pivots[c - 1], pivots[c], pivots[c + 1]];
+      ax = (p2[0] - 2 * p1[0] + p0[0]) * rate * rate;
+      ay = (p2[1] - 2 * p1[1] + p0[1]) * rate * rate;
+    }
+    const L = Math.max(1, opts.lengthAt(at(n)));
+    const omega0 = Math.sqrt((g > 0 ? g : HANG_REFERENCE_GRAVITY) / L);
+    const acc = (-(g - ay) / L) * Math.sin(theta) - (ax / L) * Math.cos(theta) - 2 * zeta * omega0 * omega;
+    omega += acc * dt;
+    theta += omega * dt;
+    // A soft stop at the limit: the swing stops there instead of bouncing back.
+    if (theta > limit) {
+      theta = limit;
+      omega = Math.min(omega, 0);
+    } else if (theta < -limit) {
+      theta = -limit;
+      omega = Math.max(omega, 0);
+    }
+  }
+  return { start: opts.start, rate, angles, resets };
+}
+
+/** A hung prop's angle (degrees) at scene time t: linear between steps, never across a restart; 0 outside the bake. */
+export function sampleHang(bake: HangBake | undefined, t: number): number {
+  if (!bake || bake.angles.length === 0) return 0;
+  const u = clamp((t - bake.start) * bake.rate, 0, bake.angles.length - 1);
+  const i = Math.floor(u);
+  const f = u - i;
+  const a = bake.angles[i];
+  if (f === 0 || i + 1 >= bake.angles.length) return a;
+  const b = bake.angles[i + 1];
+  if (bake.resets.includes(i + 1)) return f < 0.5 ? a : b;
+  return lerp(a, b, f);
+}

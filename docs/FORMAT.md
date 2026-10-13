@@ -225,6 +225,11 @@ blend.
 `turn` (0..1, optional) makes a prop held at the anchor turn with the bone: 1 turns it as much as
 the hand turns from its rest pose (a phone at the ear, a bottle tipped to the mouth), 0 keeps it
 upright. Draw held props the way they look in the hand at rest (arm hanging).
+A prop carried by its handle (a bag of charcoal, a bucket, a lantern, a purse) can **hang** from the
+hand instead of sitting rigid in the fist: `grab` with `hang` (§3.3) puts the prop's handle on the
+anchor and lets it swing like a pendulum with the holder's walk. It ignores the anchor's `turn` and
+cannot be combined with `fit`. Draw a hung prop hanging straight down from its handle, the way it
+hangs at rest.
 
 ### 2.6b `rig3d` (2.5D rigs)
 
@@ -261,7 +266,8 @@ clearly farther ones just after the `back` part. `points` names points on the 3D
 (`{ "mouth": { "bone": "head", "at": [0, -40, 44] } }`: an offset from the bone's rest joint) — where
 the director's 3D reaches go (a hand taking something from the mouth, holding it at the chest).
 `keepOut: [{ bone, at, radii }]` are ellipsoids (posed with their bone) a reached hand never goes into
-(the torso, the head). A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
+(the torso, the head — the kit's cartoon rigs make them from the drawn volumes, the cranium with its
+hair, the face and the torso, grown by a hand's half thickness). A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
 wrist), `margin` and `behind: "<solid part>"`: drawn behind the body when that tip is hidden by the
 solid's occluders (a hand behind the hips).
 
@@ -547,7 +553,7 @@ Actions are compiled into clip instances and tracks before rendering.
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
 | `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line |
 | `say` | `audio?`, `lipsync?` (cues id), `cues?` (inline), `text?` + `duration?`, `control` (first `viseme` control) | Plays audio and lip syncs |
-| `grab` | `prop`, `anchor` | Attaches a prop to an actor anchor |
+| `grab` | `prop`, `anchor`, `fit?`, `hang?` | Attaches a prop to an actor anchor. With `fit`, the prop is fitted to the body (2.6). With `hang`, it hangs from the hand by its handle and swings (below) |
 | `release` | `prop`, `velocity?` | Releases a grabbed prop |
 | `impulse` | `prop`, `vector` | Changes a dynamic prop's velocity by `vector` (px/s) |
 | `camera` | `x?`, `y?`, `zoom?`, `rotation?`, `duration` (1), `ease` (`sineInOut`) | Camera move |
@@ -557,6 +563,32 @@ Actions are compiled into clip instances and tracks before rendering.
 | `shake` | `duration` (0.5), `amount` (px, 10), `frequency` (Hz, 12) | Seeded camera shake |
 | `sound` | `audio`, `volume` (1) | Plays a sound effect |
 | `light` | `channel` (lighting channel), `value`, `duration` (0), `ease` (`sineInOut`) | Animates lighting (sunrise, lamp switching on, flash) |
+
+**Hung props.** `hang: { point?, length?, damping?, limit?, gravity? }`:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `point` | `[0, 0]` | The prop's handle in its art's coordinates. It sits on the anchor |
+| `length` | half the art's extent below the handle | Handle → centre of mass, in the prop's art px, scaled with the prop's `scale` y. A longer prop swings more slowly. The default is measured from the art's paths, rects, circles, ellipses, lines and polygons; transforms are ignored |
+| `damping` | `0.25` | 0..1, mapped to a damping ratio ζ of 0.04–1 (the springs' mapping). 0.25 is a loose swing that settles in about 2 s. 1 is critically damped: the prop lags and comes back without overshooting |
+| `limit` | `70` | Largest swing in degrees either side of the vertical. It is a soft stop: the swing stops there and does not bounce |
+| `gravity` | `world.gravity[1]`, else `1800` | px/s², pulling down |
+
+The prop is a rigid pendulum about the anchor, driven by the anchor's motion. With θ the angle from
+the vertical in scene space (positive when the prop has swung towards +x), L the length in scene px,
+the anchor's acceleration `a` (y down, by finite differences of its scene position at the physics
+rate) and ω₀ = √(g/L), the bake integrates `θ'' = −(g − a_y)/L · sin θ − a_x/L · cos θ − 2ζω₀ · θ'`
+at 120 Hz (semi-implicit Euler) over the grab's span. The swing starts at rest, hanging straight, at
+the grab: walking off, the prop first swings back behind the hand; on the stop it swings forward and
+then settles. The bake reads the smooth motion, so cartoon timing (twos, moving holds) never changes
+it; on twos the swing steps with the holder's drawings, like everything the holder carries. When the
+holder flips (`face`, a `walkTo` turning round), the swing restarts at rest: a turn-around is a cut,
+not a physical motion. The prop is drawn rotated by −θ about its handle and mirrored with its holder
+(its own `flip` XORed with the holder's facing; θ is in scene space, so the mirror never reverses the
+swing); its `rotation` track is ignored while it hangs. As with any held prop, the hand closes
+(`grip`) and is drawn over it. On `release`, a prop with a `body` leaves with the velocity and spin
+its hung placement had (the rigid simulation reads `propPlacement`); a prop without a body goes back
+to its tracks.
 
 ### 3.4 Cartoon effects (`fx`)
 

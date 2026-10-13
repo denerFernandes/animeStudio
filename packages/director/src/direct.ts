@@ -164,6 +164,9 @@ const LIMB = /^bones\.(arm|leg|hand|foot)\w*\.(rotation|turn|spread)$/;
 
 // ------------------------------------------------------------------ timing
 
+/** Per staged scene: pairs close together on purpose and who sits when (scene time), for the picture checks. */
+const STAGED = new WeakMap<object, { pairs: { a: string; b: string; t0: number; t1: number }[]; seated: { actor: string; t0: number; t1: number }[] }>();
+
 export class Timeline {
   constructor(readonly lines: Line[]) {}
   start(i: number): number {
@@ -239,7 +242,7 @@ export function lineCues(l: Line): MouthCue[] {
 }
 
 /** Every beat action (`do`). */
-export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack", "snap", "dropOn", "cradle"];
+export const ACTIONS = ["walk", "run", "enter", "exit", "face", "look", "emotion", "wear", "gesture", "fx", "view", "hold", "release", "cross", "pick", "drop", "throw", "roll", "dribble", "vehicle", "fixture", "camera", "light", "mount", "dismount", "ride", "fall", "sit", "lie", "sleep", "getUp", "fly", "hands", "hit", "sound", "give", "highFive", "hug", "carry", "hide", "peek", "use", "take", "putBack", "snap", "dropOn", "cradle", "press"];
 /** Camera shot types. */
 /** Camera types. */
 export const CAMERAS = ["wide", "group", "medium", "two-shot", "close", "crash", "whip", "follow", "reveal"];
@@ -350,6 +353,8 @@ class BlockScene {
     readonly photoOf: (block: string, when: When, key: string) => string | undefined = () => undefined,
     /** Cartoon timing of the characters (the block's, else the staging's). */
     readonly animation?: Animation,
+    /** How the camera behaves where no beat says otherwise (`Staging.camera.style`). */
+    readonly cameraStyle: "dynamic" | "conversation" = "dynamic",
   ) {
     // The first block starts the episode (whatever cuts show before its first line).
     this.t0 = first ? 0 : time.blockStart(block);
@@ -1121,12 +1126,101 @@ class BlockScene {
     const k = [...st.x].reverse().find((k) => k[0] <= this.t(abs));
     return (k?.[1] as number) ?? ((this.props.find((p) => p.id === id)?.x as number) ?? 960);
   }
-  grab(actor: string, prop: string, abs: number) {
+  /**
+   * Takes a prop in a hand (default the near one). A prop whose kind hangs (`kit.props.<kind>.hang`)
+   * is grabbed hanging from the hand (the scene swings it), in the far hand when it is free so the
+   * near one stays free for gestures; that arm is busy while it carries it.
+   */
+  grab(actor: string, prop: string, abs: number, side?: "F" | "B") {
     const st = this.propStates.get(prop);
     if (!st) return this.issue("error", `unknown prop "${prop}"`);
+    const hang = this.hangOf(prop);
+    const hand = side ?? (hang ? this.hangSide(actor, abs, prop) : "F");
     st.heldBy.push({ actor, t0: abs, t1: Infinity });
-    this.setHand(prop, "F", abs);
-    this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: "hand" });
+    this.setHand(prop, hand, abs);
+    this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: this.hand(prop).anchor, ...(hang ? { hang: { ...hang } } : {}) });
+    if (hang) this.startCarry(actor, prop, hand, abs);
+  }
+  /** How a prop's kind hangs from the hand (`kit.props.<kind>.hang`), if it does. */
+  private hangOf(prop: string) {
+    return this.kit.props[this.propKinds.get(prop) ?? ""]?.hang;
+  }
+  /** Hung props carried: by whom, in which hand, from when to when (and the arm kept busy meanwhile). */
+  private carries: { actor: string; prop: string; side: "F" | "B"; t0: number; t1: number; busy: { actor: string; side: string; t0: number; t1: number } }[] = [];
+  private startCarry(actor: string, prop: string, side: "F" | "B", abs: number) {
+    this.endCarry(prop, abs);
+    const busy = { actor, side, t0: abs, t1: Infinity };
+    this.armBusy.push(busy);
+    this.carries.push({ actor, prop, side, t0: abs, t1: Infinity, busy });
+  }
+  private endCarry(prop: string, abs: number) {
+    for (const c of this.carries) if (c.prop === prop && c.t1 === Infinity) c.t1 = c.busy.t1 = Math.max(c.t0, abs);
+  }
+  /** Whether an actor's hand (F near / B far) is free at a moment: holding nothing, in no one's hand, moved by no beat. */
+  private handFree(actor: string, side: "F" | "B", abs: number, except?: string) {
+    for (const [id, st] of this.propStates) if (id !== except && st.heldBy.some((h) => h.actor === actor && h.t0 <= abs + 1e-6 && h.t1 > abs) && this.hand(id, abs).side === side) return false;
+    // (Hand in hand, the one on the left holds with the near hand, the one on the right with the far one.)
+    if (this.handPairs.some((p) => p.t0 <= abs + 1e-6 && p.t1 > abs && ((p.a === actor && side === "F") || (p.b === actor && side === "B")))) return false;
+    return !this.armBusy.some((b) => b.actor === actor && b.side === side && b.t0 <= abs + 1e-6 && b.t1 > abs);
+  }
+  /** The hand a hung prop goes into: the far one when the rig has it and it is free, else the near one. */
+  private hangSide(actor: string, abs: number, prop?: string): "F" | "B" {
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+    return anchors.handB && this.handFree(actor, "B", abs, prop) ? "B" : "F";
+  }
+  /** A hung prop moves to the other hand (that hand is needed: holding someone's hand). */
+  private switchHand(actor: string, prop: string, side: "F" | "B", abs: number) {
+    const hang = this.hangOf(prop);
+    // (Already hanging from that hand: nothing to do.)
+    if (this.hand(prop, abs).side === side && this.carries.some((c) => c.prop === prop && c.actor === actor && c.t1 === Infinity)) return;
+    this.setHand(prop, side, abs);
+    this.push({ at: this.t(abs), action: "release", actor, prop });
+    this.push({ at: this.t(abs), action: "grab", actor, prop, anchor: this.hand(prop).anchor, ...(hang ? { hang: { ...hang } } : {}) });
+    if (hang) this.startCarry(actor, prop, side, abs);
+  }
+  /** Hung props held in a hand that a beat needs (hand in hand): moved to the other hand when it is free. */
+  private clearHand(actor: string, side: "F" | "B", abs: number) {
+    const other = side === "F" ? "B" : "F";
+    for (const c of this.carries.filter((c) => c.actor === actor && c.side === side && c.t0 <= abs + 1e-6 && c.t1 > abs)) {
+      const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+      if (!anchors[other === "F" ? "hand" : "handB"] || !this.handFree(actor, other, abs, c.prop)) {
+        this.issue("warning", `${actor} holds hands with the hand that carries "${c.prop}" and the other hand is not free: it keeps hanging from that hand`);
+        continue;
+      }
+      this.switchHand(actor, c.prop, other, abs);
+    }
+  }
+  /**
+   * 2D rigs: the arm carrying a hung prop hangs still at its rest (its IK chain held there), so the
+   * clips' arm swings (talking, walking) are left to the other arm. Not while sitting, lying, riding
+   * or holding on to someone (their own poses place the arms).
+   */
+  private settleCarries() {
+    for (const c of this.carries) {
+      const chain = `hand${c.side}`;
+      if (this.is3d(c.actor) || !this.hasChain(c.actor, chain)) continue;
+      const end = Math.min(c.t1, this.t1);
+      const gaps = [
+        ...this.rests.filter((r) => r.actor === c.actor),
+        ...this.rides.filter((r) => r.rider === c.actor),
+        ...this.holds.filter((h) => h.actor === c.actor),
+      ].map((r) => [r.t0, r.t1] as [number, number]).sort((a, b) => a[0] - b[0]);
+      let from = c.t0;
+      const spans: [number, number][] = [];
+      for (const [a, b] of gaps) {
+        if (b <= from || a >= end) continue;
+        if (a > from) spans.push([from, a]);
+        from = Math.max(from, b);
+      }
+      if (from < end) spans.push([from, end]);
+      for (const [a, b] of spans) {
+        if (b - a < 0.3) continue;
+        this.set(c.actor, `ik.${chain}.x`, 0, a);
+        this.set(c.actor, `ik.${chain}.y`, 0, a);
+        this.set(c.actor, `ik.${chain}.mix`, 1, a, 0.3, "sineInOut");
+        if (b < this.t1 - 0.05) this.set(c.actor, `ik.${chain}.mix`, 0, b, 0.3, "sineInOut");
+      }
+    }
   }
   /** Which hand holds a prop from a moment on. */
   private setHand(prop: string, side: "F" | "B", abs: number) {
@@ -1165,7 +1259,10 @@ class BlockScene {
         if (use.target) use.target = [-use.target[0], use.target[1], use.target[2]];
       }
       this.push({ at: this.t(abs), action: "release", actor, prop: id });
-      this.push({ at: this.t(abs), action: "grab", actor, prop: id, anchor: now.anchor, ...(fit ? { fit } : {}) });
+      const hang = fit ? undefined : this.hangOf(id);
+      this.push({ at: this.t(abs), action: "grab", actor, prop: id, anchor: now.anchor, ...(fit ? { fit } : {}), ...(hang ? { hang: { ...hang } } : {}) });
+      // A hung prop stays in the same hand: that arm (now the other side of the drawing) carries it.
+      if (this.carries.some((c) => c.prop === id && c.t1 === Infinity)) this.startCarry(actor, id, now.side as "F" | "B", abs);
       if (active && use.target) {
         // The same arm, seen from the other side: set at once (the turn hides the change).
         this.arm3d(actor, use.target, abs, 0, now.side as "F" | "B");
@@ -1221,6 +1318,7 @@ class BlockScene {
       this.push({ at: this.t(at), action: "grab", actor, prop, anchor: list.find((f) => "anchor" in f)!.anchor as string, fit: list });
       this.hung.set(prop, { actor, fit });
       this.lastHang.set(prop, fit);
+      this.endCarry(prop, at);
       return;
     }
     until ??= at + 2;
@@ -1269,7 +1367,8 @@ class BlockScene {
     this.push({ at: t1, action: "release", actor, prop });
     // Back into the holding hand — the one holding it then (a turn round in between swaps hands):
     // settled when the block is built.
-    const back: Action = { at: t1, action: "grab", actor, prop, anchor: this.hand(prop).anchor };
+    const hang = this.hangOf(prop);
+    const back: Action = { at: t1, action: "grab", actor, prop, anchor: this.hand(prop).anchor, ...(hang ? { hang: { ...hang } } : {}) };
     this.push(back);
     this.regrabs.push({ action: back, prop, t: until });
   }
@@ -1372,6 +1471,12 @@ class BlockScene {
   }
   /** Held in the hand by its grip, standing up between the fingers. */
   private inHand(actor: string, prop: string, at: number) {
+    // A hung prop is held up hanging from the near hand (a lantern raised in front of the chest).
+    if (this.hangOf(prop)) {
+      this.switchHand(actor, prop, "F", at);
+      if (this.hasPart(actor, "handF")) this.set(actor, "parts.handF.variant", "grip", at - 0.15);
+      return;
+    }
     const { grip, up } = this.handHold(prop);
     this.push({ at: this.t(at), action: "release", actor, prop });
     this.push({ at: this.t(at), action: "grab", actor, prop, anchor: "hand", ...(grip ? { fit: [{ point: grip, anchor: "hand" }, ...(up ? [{ point: up, angle: -90, fixed: true }] : [])] } : {}) });
@@ -1442,6 +1547,7 @@ class BlockScene {
     const h = st.heldBy.find((h) => h.t1 === Infinity);
     if (!h) return;
     h.t1 = abs;
+    this.endCarry(prop, abs);
     this.push({ at: this.t(abs), action: "release", actor: h.actor, prop });
   }
   /** Hand position of an actor (scene space) while playing a clip at clip time `ct`. */
@@ -1712,13 +1818,14 @@ class BlockScene {
       case "vehicle":
         this.vehicle(b, at);
         break;
-      case "fixture": {
-        const f = this.setDef.fixtures?.find((x) => x.id === b.id);
-        if (!f) this.issue("error", `unknown fixture "${String(b.id)}"${closest(String(b.id), (this.setDef.fixtures ?? []).map((x) => x.id))}`);
-        else this.set(f.id, f.channel ?? "parts.light.variant", b.value, at);
+      case "fixture":
+        this.fixture(String(b.id), b.value, at);
         break;
-      }
+      case "press":
+        if (one) this.press(one, b, at, until);
+        break;
       case "camera":
+        this.camBeats.push([at, until ?? at + ((b.duration as number | undefined) ?? 0)]);
         this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string | undefined, to: b.to as string | undefined, duration: until !== undefined ? until - at : (b.duration as number | undefined), amount: b.amount as number | undefined }, at);
         break;
       case "light": {
@@ -1734,6 +1841,114 @@ class BlockScene {
       default:
         this.issue("error", `line ${b.line}: unknown action "${b.do}"${closest(b.do, ACTIONS)}`);
     }
+  }
+
+  /** The clip each fixture last played by a `fixture` beat (it holds its end until the next one). */
+  private fixtureClips = new Map<string, Action>();
+  /**
+   * Changes a set fixture: a clip of its rig named like the value (`open`, `close`, `slide`…) plays
+   * once from that moment and holds its last pose until the next clip of that fixture (or the end of
+   * the block); any other value sets its channel (a traffic light's `red`).
+   */
+  fixture(id: string, value: unknown, at: number) {
+    const f = this.setDef.fixtures?.find((x) => x.id === id);
+    if (!f) return this.issue("error", `unknown fixture "${id}"${closest(id, (this.setDef.fixtures ?? []).map((x) => x.id))}`);
+    const clips = (this.kit.characters[f.character]?.clips ?? {}) as Record<string, unknown>;
+    if (typeof value === "string" && clips[value]) {
+      const t = this.t(at), fade = 0.15;
+      // The clip before it ends as this one comes in (a short cross-fade from its held end pose).
+      const prev = this.fixtureClips.get(f.id);
+      if (prev) Object.assign(prev, { duration: r3(Math.max(0.05, t + fade - prev.at)), fadeOut: fade });
+      // (A long instance: the scene holds a clip played once on its last pose while it lasts.)
+      const play: Action = { at: t, actor: f.id, action: "play", clip: value, loop: false, duration: r3(Math.max(0.1, this.t1 - this.t0 - t)), fadeIn: prev ? fade : 0.05, fadeOut: 0, layer: 1 };
+      this.push(play);
+      this.fixtureClips.set(f.id, play);
+      return;
+    }
+    this.set(f.id, f.channel ?? "parts.light.variant", value, at);
+  }
+  /**
+   * Presses something (a doorbell, a lift button, an intercom, a switch on a prop): walks within arm's
+   * reach of it if needed — on the side they come from, facing it — reaches the free hand to it (a
+   * fixture's or furniture's anchor named in `at` ("bell.high"), else its `press`, `button` or `top`
+   * anchor; a prop's `grip` or first point), pushes in (0.12 s), holds (0.1 s, or until `until`), comes back
+   * (0.2 s) and lets go. With `value`, the fixture changes at the press (a doorbell lights up).
+   */
+  press(actor: string, b: Beat, at: number, until?: number) {
+    const spec = typeof b.at === "string" ? b.at : "";
+    const [id, named] = spec.includes(".") ? [spec.slice(0, spec.indexOf(".")), spec.slice(spec.indexOf(".") + 1)] : [spec, undefined];
+    const fixtures = (this.setDef.fixtures ?? []).map((f) => f.id);
+    const rigs = [...fixtures, ...this.furnitureOf.keys()];
+    const known = [...rigs, ...this.propStates.keys()];
+    if (!known.includes(id)) return this.issue("error", `line ${b.line} "press": ${actor} cannot press "${spec}": no fixture, furniture or prop with that id${closest(id, known)}`);
+    if (b.value !== undefined && !fixtures.includes(id)) this.issue("error", `line ${b.line} "press": "${id}" is not a set fixture: \`value\` changes a fixture (the press still happens)`);
+    const s = this.scaleOf(actor), rig = this.member(actor)?.rig;
+    // Where the finger goes (scene px), and the reach target (a rig's anchor, followed; a prop's point; a scene point).
+    let point: [number, number], target: unknown;
+    if (rigs.includes(id)) {
+      const anchors = (this.kit.characters[this.characterOf(id)]?.anchors ?? {}) as Record<string, unknown>;
+      if (named && !anchors[named]) return this.issue("error", `line ${b.line} "press": "${id}" has no anchor "${named}"${closest(named, Object.keys(anchors))}`);
+      const anchor = named ?? ["press", "button", "top"].find((n) => anchors[n]);
+      const p = anchor ? this.placedAnchor(id, anchor) : undefined;
+      if (anchor && p) [point, target] = [p, { actor: id, anchor }];
+      else {
+        // No anchor to press: the top of its drawing, in the middle.
+        const x = this.xAt(id, at), top = this.drawnTop(id, x);
+        point = [x, Number.isFinite(top) ? top : this.setDef.ground.near - 100];
+        target = [Math.round(point[0]), Math.round(point[1])];
+      }
+    } else {
+      if (named) this.issue("warning", `line ${b.line} "press": a prop has no anchors ("${named}" ignored): its grip is pressed`);
+      const pts = this.kit.props[this.propKinds.get(id) ?? ""]?.points ?? {};
+      const pt = pts.grip ?? Object.values(pts)[0];
+      point = [this.propX(id, at) + (pt?.[0] ?? 0), this.propY(id, at) + (pt?.[1] ?? 0)];
+      target = pt ? { prop: id, point: pt } : [Math.round(point[0]), Math.round(point[1])];
+    }
+    // The hand: the one asked for, else the near one when it is free, else the far one.
+    const side: "F" | "B" = b.hand === "F" || b.hand === "B" ? b.hand : !this.handFree(actor, "F", at) && this.handFree(actor, "B", at) ? "B" : "F";
+    const chain = `hand${side}`;
+    if (!this.hasChain(actor, chain)) return this.issue("error", `line ${b.line} "press": ${actor} has no IK chain "${chain}" to reach with`);
+    // Stand within arm's reach (a comfortable three quarters of it sideways), on the side they come from.
+    const reachLen = (rig?.armLength?.[side] ?? 80) * s * 0.92;
+    const sh = (rig?.shoulder?.[side] ?? [0, -110]) as [number, number];
+    const shoulderY = this.groundY(actor, at) + sh[1] * s;
+    const dy = point[1] - shoulderY;
+    const over = Math.abs(dy) - reachLen;
+    if (dy < 0 && over > 0) this.issue("warning", `line ${b.line} "press": "${spec}" is ${Math.round(over)} px above ${actor}'s reach: they reach up as far as they can`);
+    const across = Math.sqrt(Math.max(0, reachLen * reachLen - dy * dy));
+    const standoff = Math.abs(sh[0]) * s + Math.max(across * 0.75, reachLen * 0.2);
+    const from = this.xAt(actor, at) <= point[0] ? -1 : 1;
+    const x = point[0] + from * standoff;
+    const IN = 0.35, PUSH = 0.12, OUT = 0.2;
+    let arrive = -Infinity;
+    if (Math.abs(this.xAt(actor, at) - x) > 20 * s) {
+      // Walks over beforehand when the block has the time (else the press waits for the arrival).
+      const dur = Math.abs(x - this.xAt(actor, at)) / this.speedOf(actor, "walk");
+      arrive = this.walk(actor, x, at - IN - PUSH - dur, dur);
+    }
+    // The press itself on the beat's moment (the hand on its way before it), or as soon as they are there.
+    const pressAt = Math.max(at, arrive + IN + PUSH, this.t0 + IN + PUSH);
+    const contact = pressAt - PUSH;
+    this.face(actor, from < 0 ? "right" : "left", contact - IN - 0.05);
+    const hold = until !== undefined ? Math.max(0.1, until - pressAt) : 0.1;
+    // The push: past the point along the reach (from the shoulder), then back on it.
+    const sx = this.xAt(actor, pressAt) + (from < 0 ? 1 : -1) * sh[0] * s;
+    const dx = point[0] - sx, dl = Math.hypot(dx, dy) || 1, depth = Math.max(4, reachLen * 0.08);
+    const pushed = [Math.round(point[0] + (dx / dl) * depth), Math.round(point[1] + (dy / dl) * depth)];
+    this.reach(actor, chain, target, contact - IN, IN);
+    this.reach(actor, chain, pushed, contact, PUSH);
+    this.reach(actor, chain, target, pressAt + hold, OUT);
+    this.reach(actor, chain, null, pressAt + hold + OUT, 0.35);
+    this.armBusy.push({ actor, side, t0: contact - IN, t1: pressAt + hold + OUT + 0.35 });
+    this.busy.push({ actor, t0: contact - IN, t1: pressAt + hold + OUT + 0.35 });
+    if (this.hasPart(actor, chain) && this.hasPartVariant(actor, chain, "point")) {
+      this.set(actor, `parts.${chain}.variant`, "point", contact - IN);
+      this.set(actor, `parts.${chain}.variant`, null, pressAt + hold + OUT);
+    }
+    if (b.value !== undefined && fixtures.includes(id)) this.fixture(id, b.value, pressAt);
+  }
+  private hasPartVariant(actor: string, part: string, variant: string) {
+    return !!((this.kit.characters[this.characterOf(actor)]?.parts ?? []) as { id: string; variants?: Record<string, unknown> }[]).find((p) => p.id === part)?.variants?.[variant];
   }
 
   /** The light mood now (and when it last changed): layers, lights and fixtures follow it. */
@@ -1967,6 +2182,9 @@ class BlockScene {
   private holdPair(a: string, b: string, at: number, view: "profile" | "back") {
     const ik = (id: string, chain: string) => ((this.kit.characters[this.characterOf(id)]?.ik ?? []) as { id: string }[]).some((k) => k.id === chain);
     if (!ik(a, "handF") || !ik(b, "handB")) return this.issue("warning", `${a} and ${b} cannot hold hands (IK chains handF / handB missing)`);
+    // A hung prop in a hand that is about to hold someone's goes into the other hand.
+    this.clearHand(a, "F", at);
+    this.clearHand(b, "B", at);
     const A = this.member(a)!.rig, B = this.member(b)!.rig;
     const sa = this.scaleOf(a), sb = this.scaleOf(b);
     const pa = this.xAt(a, at), pb = this.xAt(b, at);
@@ -2339,7 +2557,11 @@ class BlockScene {
       const [fx, fy] = anchorPosition(compiled, g.actor, anchor, this.t(g.at)) as [number, number];
       const h = (rig?.height ?? 300) * this.scaleOf(g.actor) * 0.22;
       const near = this.facing(g.actor, g.at) ? 1 : -1;
-      const chains: [string, number][] = fg.both ? [["handF", 1], ["handB", -1]] : [["handF", 1]];
+      // (An arm carrying something or moved by a beat is left alone: the other one gestures.)
+      const free = (c: string) => !this.armBusy.some((b) => b.actor === g.actor && `hand${b.side}` === c && b.t0 <= g.at + 1e-6 && b.t1 > g.at);
+      let chains: [string, number][] = (fg.both ? [["handF", 1], ["handB", -1]] : [["handF", 1]]) as [string, number][];
+      chains = chains.filter(([c]) => free(c));
+      if (!chains.length && !fg.both && free("handB")) chains = [["handB", 1]];
       for (const [chain, side] of chains) {
         if (!this.hasChain(g.actor, chain)) continue;
         const back = this.reachBefore(g.actor, chain, g.at);
@@ -2373,6 +2595,7 @@ class BlockScene {
     }
     if (this.hasClip(attacker, "punch")) this.play(attacker, "punch", t, 0.9, { fadeIn: 0.05 });
     const hitT = t + 0.28;
+    this.closeOK.push({ a: attacker, b: target, t0: at - 0.2, t1: hitT + 1.4 });
     // The hit.
     this.push({ at: this.t(hitT), action: "fx", type: "impactFrame", duration: 0.12 });
     this.sfx("hit", hitT);
@@ -2443,21 +2666,29 @@ class BlockScene {
     const st = this.propStates.get(prop);
     if (!st?.heldBy.some((h) => h.actor === giver && h.t1 === Infinity)) return this.issue("error", `${giver} cannot give "${prop}": not holding it`);
     const gap = this.pairGap(giver, to) * 0.95;
+    const from = at;
     at = this.approach(giver, to, gap, at);
+    this.closeOK.push({ a: giver, b: to, t0: from - 0.2, t1: at + 2 });
     const mid = (this.xAt(giver, at) + this.xAt(to, at)) / 2;
     const y = this.groundY(giver, at) - Math.min(this.shoulderHeight(giver), this.shoulderHeight(to)) * 0.82;
-    for (const [actor, hand] of [[giver, "handF"], [to, "handF"]] as const)
+    // The giver reaches out with the hand that holds it; a hung prop is taken hanging, in the
+    // receiver's far hand when it is free (the near one stays free).
+    const side: "F" | "B" = this.hangOf(prop) ? this.hangSide(to, at + 0.5, prop) : "F";
+    const chainOf = (actor: string, sd: string) => (this.hasChain(actor, `hand${sd}`) ? `hand${sd}` : "handF");
+    for (const [actor, hand] of [[giver, chainOf(giver, this.hand(prop, at).side)], [to, chainOf(to, side)]] as const)
       if (this.hasChain(actor, hand)) {
         this.reach(actor, hand, [Math.round(mid), Math.round(y)], at, 0.4);
         this.reach(actor, hand, null, at + 1.1, 0.4);
       }
     this.release(prop, at + 0.5);
-    this.grab(to, prop, at + 0.5);
+    this.grab(to, prop, at + 0.5, side);
   }
   /** A high five: both near hands up, meeting above between them (a slap, a sparkle). */
   highFive(a: string, b: string, at: number) {
     const gap = this.pairGap(a, b) * 0.95;
+    const from = at;
     at = this.approach(a, b, gap, at) + 0.3;
+    this.closeOK.push({ a, b, t0: from - 0.2, t1: at + 1.2 });
     const mid = (this.xAt(a, at) + this.xAt(b, at)) / 2;
     const y = this.groundY(a, at) - Math.max(this.shoulderHeight(a), this.shoulderHeight(b)) * 1.45;
     for (const actor of [a, b])
@@ -2476,6 +2707,7 @@ class BlockScene {
     const close = (this.pairGap(a, b) - 20) * 0.45;
     const arrive = this.approach(a, b, close, at);
     until += arrive - at;
+    this.closeOK.push({ a, b, t0: at - 0.2, t1: until + 1 });
     at = arrive;
     const xa = this.xAt(a, at), xb = this.xAt(b, at);
     const y = (who: string) => this.groundY(who, at) - this.shoulderHeight(who) * 0.85;
@@ -2503,6 +2735,7 @@ class BlockScene {
     if (!anchors.head) return this.issue("error", `${carrier} cannot carry anyone: the rig has no "head" anchor`);
     const arrive = this.approach(rider, carrier, (this.member(carrier)?.rig.extent.front ?? 60) * this.scaleOf(carrier) * 0.5, at);
     if (until !== undefined) until += arrive - at;
+    this.closeOK.push({ a: carrier, b: rider, t0: at - 0.2, t1: (until ?? Infinity) + 1 });
     at = arrive;
     const hip = this.hipOf(rider);
     const headH = (this.member(carrier)?.rig.height ?? 300) * this.scaleOf(carrier) * 0.12;
@@ -2540,6 +2773,8 @@ class BlockScene {
   }
 
   // -------------------------------------------------- hiding
+  /** Pairs brought close on purpose (a hug, a high five, a hand-over, a punch…), when: the check lets them be nose to nose. */
+  private closeOK: { a: string; b: string; t0: number; t1: number }[] = [];
   /** Who hides behind what, and when (the check does not report their covered face then). */
   private hidings: { actor: string; behind: string; t0: number; t1: number; crouch: number; lean: number }[] = [];
   /** Top (scene y) of a placed rig's drawing at a scene x (the shapes over that x). */
@@ -3339,10 +3574,83 @@ class BlockScene {
       this.push({ at: this.t(at), actor: w, action: "lookAt", target: null });
     }
     for (let i = 1; i < order.length; i++) this.holdPair(order[i - 1], order[i], at - 0.15, "back");
+    this.camBeats.push([at, until]);
     this.camera({ type: "cross", who, mark: to }, at);
   }
 
   // -------------------------------------------------- camera
+  /** Camera moves the staging asked for ([from, until], episode time): the automatic camera keeps out of them. */
+  private camBeats: [number, number][] = [];
+  /**
+   * The conversation camera (`Staging.camera.style: "conversation"`): one stable framing of the people
+   * in the exchange — whoever spoke in the last 8 s, plus the one addressed — never a cut per line.
+   * It re-frames only when they change (someone joins or drops out, comes in or leaves the picture),
+   * looking again every 12 s at most; a small move blends, a big one cuts. A `camera` beat wins: the
+   * framing waits until it is over and the people in the exchange change again.
+   */
+  private conversationCamera() {
+    const WINDOW = 8, EVERY = 12;
+    const lines = this.time.lines.filter((l) => l.s >= this.t0 && l.s < this.t1);
+    // Moments to look again: every line, every 12 s, and whenever someone comes in or goes.
+    const moments = new Set<number>(lines.map((l) => l.s));
+    for (let t = this.t0 + EVERY; t < this.t1 - 1; t += EVERY) moments.add(t);
+    for (const id of this.present) {
+      for (const [k] of (this.tracks[`actors.${id}.opacity`] as [number, number][] | undefined) ?? []) if (k > 0) moments.add(this.t0 + k + 0.05);
+      for (const w of this.walks) if (w.actor === id && w.t1 > this.t0) moments.add(w.t1 + 0.05);
+    }
+    const visible = (id: string, t: number) => {
+      if (this.hiddenAt(id, t)) return false;
+      const W = this.kit.width ?? 1920, [bx0, , bx1] = this.setDef.bounds ?? [-400, 0, W + 400, 0];
+      const x = this.xAt(id, t);
+      return x > Math.min(0, bx0) && x < Math.max(W, bx1);
+    };
+    const people = (t: number) => {
+      const out = new Set<string>();
+      for (const l of lines.filter((l) => l.s <= t + 1e-6 && l.e >= t - WINDOW)) {
+        const sp = this.speakerOf(l);
+        if (sp.length !== 1 || l.song) continue;
+        out.add(sp[0]);
+        const to = this.addressed(l, sp[0]);
+        if (to) out.add(to);
+      }
+      // (A line just begun: the one it speaks to, when not named, is the nearest listener.)
+      const cur = lines.filter((l) => l.s <= t + 1e-6 && l.e > t).pop();
+      const sp = cur ? this.speakerOf(cur) : [];
+      if (sp.length === 1 && out.size === 1) {
+        const near = this.present.filter((x) => x !== sp[0] && visible(x, t)).sort((a, b) => Math.abs(this.xAt(a, t) - this.xAt(sp[0], t)) - Math.abs(this.xAt(b, t) - this.xAt(sp[0], t)))[0];
+        if (near) out.add(near);
+      }
+      return [...out].filter((id) => visible(id, t)).sort((a, b) => this.xAt(a, t) - this.xAt(b, t));
+    };
+    // (The block's own opening shot, when it names one, is a camera the staging asked for.)
+    if (this.block.camera) this.camBeats.push([this.t0, this.t0]);
+    let current = "", since = this.t0, box: [number, number] | undefined, afterBeat = false;
+    for (const t of [...moments].sort((a, b) => a - b)) {
+      if (t < this.t0 || t >= this.t1 - 0.3) continue;
+      const who = people(t);
+      const key = who.join("|");
+      // An explicit camera move under way wins; after it, the framing comes back when the people
+      // change, or 12 s later.
+      if (this.camBeats.some(([a, z]) => a <= t + 0.3 && Math.max(z, a + 2) > t)) {
+        [current, since, box, afterBeat] = [key, t, undefined, true];
+        continue;
+      }
+      if (!who.length) continue;
+      if (key === current && (t - since < EVERY - 1e-6 || !afterBeat)) {
+        if (t - since >= EVERY - 1e-6) since = t;
+        continue;
+      }
+      // Where the new framing is (sideways extent) against the one before: a small move blends.
+      const xs = who.map((w) => this.xAt(w, t)), span: [number, number] = [Math.min(...xs), Math.max(...xs)];
+      const width = (b: [number, number]) => Math.max(400, b[1] - b[0]);
+      const small = !!box && Math.abs((span[0] + span[1]) / 2 - (box[0] + box[1]) / 2) < width(box) * 0.35 && width(span) / width(box) < 1.6 && width(box) / width(span) < 1.6;
+      const n = this.script.length;
+      this.camera({ type: who.length === 1 ? "medium" : who.length === 2 ? "two-shot" : "group", who }, t - 0.2);
+      for (const a of this.script.slice(n)) if (a.action === "camera") Object.assign(a, small ? { blend: 1.2 } : { blend: 0, lag: 0.05 });
+      [current, since, box, afterBeat] = [key, t, span, false];
+    }
+  }
+
   camera(c: { type: string; who?: string | string[]; mark?: string; to?: string; duration?: number; amount?: number }, at: number) {
     // What the camera may frame: the cast present, scenery and vehicles (actors), and props.
     const who = (c.who === undefined ? this.present : Array.isArray(c.who) ? c.who : [c.who]).filter((w) => this.present.includes(w) || this.actors.some((a) => a.id === w) || this.propStates.has(w));
@@ -3616,6 +3924,7 @@ class BlockScene {
   cradle(adult: string, baby: string, at: number, until?: number) {
     if (!this.present.includes(baby)) return this.issue("error", `${adult} cannot cradle "${baby}": not in the block`);
     if (!this.is3d(adult) || !this.point3d(adult, "chest")) return this.issue("error", `${adult} cannot cradle: needs a 2.5D rig with a chest point (rig3d.points.chest)`);
+    this.closeOK.push({ a: adult, b: baby, t0: at - 0.5, t1: (until ?? Infinity) + 1 });
     const chest = this.point3d(adult, "chest")!;
     // (The forearms across the belly, a seat for the little one.)
     this.arm3d(adult, [chest[0] - 6, chest[1] + 70, chest[2] + 22], at, 0.5, "F");
@@ -4181,9 +4490,11 @@ class BlockScene {
     // back into the hand that holds it when its use ends.
     this.settleHolds();
     for (const g of this.regrabs) g.action.anchor = this.hand(g.prop, g.t).anchor;
+    this.settleCarries();
     this.ridePoses();
     this.snores();
     this.dialogue(noTurn);
+    if (this.cameraStyle === "conversation") this.conversationCamera();
     this.checkOverlaps();
     // Anticipation and settle, once every move is known (they keep out of the way of the others).
     this.leanWalks();
@@ -4227,6 +4538,14 @@ class BlockScene {
       this.resolveGestures(doc);
       (doc as { script: unknown[] }).script = [...this.script].sort((a, b) => a.at - b.at);
     }
+    // What the checks must know of the staging: who is close on purpose and who sits, in scene time.
+    const scene = (a: number) => a - this.t0;
+    // (Brought close, they stay where the beat left them until one of them walks off.)
+    const leave = (p: { a: string; b: string; t1: number }) => Math.min(...this.walks.filter((w) => (w.actor === p.a || w.actor === p.b) && w.t0 >= p.t1 - 1 && Math.abs(w.x1 - w.x0) > 1).map((w) => w.t0 + 0.4));
+    STAGED.set(doc, {
+      pairs: [...this.closeOK, ...this.handPairs.map((p) => ({ a: p.a, b: p.b, t0: p.t0 - 0.8, t1: p.t1 + 1.2 }))].map((p) => ({ ...p, t0: scene(p.t0), t1: scene(Math.max(p.t1, leave(p))) })),
+      seated: this.rests.filter((r) => r.kind === "sit").map((r) => ({ actor: r.actor, t0: scene(r.t0), t1: scene(r.t1) })),
+    });
     // Every sound the script plays is declared in the scene's audio (its src is its id: a file or
     // a logical id the pipeline resolves).
     const sounds = [...new Set(this.script.filter((a) => a.action === "sound").map((a) => a.audio as string))];
@@ -4259,7 +4578,7 @@ export function direct(staging: Staging, lines: Line[], kit: Kit): Directed {
   const build = (block: Block) => {
     if (scenes[block.id] || building.has(block.id)) return;
     building.add(block.id);
-    const bs = new BlockScene(block, kit, time, issues, live[0] === block, photo, block.animation ?? staging.animation);
+    const bs = new BlockScene(block, kit, time, issues, live[0] === block, photo, block.animation ?? staging.animation, staging.camera?.style === "conversation" ? "conversation" : "dynamic");
     scenes[block.id] = bs.build();
     starts[block.id] = bs.t0;
   };
@@ -4730,26 +5049,89 @@ function propPlacementAt(sc: ReturnType<typeof compileScene>, p: (ReturnType<typ
   return [pl.x, pl.y];
 }
 
-/** Rough boxes of the shapes of an SVG drawing (absolute paths, rects, circles, ellipses), in its own space. */
-function markupBoxes(svg: string): [number, number, number, number][] {
-  const out: [number, number, number, number][] = [];
-  const box = (xs: number[], ys: number[]) => xs.length && out.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
-  for (const m of svg.matchAll(/\bd=["']([^"']+)["']/g)) {
-    if (/[a-df-z]/.test(m[1])) continue; // relative paths: their numbers are offsets
-    const nums = (m[1].match(/-?\d*\.?\d+(?:e-?\d+)?/g) ?? []).map(Number);
-    const xs: number[] = [], ys: number[] = [];
-    for (let i = 0; i + 1 < nums.length; i += 2) xs.push(nums[i]), ys.push(nums[i + 1]);
-    box(xs, ys);
+/** A 2D affine matrix [a, b, c, d, e, f] (SVG's: x' = a·x + c·y + e, y' = b·x + d·y + f). */
+type Affine = [number, number, number, number, number, number];
+const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
+const mulAffine = (m: Affine, n: Affine): Affine => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+const onAffine = (m: Affine, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** An SVG `transform` attribute as one matrix (translate, scale, rotate(a[, cx, cy]), matrix, skewX, skewY; applied left to right). */
+export function parseTransform(src: string | undefined): Affine {
+  let m: Affine = IDENTITY;
+  for (const f of (src ?? "").matchAll(/(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g)) {
+    const v = (f[2].match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);
+    const rad = ((v[0] ?? 0) * Math.PI) / 180;
+    let n: Affine;
+    switch (f[1]) {
+      case "matrix":
+        n = v.length >= 6 ? [v[0], v[1], v[2], v[3], v[4], v[5]] : IDENTITY;
+        break;
+      case "translate":
+        n = [1, 0, 0, 1, v[0] ?? 0, v[1] ?? 0];
+        break;
+      case "scale":
+        n = [v[0] ?? 1, 0, 0, v[1] ?? v[0] ?? 1, 0, 0];
+        break;
+      case "rotate": {
+        const [c, s] = [Math.cos(rad), Math.sin(rad)], [cx, cy] = [v[1] ?? 0, v[2] ?? 0];
+        // About (cx, cy): translate(cx, cy) rotate(a) translate(−cx, −cy).
+        n = [c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy];
+        break;
+      }
+      case "skewX":
+        n = [1, 0, Math.tan(rad), 1, 0, 0];
+        break;
+      default:
+        n = [1, Math.tan(rad), 0, 1, 0, 0];
+    }
+    m = mulAffine(m, n);
   }
-  for (const m of svg.matchAll(/<(rect|circle|ellipse)\b([^>]*)>/g)) {
-    const a = (k: string) => Number(new RegExp(`\\b${k}=["'](-?[\\d.]+)["']`).exec(m[2])?.[1] ?? NaN);
-    if (m[1] === "rect") {
+  return m;
+}
+
+/**
+ * Rough boxes of the shapes of an SVG drawing (absolute paths, polygons, rects, circles, ellipses)
+ * in its own coordinates, after the `transform`s of the groups they are in and their own (a gate
+ * drawn moved by a `<g transform>` is measured where it is drawn).
+ */
+export function markupBoxes(svg: string): [number, number, number, number][] {
+  const out: [number, number, number, number][] = [];
+  const box = (m: Affine, pts: [number, number][]) => {
+    if (!pts.length) return;
+    const ps = pts.map(([x, y]) => onAffine(m, x, y));
+    const xs = ps.map((p) => p[0]), ys = ps.map((p) => p[1]);
+    out.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  };
+  const corners = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const pairs = (src: string): [number, number][] => {
+    const nums = (src.match(/-?\d*\.?\d+(?:e-?\d+)?/g) ?? []).map(Number);
+    const pts: [number, number][] = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) pts.push([nums[i], nums[i + 1]]);
+    return pts;
+  };
+  // Every open tag pushes its transform (a group's, or a shape's for its own children), every close
+  // tag pops it; a self-closing tag's transform applies to itself only.
+  const stack: Affine[] = [IDENTITY];
+  for (const tag of svg.matchAll(/<(\/?)([a-zA-Z][\w:-]*)\b([^>]*?)(\/?)>/g)) {
+    const [, closing, name, attrs, self] = tag;
+    if (closing) {
+      if (stack.length > 1) stack.pop();
+      continue;
+    }
+    const m = mulAffine(stack[stack.length - 1], parseTransform(/\btransform=["']([^"']*)["']/.exec(attrs)?.[1]));
+    if (!self) stack.push(m);
+    const a = (k: string) => Number(new RegExp(`\\b${k}=["'](-?[\\d.]+(?:e-?\\d+)?)["']`).exec(attrs)?.[1] ?? NaN);
+    const d = /\bd=["']([^"']+)["']/.exec(attrs)?.[1];
+    // Relative paths: their numbers are offsets.
+    if (d !== undefined && !/[a-df-z]/.test(d)) box(m, pairs(d));
+    if (name === "polygon" || name === "polyline") box(m, pairs(/\bpoints=["']([^"']+)["']/.exec(attrs)?.[1] ?? ""));
+    else if (name === "rect") {
       const [x, y, w, h] = [a("x") || 0, a("y") || 0, a("width"), a("height")];
-      if (Number.isFinite(w) && Number.isFinite(h)) box([x, x + w], [y, y + h]);
-    } else {
+      if (Number.isFinite(w) && Number.isFinite(h)) box(m, corners(x, y, x + w, y + h));
+    } else if (name === "circle" || name === "ellipse") {
       const [cx, cy] = [a("cx") || 0, a("cy") || 0];
       const rx = Number.isFinite(a("r")) ? a("r") : a("rx"), ry = Number.isFinite(a("r")) ? a("r") : a("ry");
-      if (Number.isFinite(rx) && Number.isFinite(ry)) box([cx - rx, cx + rx], [cy - ry, cy + ry]);
+      if (Number.isFinite(rx) && Number.isFinite(ry)) box(m, corners(cx - rx, cy - ry, cx + rx, cy + ry));
     }
   }
   return out;
@@ -4865,19 +5247,29 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
         }
         if (!covered) coveredFor.delete(`${actor.id}:${other.id}`);
       }
-      // Two characters standing nose to nose: their faces closer than their heads' reach (`extent.front`, scaled) for
-      // more than half a second while still — they need a step between them (a hug or hand in hand brings them close
-      // on purpose: those blocks' beats are skipped).
-      const intimate = (block.beats ?? []).some((b) => ["hug", "hold", "carry", "cradle", "highFive", "give", "hit"].includes(b.do as string));
-      if (intimate) continue;
+      // Two characters standing nose to nose: their faces closer than what their heads reach towards
+      // each other (`rig.extent`, measured from the drawing, at their posed scale) for more than half
+      // a second while still — they need a step between them. Not when a beat brings them close on
+      // purpose (a hug, a high five, hand in hand, a hand-over, a piggyback, a punch: its window) nor
+      // sitting side by side.
+      const staged = STAGED.get(sc.doc);
       for (const other of sc.actors) {
         if (other.id <= actor.id || !cast.has(other.id) || opacityAt(other.id, t) <= 0.01 || hidingAt(other.id, t)) continue;
         const oa = other.rig.anchors.face ? "face" : other.rig.anchors.head ? "head" : undefined;
         const ma = kit.cast[actor.id], mo = kit.cast[other.id];
         if (!oa || !ma?.rig || !mo?.rig) continue;
-        const [ox, oy] = anchorPosition(sc, other.id, oa, t);
-        const need = 0.9 * (ma.rig.extent.front * (ma.scale ?? 1) + mo.rig.extent.front * (mo.scale ?? 1));
         const key = `close:${actor.id}:${other.id}`;
+        const meant = staged?.pairs.some((p) => ((p.a === actor.id && p.b === other.id) || (p.a === other.id && p.b === actor.id)) && p.t0 <= t && p.t1 > t);
+        const sitting = (id: string) => !!staged?.seated.some((r) => r.actor === id && r.t0 <= t && r.t1 > t);
+        if (meant || (sitting(actor.id) && sitting(other.id))) {
+          coveredFor.delete(key);
+          continue;
+        }
+        const [ox, oy] = anchorPosition(sc, other.id, oa, t);
+        // Each one's reach towards the other: the front of the head when facing them, else the back.
+        const pa = actorPlacement(actor, t), po = actorPlacement(other, t);
+        const reachTo = (m: number[], e: { front: number; back: number }, towards: number) => ((m[0] >= 0) === towards >= 0 ? e.front : e.back) * Math.hypot(m[0], m[1]);
+        const need = 0.9 * (reachTo(pa, ma.rig.extent, ox - fx) + reachTo(po, mo.rig.extent, fx - ox));
         if (Math.abs(fx - ox) < need && Math.abs(fy - oy) < need && !moving(actor, t) && !moving(other, t)) {
           const run = (coveredFor.get(key) ?? 0) + 0.25;
           coveredFor.set(key, run);

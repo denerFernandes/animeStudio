@@ -226,7 +226,20 @@ export interface Staging {
   music?: Music[];
   /** What the story needed but the kit does not have (ignored by the director; a to-do list). */
   missing?: unknown[];
+  /**
+   * How the camera behaves where no `camera` beat says otherwise. `dynamic` (default): the block's
+   * camera and the beats only. `conversation`: a stable framing of whoever takes part in the exchange
+   * (two-shot / group), re-framed only when they change, someone comes or goes, or every 12 s at most.
+   */
+  camera?: { style?: "dynamic" | "conversation" };
 }
+
+/**
+ * A prop that hangs from the hand and swings like a pendulum (a lantern, a bucket, a handbag): the
+ * point of its art the hand holds (default its top), the string's length (px), damping, the largest
+ * swing (degrees). Passed to the scene's `grab` as `hang`.
+ */
+export interface PropHang { point?: [number, number]; length?: number; damping?: number; limit?: number }
 
 export interface Mark {
   x: number;
@@ -309,9 +322,10 @@ export interface Kit {
    * and contact `points` of the art (a phone's `grip`, `ear`, `mouth`; a glass's `grip`, `lip`) for
    * fitting it to the body (`use` beat, the phone / smoke / drink gestures); `gripFrom`: where the
    * holder's forearm comes from at the grip, degrees in the holder's frame (0 = forward, 90 = from
-   * below; default 70, down and a little forward): the elbow goes there.
+   * below; default 70, down and a little forward): the elbow goes there. `hang`: carried hanging
+   * from the hand, swinging (held in the far hand when it is free, so the near one stays free).
    */
-  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number; cord?: PropCord }>;
+  props: Record<string, { art: (o: { color?: string }) => string; radius: number; points?: Record<string, [number, number]>; gripFrom?: number; cord?: PropCord; hang?: PropHang }>;
   /** Motion graphics by name (a logo's pieces, stickers, icons): art drawn around the origin. */
   graphics?: Record<string, (o: { color?: string }) => string>;
   /**

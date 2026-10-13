@@ -29,8 +29,9 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
   dragged feet and a double bounce, each with a stride measured from its planted feet (no sliding).
 - **Skeleton**: forward kinematics, two-bone and FABRIK IK, rotation limits, local
   (non-inherited) squash & stretch.
-- **Physics**: baked spring chains and jiggles with per-bone mass (ears, tails, hair), plus
-  deterministic Rapier rigid bodies for props that collide with characters.
+- **Physics**: baked spring chains and jiggles with per-bone mass (ears, tails, hair), props hung
+  from the hand that swing with the walk (a bag, a bucket, a lantern), plus deterministic Rapier
+  rigid bodies for props that collide with characters.
 - **Cartoon FX**: surprise strokes, "!", "?", sweat drops, sparkles, dust puffs, hearts, "zzz",
   anger veins, impact bursts and gloom lines that follow, flip and scale with characters.
 - **Cinematic camera**: moves and curved paths, follow with dead zone and look-ahead, automatic

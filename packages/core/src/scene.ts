@@ -44,7 +44,8 @@ import {
   multiply,
   noise1,
 } from "./math";
-import { type PhysicsBake, bakePhysics, samplePhysics } from "./physics";
+import { type HangBake, type PhysicsBake, bakeHang, bakePhysics, sampleHang, samplePhysics } from "./physics";
+import { markupBounds } from "./paths";
 import {
   LIGHTING_DEFS,
   keyLight,
@@ -120,9 +121,35 @@ export interface Grab {
   anchor: string;
   /** Fitted to the body: prop points on actor anchors (see the `grab` action). */
   fit?: ({ point: Vec2; anchor: string } | { point: Vec2; angle: number; fixed?: boolean } | { point: Vec2; dir: [number, number, number]; view?: string })[];
+  /** Hung from the hand by its handle, swinging like a pendulum (see the `grab` action's `hang`), resolved. */
+  hang?: GrabHang;
   start: number;
   end: number;
   releaseVelocity?: Vec2;
+  /** The hung prop's swing over the grab, lazily computed (`hangBake`). */
+  hangBake?: HangBake;
+}
+
+/** A `grab`'s `hang`, with its defaults resolved. */
+export interface GrabHang {
+  /** The prop's handle (art coordinates), placed on the anchor. */
+  point: Vec2;
+  /** Handle → centre of mass, in the prop's art px (scaled with the prop). */
+  length: number;
+  /** 0..1 (mapped to a damping ratio of 0.04–1). */
+  damping: number;
+  /** Degrees either side of the vertical. */
+  limit: number;
+  /** px/s², down. */
+  gravity: number;
+}
+
+/** Default handle → centre of mass length of a hung prop: half the art's extent below the handle (art px). */
+function hangLength(art: string, point: Vec2): number {
+  const b = markupBounds(art);
+  if (!b) return 40;
+  const below = b[3] - point[1];
+  return Math.max(4, below > 0 ? below / 2 : (b[3] - b[1]) / 2);
 }
 
 export interface CompiledProp {
@@ -778,7 +805,19 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         for (const an of [a.anchor, ...(a.fit ?? []).flatMap((f) => ("anchor" in f ? [f.anchor] : []))]) {
           if (!rigCache.get(a.actor)!.anchors[an]) throw new SceneError(`unknown anchor "${an}" on actor "${a.actor}"`, path);
         }
-        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}) });
+        if (a.fit && a.hang) throw new SceneError("a grab cannot both `fit` the prop to the body and `hang` it from the hand", path);
+        let hang: GrabHang | undefined;
+        if (a.hang) {
+          const point = (a.hang.point ?? [0, 0]) as Vec2;
+          hang = {
+            point,
+            length: a.hang.length ?? hangLength(prop.markup, point),
+            damping: a.hang.damping ?? 0.25,
+            limit: a.hang.limit ?? 70,
+            gravity: a.hang.gravity ?? doc.world?.gravity?.[1] ?? 1800,
+          };
+        }
+        prop.grabs.push({ actor: a.actor, anchor: a.anchor, start: a.at, end: Infinity, ...(a.fit ? { fit: a.fit as Grab["fit"] } : {}), ...(hang ? { hang } : {}) });
         return;
       }
       case "release": {
@@ -1742,6 +1781,86 @@ export function anchorTurn(scene: CompiledScene, actorId: string, anchor: string
   return (mirrored ? -deg : deg) * a.turn;
 }
 
+/** Hung props whose swing is being baked (the prop's place needed meanwhile hangs straight). */
+const hangBaking = new Set<Grab>();
+
+/**
+ * Lazily computed swing of a prop hung from a hand (a `grab` with `hang`), over the grab's
+ * [start, end) clipped to the scene. It reads the holding anchor's smooth motion (`inSmoothTime`:
+ * cartoon timing never changes the physics) at the fixed physics rate, and is the same whichever API
+ * first needed it: like `actorBake`, it runs with the aim and mount guards as empty as at the start
+ * of a render. Asked while the holder's own springs are being baked (the holder looking at what it
+ * carries), the prop hangs straight for that bake and nothing is cached.
+ */
+export function hangBake(scene: CompiledScene, prop: CompiledProp, grab: Grab): HangBake | undefined {
+  const hang = grab.hang;
+  if (!hang) return undefined;
+  if (grab.hangBake) return grab.hangBake;
+  const actor = scene.actors.find((a) => a.id === grab.actor);
+  if (!actor || hangBaking.has(grab) || baking.has(actor)) return undefined;
+  const aimOuter = [...resolvingAim];
+  const mountOuter = [...resolvingMount];
+  resolvingAim.clear();
+  resolvingMount.clear();
+  hangBaking.add(grab);
+  try {
+    const end = Math.min(grab.end, scene.duration);
+    grab.hangBake = inSmoothTime(() =>
+      bakeHang({
+        start: grab.start,
+        duration: Math.max(0, end - grab.start),
+        pivotAt: (t) => anchorPosition(scene, actor.id, grab.anchor, t),
+        mirroredAt: (t) => {
+          const m = actorPlacement(actor, t);
+          return m[0] * m[3] - m[1] * m[2] < 0;
+        },
+        lengthAt: (t) => hang.length * Math.abs(samplePlacement(prop.placement, prop.def, t).scale[1]),
+        gravity: hang.gravity,
+        damping: hang.damping,
+        limit: hang.limit,
+      }),
+    );
+  } finally {
+    hangBaking.delete(grab);
+    resolvingAim.clear();
+    resolvingMount.clear();
+    for (const a of aimOuter) resolvingAim.add(a);
+    for (const a of mountOuter) resolvingMount.add(a);
+  }
+  return grab.hangBake;
+}
+
+/**
+ * How far a hung prop has swung at `t` (degrees from the vertical, scene space, positive = towards
+ * +x): 0 when it is not held with `hang`. Taken at its holder's drawing time, like everything
+ * attached to the holder (on twos the swing steps with the drawings; the bake itself is smooth).
+ */
+export function hangAngle(scene: CompiledScene, prop: CompiledProp, t: number): number {
+  const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
+  if (!grab?.hang) return 0;
+  const actor = scene.actors.find((a) => a.id === grab.actor);
+  const td = actor ? Math.max(grab.start, drawnAt(scene, actor, t)) : t;
+  return sampleHang(hangBake(scene, prop, grab), td);
+}
+
+/**
+ * A prop hung from the hand: its handle on the anchor, swung by the baked angle about it (rotation
+ * −θ: the art's down axis points along (sin θ, cos θ)), and mirrored with its holder. The swing is
+ * measured in scene space, so the mirror never reverses it; the prop's own rotation track is
+ * ignored while it hangs (gravity decides which way is down) and the anchor's `turn` too.
+ */
+function hungPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t: number, base: Placement, pose?: EvaluatedPose): Placement {
+  const hang = grab.hang!;
+  const p = anchorPosition(scene, grab.actor, grab.anchor, t, pose);
+  const actor = scene.actors.find((a) => a.id === grab.actor)!;
+  const m = actorPlacement(actor, t);
+  const flip = base.flip !== m[0] * m[3] - m[1] * m[2] < 0;
+  const rot = (-hangAngle(scene, prop, t) * Math.PI) / 180;
+  const c = Math.cos(rot), s = Math.sin(rot);
+  const px = hang.point[0] * base.scale[0] * (flip ? -1 : 1), py = hang.point[1] * base.scale[1];
+  return { ...base, x: p[0] - (px * c - py * s), y: p[1] - (px * s + py * c), rotation: (rot * 180) / Math.PI, flip };
+}
+
 /**
  * A prop fitted to the body: its first point on the first anchor, turned so its second point points
  * at the second anchor (or, with one point, turning with that anchor's bone). The points are taken
@@ -1803,7 +1922,8 @@ function fittedPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab, t
 }
 
 /**
- * Placement of a prop: held, in the hand (fitted to the body or on the anchor, turned with it) —
+ * Placement of a prop: held, in the hand (fitted to the body, hung from it swinging, or on the anchor,
+ * turned with it) —
  * its rigid body, if any, only follows the hand then; free, where its rigid body is, else its tracks
  * (on its ground surface).
  */
@@ -1811,6 +1931,7 @@ export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: numbe
   const base = samplePlacement(prop.placement, prop.def, t);
   const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
   if (grab?.fit) return { ...base, ...fittedPlacement(scene, prop, grab, t, base.scale, base.flip, poses?.get(grab.actor)) };
+  if (grab?.hang) return hungPlacement(scene, prop, grab, t, base, poses?.get(grab.actor));
   if (grab) {
     const pose = poses?.get(grab.actor);
     const p = anchorPosition(scene, grab.actor, grab.anchor, t, pose);

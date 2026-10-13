@@ -42,6 +42,11 @@ export function describeKit(kit: Kit) {
               return [f.id, variants ? Object.keys(variants) : []];
             }),
           ),
+          // Clips a `fixture` beat can play on each fixture (a door's `open` / `close`): every clip of
+          // its rig but the one it loops by itself.
+          fixtureClips: Object.fromEntries(
+            (s.fixtures ?? []).map((f) => [f.id, Object.keys(doc(f.character)?.clips ?? {}).filter((c) => c !== (f.clip ?? "loop"))]),
+          ),
         },
       ]),
     ),
