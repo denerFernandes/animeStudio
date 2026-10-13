@@ -30,7 +30,8 @@ export interface CompiledRig3d {
   byIndex: Map<number, number>;
   views: Record<string, number>;
   pitch: number;
-  chains: { bones: number[]; parts: number[]; tip?: boolean; margin?: number; behind?: number }[];
+  /** `limb: false`: the bones only rank the parts (no foreshortening, no face clearance). */
+  chains: { bones: number[]; parts: number[]; tip?: boolean; margin?: number; behind?: number; limb?: false }[];
   front?: number;
   back?: number;
   body: number[];
@@ -69,7 +70,7 @@ function sidePlaneChains(ik: RigIk[], bones: CompiledRig3d["bones"], byIndex: Ma
   return out;
 }
 
-export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex"> & { ik?: RigIk[] }, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string }[]; front?: string; back?: string; body?: string[]; keepOut?: { bone: string; at: V3; radii: V3 }[] }): CompiledRig3d {
+export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex"> & { ik?: RigIk[] }, def: { bones: Record<string, { from: V3; to: V3 }>; views: Record<string, number>; pitch?: number; chains?: { bones: string[]; parts: string[]; tip?: boolean; margin?: number; behind?: string; limb?: boolean }[]; front?: string; back?: string; body?: string[]; keepOut?: { bone: string; at: V3; radii: V3 }[] }): CompiledRig3d {
   const listed = new Set(Object.keys(def.bones));
   const bones: CompiledRig3d["bones"] = [];
   const byIndex = new Map<number, number>();
@@ -94,6 +95,7 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
   const legBones = new Set(sideIk.flatMap((c) => rig.ik![c].bones));
   const clear: CompiledRig3d["clear"] = [];
   for (const c of def.chains ?? []) {
+    if (c.limb === false) continue;
     const lower = bi(c.bones[c.bones.length - 1] ?? "");
     const li = lower !== undefined ? byIndex.get(lower) : undefined;
     if (lower === undefined || li === undefined) continue;
@@ -107,7 +109,7 @@ export function compileRig3d(rig: Pick<Rig, "bones" | "boneIndex" | "partIndex">
     byIndex,
     views: def.views,
     pitch: def.pitch ?? 0,
-    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined), ...(c.tip ? { tip: true } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}), ...(c.behind && rig.partIndex.get(c.behind) !== undefined ? { behind: rig.partIndex.get(c.behind) } : {}) })),
+    chains: (def.chains ?? []).map((c) => ({ bones: c.bones.map(bi).filter((x): x is number => x !== undefined), parts: c.parts.map((p) => rig.partIndex.get(p)).filter((x): x is number => x !== undefined), ...(c.tip ? { tip: true } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}), ...(c.behind && rig.partIndex.get(c.behind) !== undefined ? { behind: rig.partIndex.get(c.behind) } : {}), ...(c.limb === false ? { limb: false as const } : {}) })),
     front: def.front ? rig.partIndex.get(def.front) : undefined,
     back: def.back ? rig.partIndex.get(def.back) : undefined,
     body: (def.body ?? ["body", "neck"]).map(bi).filter((x): x is number => x !== undefined),
@@ -353,7 +355,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     }
   });
   const depth = new Map<number, number>(), tipDepth = new Map<number, number>(), tipView = new Map<number, V3>();
-  const limbs = new Set(r3.chains.flatMap((c) => c.bones));
+  const limbs = new Set(r3.chains.flatMap((c) => (c.limb === false ? [] : c.bones)));
   // Desired world (unsquashed basis + squash) of each 3D bone, set into the 2D state in rig order.
   const basis = new Map<number, Mat>(), full = new Map<number, Mat>();
   for (let i = 0; i < n; i++) {

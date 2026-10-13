@@ -1291,8 +1291,6 @@ export const JAW_TURN = 36;
  * cartoon convention of a head drawn over its shoulders); the rest of the arm keeps its true depth.
  */
 export const SHOULDER_UNDER = 0.5;
-/** How far past the torso's volume (rig units) an arm behind it stays hidden: the torso as drawn, outline included. */
-export const TORSO_MARGIN = 8;
 
 /**
  * The jaw's occluder: cones from the cheeks and the middle of the face (on the head) to the chin (on
@@ -1471,7 +1469,7 @@ function gapeView(m: Model, vw: View, at: { mid: P2; nose: number; mouth: string
  * The torso as an occluder of a solid: the same ellipsoids as its drawing (`model`), a hair smaller,
  * its hips ending at the drawing's cut — so a limb behind it is hidden right to the drawing's edge.
  */
-function torsoOccluder(m: Model, look: CartoonLook, margin = 0): Record<string, unknown> {
+function torsoOccluder(m: Model, look: CartoonLook): Record<string, unknown> {
   const { b } = m;
   const heavy = look.heavy ?? 0;
   const T = b.T, L = b.L, k = 0.98;
@@ -1482,7 +1480,6 @@ function torsoOccluder(m: Model, look: CartoonLook, margin = 0): Record<string, 
   const hipR = T * 0.2;
   return {
     blend: r(T * 0.12),
-    ...(margin ? { margin: r(margin) } : {}),
     shapes: [
       ell(-L - T * 0.68, 0, [b.S, T * 0.36, b.D]),
       ell(-L - T * 0.32, heavy * b.D * 0.55, [W, T * 0.38, b.D * (1 + heavy * 0.6)]),
@@ -1784,8 +1781,13 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   const jawOccluder = { over: r(u * 4), shapes: jawCones(m, jawTo, grow) };
   // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
   const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map(occluder);
-  // The torso hides an arm behind it up to its drawn outline (its volume is a little inside the drawing).
-  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look, TORSO_MARGIN), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
+  // Each arm its own solid (as a cut-out animator keeps the far arm on its own layer): the other arm
+  // an occluder in it. The far arm's (`armsB`) goes behind the whole drawing of the body while its
+  // upper arm is behind the torso (`rig3d.chains`): the torso's own outline then covers where it goes
+  // in — no sliver along the outline, no stump cut off by the torso's volume — and comes back to its
+  // place, composited by depth, when it is not.
+  const armsBSolid = { id: "armsB", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, jawOccluder, ...legOccluders, ...armBodies("F").map(occluder), ...armBodies("B")] };
+  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B").map(occluder), ...armBodies("F")] };
   // A wristwatch: a band round a forearm, its own solid behind the same occluders as the arms (and
   // the arms themselves), one per wrist. The wearer keeps it on the same wrist whichever way they
   // face: the near arm facing right, the far arm facing left (the rig mirrored) — `sideSwitch`
@@ -1832,6 +1834,7 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     // The nose, a moustache, glasses: over the mouth and over the hair at the sides of the face.
     { id: "over", type: "rigid", bone: "head", art: "over" },
     { id: "brows", type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes },
+    armsBSolid,
     armsSolid,
     ...watchSolids,
     { id: "handB", type: "switch", bone: "handB", variants: { open: "handB_open", fist: "handB_fist", point: "handB_point", grip: "handB_grip" }, default: style.hands },
@@ -1961,6 +1964,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
         // The hands (drawings) by the depth of their forearm.
         { bones: ["armF2"], parts: ["handF"], tip: true, margin: 6, behind: "arms" },
         { bones: ["armB2"], parts: ["handB"], tip: true, margin: 6, behind: "arms" },
+        // The far arm's drawing, by its upper arm: behind the body's drawing while clearly behind.
+        { bones: ["armB1"], parts: ["armsB"], margin: 2, limb: false },
       ].map((c) => ({ ...c, parts: c.parts.filter((id) => parts.some((p) => p.id === id)) })),
       front: "handB",
       back: "shadow",

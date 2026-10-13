@@ -2069,6 +2069,10 @@
                   "type": "string"
                 }
               },
+              "limb": {
+                "description": "false: not a limb — the bones only rank the parts by depth (no foreshortening, no face clearance): a far arm's drawing ranked by its upper arm",
+                "type": "boolean"
+              },
               "tip": {
                 "description": "Ranked by the depth of the last bone's tip (a hand), not the bones' middles",
                 "type": "boolean"

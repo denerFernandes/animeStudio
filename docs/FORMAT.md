@@ -274,7 +274,7 @@ solved (the upper's `turn` and the lower's `spread` kept), of the two solutions 
 pose. The four values are blended with the pose's by the reach's weight, so the limb fades in and out
 without a jump. Out of reach the limb points straight at the target. The drawn limb (a solid on the 3D
 bones) and the 2D bones (the hand drawn on them) stay together.
-Limbs (`chains`) clearly nearer than the body
+Limbs (`chains`; `limb: false` on an entry makes its bones only rank its parts — no foreshortening, no face clearance: the far arm's drawing ranked by its upper arm) clearly nearer than the body
 are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
 clearly farther ones just after the `back` part. `points` names points on the 3D bones
 (`{ "mouth": { "bone": "head", "at": [0, -40, 44] } }`: an offset from the bone's rest joint) — where
