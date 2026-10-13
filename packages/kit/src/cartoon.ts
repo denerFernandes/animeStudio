@@ -1286,6 +1286,11 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
 export const GAPE_FULL = 2;
 /** Degrees the 3D `jaw` bone turns a weight of gape (its occluder follows the drawn jaw down). */
 export const JAW_TURN = 36;
+/**
+ * How much of the upper arm (from the shoulder) is drawn under the head whatever its depth (the
+ * cartoon convention of a head drawn over its shoulders); the rest of the arm keeps its true depth.
+ */
+export const SHOULDER_UNDER = 0.5;
 
 /**
  * The jaw's occluder: cones from the cheeks and the middle of the face (on the head) to the chin (on
@@ -1738,9 +1743,14 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     const tube = style.limbs === "tube";
     const elbow = tube ? r((b.arm[0] + b.arm[1]) * 0.25) : r((b.arm[0] + b.arm[1]) * 0.25);
     const [rs, rw] = tube ? [elbow, elbow] : [r(b.arm[0] * 0.5), r(b.arm[1] * 0.5)];
+    // The head is drawn over the shoulder (`under`), not over the whole upper arm: the elbow's half
+    // keeps its depth, so an elbow raised in front of the chest (a hand bringing something to the
+    // mouth, under a dropped jaw) is drawn over the chin, not hidden behind it.
+    const mid = r((rs + elbow) / 2);
     const bodies: Record<string, unknown>[] = [
       { ...key(longSleeves ? "top2" : "skin"), blend: 3, shapes: [
-        { from: pt(up), to: pt(up, 1), r: [rs, elbow], under: true },
+        { from: pt(up), to: pt(up, SHOULDER_UNDER), r: [rs, mid], under: true },
+        { from: pt(up, SHOULDER_UNDER), to: pt(up, 1), r: [mid, elbow] },
         { from: pt(lo), to: pt(lo, 0.96), r: [elbow, rw] },
       ] },
     ];
@@ -1753,9 +1763,10 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   // (a forearm in front of the chest hidden from behind, one arm over the other).
   // The head hides them as drawn: its cranium and its face down to the chin (a big head's jaw comes
   // down past the shoulders), a hair smaller — and, as a cartoon head is drawn over its shoulders,
-  // it is drawn over the upper arms and the sleeves (`under`) whatever their depth: a shoulder
-  // turned towards the camera never covers the jaw. A forearm keeps its depth (a phone at the ear,
-  // a glass at the mouth).
+  // it is drawn over the shoulder's half of the upper arms and the sleeves (`under`,
+  // `SHOULDER_UNDER`) whatever their depth: a shoulder turned towards the camera never covers the
+  // jaw. The elbow's half and the forearm keep their depth (a phone at the ear, a glass at the mouth,
+  // an elbow raised in front of the chest under a dropped jaw).
   // It covers the head as drawn, outline included: the drawing is seen nearly level and put back on
   // the neck (`headAngle`), its chin a little lower than the volume's at the room's pitch — so the
   // volume grows by the outline and by that difference (the face's depth × the pitch left out).
