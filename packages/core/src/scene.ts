@@ -128,6 +128,8 @@ export interface Grab {
   start: number;
   end: number;
   releaseVelocity?: Vec2;
+  /** Released with `keep`: it stays where it was let go. */
+  keep?: boolean;
   /** The hung prop's swing over the grab, lazily computed (`hangBake`). */
   hangBake?: HangBake;
 }
@@ -162,6 +164,8 @@ export interface CompiledProp {
   grabs: Grab[];
   impulses: { at: number; vector: Vec2 }[];
   ground?: { surface: Surface; offset: number };
+  /** Resting on another prop (`put`), in time order: carried with it from `t` (null: left there). */
+  rides?: { t: number; on: string | null }[];
 }
 
 export interface CompiledLayer {
@@ -828,6 +832,16 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         if (!prop || !grab) throw new SceneError(`actor "${a.actor}" is not holding "${a.prop}"`, path);
         grab.end = a.at;
         grab.releaseVelocity = a.velocity;
+        if (a.keep) grab.keep = true;
+        return;
+      }
+      case "put": {
+        const prop = props.find((p) => p.id === a.prop);
+        if (!prop) throw new SceneError(`unknown prop "${a.prop}"`, path);
+        if (a.on !== null && !props.some((p) => p.id === a.on)) throw new SceneError(`put: unknown prop "${a.on}". Known props: ${props.map((p) => p.id).join(", ")}`, path);
+        if (a.on === a.prop) throw new SceneError("put: a prop cannot rest on itself", path);
+        (prop.rides ??= []).push({ t: a.at, on: a.on });
+        prop.rides.sort((x, y) => x.t - y.t);
         return;
       }
       case "impulse": {
@@ -1944,8 +1958,51 @@ const FLAT_EDGE = 0.3;
  * (on its ground surface).
  */
 export function propPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {
+  const own = ownPlacement(scene, prop, t, poses);
+  // Resting on another prop (`put`): carried with it, keeping where it sat on it when put there
+  // (unless held: a hand takes it off).
+  const ride = prop.rides ? [...prop.rides].reverse().find((r) => r.t <= t) : undefined;
+  if (!ride || prop.grabs.some((g) => t >= g.start && t < g.end && g.start > ride.t)) return own;
+  if (!ride.on) {
+    // Taken off (`on: null`): it stays where its carrier had brought it (or its own place if it rode nothing).
+    const prev = [...prop.rides!].reverse().find((r) => r.t < ride.t);
+    return prev?.on ? { ...propPlacement(scene, prop, ride.t - 1e-4), opacity: own.opacity, z: own.z } : own;
+  }
+  const carrier = scene.props.find((p) => p.id === ride.on);
+  if (!carrier || resolvingRide.has(prop)) return own;
+  resolvingRide.add(prop);
+  try {
+    const at0 = ownPlacement(scene, prop, ride.t), c0 = propPlacement(scene, carrier, ride.t), c = propPlacement(scene, carrier, t, poses);
+    const a0 = (c0.rotation * Math.PI) / 180, a = (c.rotation * Math.PI) / 180;
+    // (Its place on the carrier, in the carrier's frame at the moment it was put there.)
+    const dx = at0.x - c0.x, dy = at0.y - c0.y;
+    const lx = dx * Math.cos(-a0) - dy * Math.sin(-a0), ly = dx * Math.sin(-a0) + dy * Math.cos(-a0);
+    return { ...own, x: c.x + lx * Math.cos(a) - ly * Math.sin(a), y: c.y + lx * Math.sin(a) + ly * Math.cos(a), rotation: at0.rotation + (c.rotation - c0.rotation) };
+  } finally {
+    resolvingRide.delete(prop);
+  }
+}
+/** Props whose ride is being resolved (guards against riding cycles). */
+const resolvingRide = new Set<CompiledProp>();
+
+/**
+ * Where a prop let go with `keep` stays: its placement in the hand at the very end of the grab. Not
+ * cached: it may first be asked for while its holder's pose is being resolved (a reach towards it),
+ * under the recursion guards, where it would be wrong.
+ */
+function keptPlacement(scene: CompiledScene, prop: CompiledProp, grab: Grab): Placement {
+  return ownPlacement(scene, prop, grab.end - 1e-4);
+}
+
+/** A prop's placement of its own: held, kept where it was let go, or its rigid body / tracks. */
+function ownPlacement(scene: CompiledScene, prop: CompiledProp, t: number, poses?: Map<string, EvaluatedPose>): Placement {
   const base = samplePlacement(prop.placement, prop.def, t);
   const grab = prop.grabs.find((g) => t >= g.start && t < g.end);
+  if (!grab) {
+    // Let go with `keep` (and not grabbed since): where the hand left it.
+    const kept = prop.grabs.filter((g) => g.keep && g.end <= t).sort((x, y) => y.end - x.end)[0];
+    if (kept && !prop.def.body) return keptPlacement(scene, prop, kept);
+  }
   if (grab?.fit) return { ...base, ...fittedPlacement(scene, prop, grab, t, base.scale, base.flip, poses?.get(grab.actor)) };
   if (grab?.hang) return hungPlacement(scene, prop, grab, t, base, poses?.get(grab.actor));
   if (grab) {

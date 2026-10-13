@@ -2075,6 +2075,8 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
     // forearm's length from the eyes, the elbow down by the side, the head bent towards it). One hand,
     // its thumb scrolling (the commonest grip); `textingTwo`: both thumbs typing.
     texting: { duration: 2.4, nod: 24, down: true, F: [[0, [-sx * 0.05, sh + T * 0.48, T * 0.6]], [0.5, [-sx * 0.05, sh + T * 0.48 - 2, T * 0.61]], [1, [-sx * 0.05, sh + T * 0.48, T * 0.6]]], pole: (sd) => [sd * 0.5, 1, -0.5] },
+    // Carrying a box in both hands in front of the belly, the hands on its sides, the elbows bent.
+    carry: { duration: 1.6, F: hold([-sx * 0.75, sh + T * 0.78, T * 0.55]), B: hold([sx * 0.75, sh + T * 0.78, T * 0.55]), pole: (sd) => [sd, 1, -0.3] },
     textingTwo: { duration: 1.2, nod: 24, down: true, F: [[0, [-sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [-sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [-sx * 0.2, sh + T * 0.48, T * 0.55]]], B: [[0, [sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [sx * 0.2, sh + T * 0.48, T * 0.55]]], pole: (sd) => [sd * 0.6, 1, -0.4] },
     // Holding a game controller in both hands, thumbs busy (in front of the belly, elbows in).
     gamepad: { duration: 1, F: [[0, [-sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [-sx * 0.12, sh + T * 0.55 - 3, T * 0.52]], [1, [-sx * 0.12, sh + T * 0.55, T * 0.5]]], B: [[0, [sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [sx * 0.12, sh + T * 0.56, T * 0.48]], [1, [sx * 0.12, sh + T * 0.55, T * 0.5]]], pole: (sd) => [sd * 0.7, 1, -0.3] },
@@ -2508,6 +2510,8 @@ export function cartoonInfo(doc: ToonDoc, look: CartoonLook, opts: CartoonOption
 export const HOLD = {
   /** A phone being used: one hand, thumb scrolling (`textingTwo`: both thumbs). */
   phone: { clip: "texting", dir: [0, -0.8, 0.6] as V3, face: [0, -0.6, -0.8] as V3, scale: 0.5 },
+  /** A box carried in both hands in front of the belly (`carry`; `boxFit`: its sides on the two hands). */
+  box: { clip: "carry", dir: [1, 0, 0] as V3, face: [0, 0, 1] as V3, scale: 1 },
   /** A book or a tablet being read in both hands, a little lower and further than a phone. */
   book: { clip: "read", dir: [0, -0.7, 0.7] as V3, face: [0, -0.7, -0.7] as V3, scale: 0.9 },
 } as const;
@@ -2518,3 +2522,11 @@ export function holdFit(kind: keyof typeof HOLD, grip: [number, number], top: [n
 }
 /** The `grab`'s `also` for a two-handed hold (`textingTwo`, `read`): the far hand holds it too. */
 export const holdBoth = ["handB"];
+/**
+ * The `grab`'s `fit` for something carried between the two hands (a box, a tray): its left side's
+ * point on the near hand, turned so its right side's point is on the far hand (its own art's
+ * coordinates). Grab it at `hand` with `also: holdBoth`, play `carry`.
+ */
+export function boxFit(left: [number, number], right: [number, number]) {
+  return [{ point: left, anchor: "hand" }, { point: right, anchor: "handB" }];
+}

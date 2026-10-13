@@ -703,6 +703,13 @@ export const ActionSchema = z.discriminatedUnion("action", [
     action: z.literal("release"),
     prop: z.string(),
     velocity: Vec2Schema.optional(),
+    keep: z.boolean().optional().describe("A prop without a body stays where it was let go (put down on a table, left on a shelf) instead of going back to its tracks — until it is grabbed again"),
+  }),
+  z.strictObject({
+    ...At,
+    action: z.literal("put"),
+    prop: z.string(),
+    on: z.string().nullable().describe("Another prop this one rests on from now (things on a tray, in a box: carried with it, keeping where they sit on it), or null to leave it where it is"),
   }),
   z.strictObject({ ...At, action: z.literal("impulse"), prop: z.string(), vector: Vec2Schema }),
   z.strictObject({

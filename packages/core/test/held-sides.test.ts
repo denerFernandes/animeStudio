@@ -14,7 +14,7 @@ const doc: ToonDoc = kit.cartoonCharacter(look as never);
 const FRONT = `<rect id="screen" x="-20" y="-110" width="40" height="120" fill="#9fd0f0"/>`;
 const BACK = `<rect id="case" x="-20" y="-110" width="40" height="120" fill="#e2584a"/>`;
 
-function scene(view: string, clip = kit.HOLD.phone.clip, extra: Partial<{ fixed: boolean; face: boolean }> = {}): SceneDoc {
+function scene(view: string, clip: string = kit.HOLD.phone.clip, extra: Partial<{ fixed: boolean; face: boolean }> = {}): SceneDoc {
   const fit = kit.holdFit("phone", [0, 0], [0, -100]) as Record<string, unknown>[];
   if (extra.fixed === false) delete fit[1].fixed;
   if (extra.face === false) delete fit[1].face;
