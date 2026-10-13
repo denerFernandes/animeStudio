@@ -47,6 +47,14 @@ export interface SolidBody {
    * holding a phone to the ear) keep their true depth.
    */
   over?: number;
+  /**
+   * An occluder also hides what is behind it this far (rig units) past its edge in the picture: the
+   * drawing it stands for is a little larger than its volume (an outline, a looser silhouette), and a
+   * body behind it would otherwise show in that band as a sliver with its own outline (a far arm
+   * hanging at a torso's edge). Only bodies more than `margin` behind its edge there are hidden: one
+   * level with it (an arm at the side of a torso seen from the front) or nearer is not affected.
+   */
+  margin?: number;
   shapes: SolidShape[];
 }
 
@@ -174,7 +182,7 @@ const CACHE_SIZE = 256;
  * renders match byte for byte).
  */
 function cacheKey(bodies: SolidBody[], posed: ViewShape[][], step: number): string {
-  const body = (b: SolidBody) => [b.fill ?? "", b.shade ?? "", b.stroke ?? "", b.strokeWidth, b.blend, b.seamless ? 1 : 0, b.over ?? 0].join("\u0001");
+  const body = (b: SolidBody) => [b.fill ?? "", b.shade ?? "", b.stroke ?? "", b.strokeWidth, b.blend, b.seamless ? 1 : 0, b.over ?? 0, b.margin ?? 0].join("\u0001");
   const under = (b: SolidBody) => b.shapes.map((x) => (x.under ? 1 : 0)).join("");
   const shape = (s: ViewShape): string => {
     const nums = s.kind === "cone" ? [...s.a, ...s.b, s.ra, s.rb] : [...s.c, ...s.m, ...s.h, s.kind === "box" ? s.round : -1];
@@ -199,6 +207,21 @@ export function drawSolid(bodies: SolidBody[], step: number, r3: CompiledRig3d, 
   const out = castSolid(bodies, posed, step);
   cache.set(key, out);
   if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
+  return out;
+}
+
+/** A 1D max filter (radius r cells) along rows or columns of a grid of values. */
+function maxFilter(src: Float32Array, w: number, h: number, r: number, horizontal: boolean): Float32Array {
+  const out = new Float32Array(src.length);
+  for (let j = 0; j < h; j++)
+    for (let i = 0; i < w; i++) {
+      let v = -Infinity;
+      for (let d = -r; d <= r; d++) {
+        const ii = horizontal ? i + d : i, jj = horizontal ? j : j + d;
+        if (ii >= 0 && jj >= 0 && ii < w && jj < h) v = Math.max(v, src[jj * w + ii]);
+      }
+      out[j * w + i] = v;
+    }
   return out;
 }
 
@@ -267,6 +290,28 @@ function castSolid(bodies: SolidBody[], posed: ViewShape[][], step: number): Sol
     }
   bodies.forEach((b, k) => {
     if (!b.fill && posed[k].length) castBody(k, covered);
+  });
+  // An occluder's `margin`: its edge grown in the picture, each new cell as deep as its edge there
+  // (the depth of its silhouette cells around it: the middle of the volume, not its near surface)
+  // less the margin, so it hides only what is clearly behind its edge.
+  bodies.forEach((b, k) => {
+    if (b.fill || !b.margin || !vals[k]) return;
+    const M = Math.max(1, Math.round(b.margin / step));
+    const z0 = new Float32Array(n).fill(-Infinity);
+    const inside = (i: number, j: number) => i >= 0 && j >= 0 && i < g.w && j < g.h && vals[k][j * g.w + i] < 0;
+    for (let c = 0; c < n; c++) {
+      if (vals[k][c] >= 0) continue;
+      const i = c % g.w, j = Math.floor(c / g.w);
+      if (!inside(i - 1, j) || !inside(i + 1, j) || !inside(i, j - 1) || !inside(i, j + 1)) z0[c] = depths[k][c];
+    }
+    const grown = maxFilter(maxFilter(z0, g.w, g.h, M, true), g.w, g.h, M, false);
+    for (let c = 0; c < n; c++) {
+      if (vals[k][c] < 0 || grown[c] === -Infinity || !covered[c]) continue;
+      vals[k][c] = -0.05;
+      // (Set back by the margin itself: only what is clearly behind its edge, not a body level with
+      // it — an arm hanging at the side of a torso seen from the front — is hidden.)
+      depths[k][c] = grown[c] - b.margin;
+    }
   });
   // Under an occluder drawn over (`over`): where a body's surface belongs to one of its `under`
   // shapes (the shape nearest its surface there), it counts that much farther back.

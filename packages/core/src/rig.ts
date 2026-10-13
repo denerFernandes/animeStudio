@@ -523,6 +523,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
           blend: bd.blend ?? 0,
           ...(bd.seamless ? { seamless: true } : {}),
           ...(bd.over ? { over: bd.over } : {}),
+          ...(bd.margin ? { margin: bd.margin } : {}),
           shapes: bd.shapes.map((sh): SolidShape => {
             const u = sh.under ? { under: true } : {};
             if (sh.box) return { kind: "box", at: pt(sh.from), size: sh.box, round: Math.min(sh.round ?? 0, ...sh.box), ...u };

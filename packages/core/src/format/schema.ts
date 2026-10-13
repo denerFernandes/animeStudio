@@ -169,6 +169,7 @@ export const SolidPartSchema = z.strictObject({
         blend: z.number().min(0).optional().describe("Smooth union of the shapes over this distance"),
         seamless: z.boolean().optional().describe("No outline where it meets an occluder: cloth continuing the drawing under it (a dress's skirt out of the torso)"),
         over: z.number().min(0).optional().describe("An occluder drawn over the shapes marked `under` by this much (rig units), whatever their depth: a cartoon head over its shoulders; other shapes keep their true depth"),
+        margin: z.number().min(0).optional().describe("An occluder: also hides what is behind it this far (rig units) past its edge in the picture (the drawing it stands for is a little larger than its volume: no sliver of a far limb along its outline)"),
         shapes: z.array(SolidShapeSchema).min(1),
       }),
     )

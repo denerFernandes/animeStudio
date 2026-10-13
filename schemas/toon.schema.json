@@ -892,6 +892,11 @@
                       "type": "number",
                       "minimum": 0
                     },
+                    "margin": {
+                      "description": "An occluder: also hides what is behind it this far (rig units) past its edge in the picture (the drawing it stands for is a little larger than its volume: no sliver of a far limb along its outline)",
+                      "type": "number",
+                      "minimum": 0
+                    },
                     "shapes": {
                       "minItems": 1,
                       "type": "array",

@@ -1291,6 +1291,8 @@ export const JAW_TURN = 36;
  * cartoon convention of a head drawn over its shoulders); the rest of the arm keeps its true depth.
  */
 export const SHOULDER_UNDER = 0.5;
+/** How far past the torso's volume (rig units) an arm behind it stays hidden: the torso as drawn, outline included. */
+export const TORSO_MARGIN = 8;
 
 /**
  * The jaw's occluder: cones from the cheeks and the middle of the face (on the head) to the chin (on
@@ -1469,7 +1471,7 @@ function gapeView(m: Model, vw: View, at: { mid: P2; nose: number; mouth: string
  * The torso as an occluder of a solid: the same ellipsoids as its drawing (`model`), a hair smaller,
  * its hips ending at the drawing's cut — so a limb behind it is hidden right to the drawing's edge.
  */
-function torsoOccluder(m: Model, look: CartoonLook): Record<string, unknown> {
+function torsoOccluder(m: Model, look: CartoonLook, margin = 0): Record<string, unknown> {
   const { b } = m;
   const heavy = look.heavy ?? 0;
   const T = b.T, L = b.L, k = 0.98;
@@ -1480,6 +1482,7 @@ function torsoOccluder(m: Model, look: CartoonLook): Record<string, unknown> {
   const hipR = T * 0.2;
   return {
     blend: r(T * 0.12),
+    ...(margin ? { margin: r(margin) } : {}),
     shapes: [
       ell(-L - T * 0.68, 0, [b.S, T * 0.36, b.D]),
       ell(-L - T * 0.32, heavy * b.D * 0.55, [W, T * 0.38, b.D * (1 + heavy * 0.6)]),
@@ -1781,7 +1784,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   const jawOccluder = { over: r(u * 4), shapes: jawCones(m, jawTo, grow) };
   // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
   const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map(occluder);
-  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
+  // The torso hides an arm behind it up to its drawn outline (its volume is a little inside the drawing).
+  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look, TORSO_MARGIN), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
   // A wristwatch: a band round a forearm, its own solid behind the same occluders as the arms (and
   // the arms themselves), one per wrist. The wearer keeps it on the same wrist whichever way they
   // face: the near arm facing right, the far arm facing left (the rig mirrored) — `sideSwitch`

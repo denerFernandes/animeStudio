@@ -173,7 +173,12 @@ is an **occluder**: it hides the bodies behind it and draws nothing, so what was
 solid shows through. Put the solid after a flat drawing of the torso with an occluder roughly inside
 it (a little smaller: a larger one would cut holes): the legs are drawn over the torso only where
 they are nearer (a lap facing the camera), and hidden behind a body turned away. A held pose is
-drawn once (cached).
+drawn once (cached). An occluder's `margin` (rig units) covers the band between it and the drawing it
+stands for: past its edge in the picture it also hides, that far out, what is more than `margin`
+behind its edge there (the depth of its silhouette, the middle of the volume) — a far arm hanging at
+a torso's edge goes in behind the drawn torso cleanly instead of showing a sliver with its own
+outline along the torso's line, while a body level with the edge (an arm at the side of a torso seen
+from the front) or nearer is drawn as without it.
 
 Drawing conventions over strict depth: an occluder with `over` (rig units) is drawn over the shapes
 marked `under: true` wherever it covers them, as if that much nearer — a cartoon head is drawn over
