@@ -1,0 +1,2573 @@
+{
+ "note": "Captured from the committed code (e6cf558) before the 3D reaches and the face clearance: the face-touching gestures' hands (2D joints of handF / handB) and a hash of the 3D bones' matrices over a walk cycle.",
+ "tito": {
+  "walk": "73623fe8:64",
+  "gestures": {
+   "facepalm/profile/0/handF": [
+    -19.72,
+    -97.748
+   ],
+   "facepalm/profile/0/handB": [
+    38.529,
+    -97.748
+   ],
+   "facepalm/profile/0.13/handF": [
+    45.229,
+    -178.864
+   ],
+   "facepalm/profile/0.13/handB": [
+    35.296,
+    -96.371
+   ],
+   "facepalm/profile/0.27/handF": [
+    50.212,
+    -282.952
+   ],
+   "facepalm/profile/0.27/handB": [
+    35.267,
+    -96.362
+   ],
+   "facepalm/profile/0.4/handF": [
+    57.55,
+    -288.853
+   ],
+   "facepalm/profile/0.4/handB": [
+    35.267,
+    -96.362
+   ],
+   "facepalm/profile/0.5/handF": [
+    58.061,
+    -285.475
+   ],
+   "facepalm/profile/0.5/handB": [
+    35.267,
+    -96.362
+   ],
+   "facepalm/profile/0.63/handF": [
+    57.751,
+    -285.536
+   ],
+   "facepalm/profile/0.63/handB": [
+    35.267,
+    -96.362
+   ],
+   "facepalm/profile/0.77/handF": [
+    57.612,
+    -239.262
+   ],
+   "facepalm/profile/0.77/handB": [
+    35.267,
+    -96.362
+   ],
+   "facepalm/profile/0.9/handF": [
+    33.556,
+    -158.499
+   ],
+   "facepalm/profile/0.9/handB": [
+    36.746,
+    -96.914
+   ],
+   "facepalm/half/0/handF": [
+    -31.887,
+    -97.748
+   ],
+   "facepalm/half/0/handB": [
+    38.54,
+    -97.748
+   ],
+   "facepalm/half/0.13/handF": [
+    2.974,
+    -178.864
+   ],
+   "facepalm/half/0.13/handB": [
+    37.396,
+    -96.371
+   ],
+   "facepalm/half/0.27/handF": [
+    8.29,
+    -282.952
+   ],
+   "facepalm/half/0.27/handB": [
+    37.386,
+    -96.362
+   ],
+   "facepalm/half/0.4/handF": [
+    20.355,
+    -288.853
+   ],
+   "facepalm/half/0.4/handB": [
+    37.386,
+    -96.362
+   ],
+   "facepalm/half/0.5/handF": [
+    20.151,
+    -285.475
+   ],
+   "facepalm/half/0.5/handB": [
+    37.386,
+    -96.362
+   ],
+   "facepalm/half/0.63/handF": [
+    20.206,
+    -285.536
+   ],
+   "facepalm/half/0.63/handB": [
+    37.386,
+    -96.362
+   ],
+   "facepalm/half/0.77/handF": [
+    11.795,
+    -239.262
+   ],
+   "facepalm/half/0.77/handB": [
+    37.386,
+    -96.362
+   ],
+   "facepalm/half/0.9/handF": [
+    -3.696,
+    -158.499
+   ],
+   "facepalm/half/0.9/handB": [
+    37.909,
+    -96.914
+   ],
+   "facepalm/front/0/handF": [
+    -36,
+    -97.748
+   ],
+   "facepalm/front/0/handB": [
+    36,
+    -97.748
+   ],
+   "facepalm/front/0.13/handF": [
+    -18.822,
+    -178.864
+   ],
+   "facepalm/front/0.13/handB": [
+    36,
+    -96.371
+   ],
+   "facepalm/front/0.27/handF": [
+    -13.687,
+    -282.952
+   ],
+   "facepalm/front/0.27/handB": [
+    36,
+    -96.362
+   ],
+   "facepalm/front/0.4/handF": [
+    -0.003,
+    -288.853
+   ],
+   "facepalm/front/0.4/handB": [
+    36,
+    -96.362
+   ],
+   "facepalm/front/0.5/handF": [
+    -0.558,
+    -285.475
+   ],
+   "facepalm/front/0.5/handB": [
+    36,
+    -96.362
+   ],
+   "facepalm/front/0.63/handF": [
+    -0.321,
+    -285.536
+   ],
+   "facepalm/front/0.63/handB": [
+    36,
+    -96.362
+   ],
+   "facepalm/front/0.77/handF": [
+    -12.404,
+    -239.262
+   ],
+   "facepalm/front/0.77/handB": [
+    36,
+    -96.362
+   ],
+   "facepalm/front/0.9/handF": [
+    -22.494,
+    -158.499
+   ],
+   "facepalm/front/0.9/handB": [
+    36,
+    -96.914
+   ],
+   "facepalm/back/0/handF": [
+    36,
+    -97.748
+   ],
+   "facepalm/back/0/handB": [
+    -36,
+    -97.748
+   ],
+   "facepalm/back/0.13/handF": [
+    18.822,
+    -178.864
+   ],
+   "facepalm/back/0.13/handB": [
+    -36,
+    -96.371
+   ],
+   "facepalm/back/0.27/handF": [
+    13.687,
+    -282.952
+   ],
+   "facepalm/back/0.27/handB": [
+    -36,
+    -96.362
+   ],
+   "facepalm/back/0.4/handF": [
+    0.003,
+    -288.853
+   ],
+   "facepalm/back/0.4/handB": [
+    -36,
+    -96.362
+   ],
+   "facepalm/back/0.5/handF": [
+    0.558,
+    -285.475
+   ],
+   "facepalm/back/0.5/handB": [
+    -36,
+    -96.362
+   ],
+   "facepalm/back/0.63/handF": [
+    0.321,
+    -285.536
+   ],
+   "facepalm/back/0.63/handB": [
+    -36,
+    -96.362
+   ],
+   "facepalm/back/0.77/handF": [
+    12.404,
+    -239.262
+   ],
+   "facepalm/back/0.77/handB": [
+    -36,
+    -96.362
+   ],
+   "facepalm/back/0.9/handF": [
+    22.494,
+    -158.499
+   ],
+   "facepalm/back/0.9/handB": [
+    -36,
+    -96.914
+   ],
+   "think/profile/0/handF": [
+    40.951,
+    -263.691
+   ],
+   "think/profile/0/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.13/handF": [
+    40.951,
+    -263.691
+   ],
+   "think/profile/0.13/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.27/handF": [
+    40.951,
+    -263.689
+   ],
+   "think/profile/0.27/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.4/handF": [
+    40.95,
+    -263.688
+   ],
+   "think/profile/0.4/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.5/handF": [
+    40.949,
+    -263.686
+   ],
+   "think/profile/0.5/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.63/handF": [
+    40.949,
+    -263.684
+   ],
+   "think/profile/0.63/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.77/handF": [
+    40.948,
+    -263.683
+   ],
+   "think/profile/0.77/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/profile/0.9/handF": [
+    40.948,
+    -263.682
+   ],
+   "think/profile/0.9/handB": [
+    39.595,
+    -98.338
+   ],
+   "think/half/0/handF": [
+    14.489,
+    -263.691
+   ],
+   "think/half/0/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.13/handF": [
+    14.489,
+    -263.691
+   ],
+   "think/half/0.13/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.27/handF": [
+    14.489,
+    -263.689
+   ],
+   "think/half/0.27/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.4/handF": [
+    14.489,
+    -263.688
+   ],
+   "think/half/0.4/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.5/handF": [
+    14.488,
+    -263.686
+   ],
+   "think/half/0.5/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.63/handF": [
+    14.488,
+    -263.684
+   ],
+   "think/half/0.63/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.77/handF": [
+    14.488,
+    -263.683
+   ],
+   "think/half/0.77/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/half/0.9/handF": [
+    14.488,
+    -263.682
+   ],
+   "think/half/0.9/handB": [
+    38.917,
+    -98.338
+   ],
+   "think/front/0/handF": [
+    0.005,
+    -263.691
+   ],
+   "think/front/0/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.13/handF": [
+    0.005,
+    -263.691
+   ],
+   "think/front/0.13/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.27/handF": [
+    0.005,
+    -263.689
+   ],
+   "think/front/0.27/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.4/handF": [
+    0.005,
+    -263.688
+   ],
+   "think/front/0.4/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.5/handF": [
+    0.006,
+    -263.686
+   ],
+   "think/front/0.5/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.63/handF": [
+    0.006,
+    -263.684
+   ],
+   "think/front/0.63/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.77/handF": [
+    0.006,
+    -263.683
+   ],
+   "think/front/0.77/handB": [
+    36,
+    -98.338
+   ],
+   "think/front/0.9/handF": [
+    0.006,
+    -263.682
+   ],
+   "think/front/0.9/handB": [
+    36,
+    -98.338
+   ],
+   "think/back/0/handF": [
+    -0.005,
+    -263.691
+   ],
+   "think/back/0/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.13/handF": [
+    -0.005,
+    -263.691
+   ],
+   "think/back/0.13/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.27/handF": [
+    -0.005,
+    -263.689
+   ],
+   "think/back/0.27/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.4/handF": [
+    -0.005,
+    -263.688
+   ],
+   "think/back/0.4/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.5/handF": [
+    -0.006,
+    -263.686
+   ],
+   "think/back/0.5/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.63/handF": [
+    -0.006,
+    -263.684
+   ],
+   "think/back/0.63/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.77/handF": [
+    -0.006,
+    -263.683
+   ],
+   "think/back/0.77/handB": [
+    -36,
+    -98.338
+   ],
+   "think/back/0.9/handF": [
+    -0.006,
+    -263.682
+   ],
+   "think/back/0.9/handB": [
+    -36,
+    -98.338
+   ],
+   "cry/profile/0/handF": [
+    43.742,
+    -286.473
+   ],
+   "cry/profile/0/handB": [
+    70.027,
+    -286.475
+   ],
+   "cry/profile/0.13/handF": [
+    43.549,
+    -284.88
+   ],
+   "cry/profile/0.13/handB": [
+    69.954,
+    -284.882
+   ],
+   "cry/profile/0.27/handF": [
+    43.191,
+    -282.514
+   ],
+   "cry/profile/0.27/handB": [
+    69.705,
+    -282.514
+   ],
+   "cry/profile/0.4/handF": [
+    43.043,
+    -282.447
+   ],
+   "cry/profile/0.4/handB": [
+    69.414,
+    -282.445
+   ],
+   "cry/profile/0.5/handF": [
+    43.026,
+    -282.767
+   ],
+   "cry/profile/0.5/handB": [
+    69.318,
+    -282.765
+   ],
+   "cry/profile/0.63/handF": [
+    43.058,
+    -282.338
+   ],
+   "cry/profile/0.63/handB": [
+    69.474,
+    -282.335
+   ],
+   "cry/profile/0.77/handF": [
+    43.275,
+    -282.98
+   ],
+   "cry/profile/0.77/handB": [
+    69.794,
+    -282.977
+   ],
+   "cry/profile/0.9/handF": [
+    43.612,
+    -285.448
+   ],
+   "cry/profile/0.9/handB": [
+    69.988,
+    -285.445
+   ],
+   "cry/half/0/handF": [
+    4.235,
+    -286.473
+   ],
+   "cry/half/0/handB": [
+    36.014,
+    -286.475
+   ],
+   "cry/half/0.13/handF": [
+    4.115,
+    -284.88
+   ],
+   "cry/half/0.13/handB": [
+    36.039,
+    -284.882
+   ],
+   "cry/half/0.27/handF": [
+    3.942,
+    -282.514
+   ],
+   "cry/half/0.27/handB": [
+    35.996,
+    -282.514
+   ],
+   "cry/half/0.4/handF": [
+    3.951,
+    -282.447
+   ],
+   "cry/half/0.4/handB": [
+    35.831,
+    -282.445
+   ],
+   "cry/half/0.5/handF": [
+    3.979,
+    -282.767
+   ],
+   "cry/half/0.5/handB": [
+    35.762,
+    -282.765
+   ],
+   "cry/half/0.63/handF": [
+    3.937,
+    -282.338
+   ],
+   "cry/half/0.63/handB": [
+    35.87,
+    -282.335
+   ],
+   "cry/half/0.77/handF": [
+    3.97,
+    -282.98
+   ],
+   "cry/half/0.77/handB": [
+    36.028,
+    -282.977
+   ],
+   "cry/half/0.9/handF": [
+    4.15,
+    -285.448
+   ],
+   "cry/half/0.9/handB": [
+    36.035,
+    -285.445
+   ],
+   "cry/front/0/handF": [
+    -16.239,
+    -286.473
+   ],
+   "cry/front/0/handB": [
+    16.25,
+    -286.475
+   ],
+   "cry/front/0.13/handF": [
+    -16.314,
+    -284.88
+   ],
+   "cry/front/0.13/handB": [
+    16.323,
+    -284.882
+   ],
+   "cry/front/0.27/handF": [
+    -16.381,
+    -282.514
+   ],
+   "cry/front/0.27/handB": [
+    16.388,
+    -282.514
+   ],
+   "cry/front/0.4/handF": [
+    -16.293,
+    -282.447
+   ],
+   "cry/front/0.4/handB": [
+    16.297,
+    -282.445
+   ],
+   "cry/front/0.5/handF": [
+    -16.244,
+    -282.767
+   ],
+   "cry/front/0.5/handB": [
+    16.247,
+    -282.765
+   ],
+   "cry/front/0.63/handF": [
+    -16.32,
+    -282.338
+   ],
+   "cry/front/0.63/handB": [
+    16.324,
+    -282.335
+   ],
+   "cry/front/0.77/handF": [
+    -16.384,
+    -282.98
+   ],
+   "cry/front/0.77/handB": [
+    16.388,
+    -282.977
+   ],
+   "cry/front/0.9/handF": [
+    -16.295,
+    -285.448
+   ],
+   "cry/front/0.9/handB": [
+    16.299,
+    -285.445
+   ],
+   "cry/back/0/handF": [
+    16.239,
+    -286.473
+   ],
+   "cry/back/0/handB": [
+    -16.25,
+    -286.475
+   ],
+   "cry/back/0.13/handF": [
+    16.314,
+    -284.88
+   ],
+   "cry/back/0.13/handB": [
+    -16.323,
+    -284.882
+   ],
+   "cry/back/0.27/handF": [
+    16.381,
+    -282.514
+   ],
+   "cry/back/0.27/handB": [
+    -16.388,
+    -282.514
+   ],
+   "cry/back/0.4/handF": [
+    16.293,
+    -282.447
+   ],
+   "cry/back/0.4/handB": [
+    -16.297,
+    -282.445
+   ],
+   "cry/back/0.5/handF": [
+    16.244,
+    -282.767
+   ],
+   "cry/back/0.5/handB": [
+    -16.247,
+    -282.765
+   ],
+   "cry/back/0.63/handF": [
+    16.32,
+    -282.338
+   ],
+   "cry/back/0.63/handB": [
+    -16.324,
+    -282.335
+   ],
+   "cry/back/0.77/handF": [
+    16.384,
+    -282.98
+   ],
+   "cry/back/0.77/handB": [
+    -16.388,
+    -282.977
+   ],
+   "cry/back/0.9/handF": [
+    16.295,
+    -285.448
+   ],
+   "cry/back/0.9/handB": [
+    -16.299,
+    -285.445
+   ],
+   "phone/profile/0/handF": [
+    -15.84,
+    -260.739
+   ],
+   "phone/profile/0/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.13/handF": [
+    -15.84,
+    -260.739
+   ],
+   "phone/profile/0.13/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.27/handF": [
+    -15.842,
+    -260.738
+   ],
+   "phone/profile/0.27/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.4/handF": [
+    -15.844,
+    -260.737
+   ],
+   "phone/profile/0.4/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.5/handF": [
+    -15.846,
+    -260.736
+   ],
+   "phone/profile/0.5/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.63/handF": [
+    -15.848,
+    -260.735
+   ],
+   "phone/profile/0.63/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.77/handF": [
+    -15.85,
+    -260.734
+   ],
+   "phone/profile/0.77/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/profile/0.9/handF": [
+    -15.851,
+    -260.734
+   ],
+   "phone/profile/0.9/handB": [
+    38.529,
+    -97.748
+   ],
+   "phone/half/0/handF": [
+    -35.085,
+    -260.739
+   ],
+   "phone/half/0/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.13/handF": [
+    -35.086,
+    -260.739
+   ],
+   "phone/half/0.13/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.27/handF": [
+    -35.087,
+    -260.738
+   ],
+   "phone/half/0.27/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.4/handF": [
+    -35.088,
+    -260.737
+   ],
+   "phone/half/0.4/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.5/handF": [
+    -35.09,
+    -260.736
+   ],
+   "phone/half/0.5/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.63/handF": [
+    -35.092,
+    -260.735
+   ],
+   "phone/half/0.63/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.77/handF": [
+    -35.093,
+    -260.734
+   ],
+   "phone/half/0.77/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/half/0.9/handF": [
+    -35.094,
+    -260.734
+   ],
+   "phone/half/0.9/handB": [
+    38.54,
+    -97.748
+   ],
+   "phone/front/0/handF": [
+    -42.606,
+    -260.739
+   ],
+   "phone/front/0/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.13/handF": [
+    -42.606,
+    -260.739
+   ],
+   "phone/front/0.13/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.27/handF": [
+    -42.607,
+    -260.738
+   ],
+   "phone/front/0.27/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.4/handF": [
+    -42.608,
+    -260.737
+   ],
+   "phone/front/0.4/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.5/handF": [
+    -42.609,
+    -260.736
+   ],
+   "phone/front/0.5/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.63/handF": [
+    -42.611,
+    -260.735
+   ],
+   "phone/front/0.63/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.77/handF": [
+    -42.612,
+    -260.734
+   ],
+   "phone/front/0.77/handB": [
+    36,
+    -97.748
+   ],
+   "phone/front/0.9/handF": [
+    -42.612,
+    -260.734
+   ],
+   "phone/front/0.9/handB": [
+    36,
+    -97.748
+   ],
+   "phone/back/0/handF": [
+    42.606,
+    -260.739
+   ],
+   "phone/back/0/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.13/handF": [
+    42.606,
+    -260.739
+   ],
+   "phone/back/0.13/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.27/handF": [
+    42.607,
+    -260.738
+   ],
+   "phone/back/0.27/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.4/handF": [
+    42.608,
+    -260.737
+   ],
+   "phone/back/0.4/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.5/handF": [
+    42.609,
+    -260.736
+   ],
+   "phone/back/0.5/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.63/handF": [
+    42.611,
+    -260.735
+   ],
+   "phone/back/0.63/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.77/handF": [
+    42.612,
+    -260.734
+   ],
+   "phone/back/0.77/handB": [
+    -36,
+    -97.748
+   ],
+   "phone/back/0.9/handF": [
+    42.612,
+    -260.734
+   ],
+   "phone/back/0.9/handB": [
+    -36,
+    -97.748
+   ],
+   "drink/profile/0/handF": [
+    -19.72,
+    -97.748
+   ],
+   "drink/profile/0/handB": [
+    38.529,
+    -97.748
+   ],
+   "drink/profile/0.13/handF": [
+    41.514,
+    -194.405
+   ],
+   "drink/profile/0.13/handB": [
+    40.299,
+    -98.767
+   ],
+   "drink/profile/0.27/handF": [
+    42.331,
+    -286.602
+   ],
+   "drink/profile/0.27/handB": [
+    41.329,
+    -99.452
+   ],
+   "drink/profile/0.4/handF": [
+    41.683,
+    -288.031
+   ],
+   "drink/profile/0.4/handB": [
+    41.542,
+    -99.602
+   ],
+   "drink/profile/0.5/handF": [
+    41.23,
+    -289.48
+   ],
+   "drink/profile/0.5/handB": [
+    41.63,
+    -99.665
+   ],
+   "drink/profile/0.63/handF": [
+    40.735,
+    -290.907
+   ],
+   "drink/profile/0.63/handB": [
+    41.68,
+    -99.701
+   ],
+   "drink/profile/0.77/handF": [
+    48.703,
+    -280.277
+   ],
+   "drink/profile/0.77/handB": [
+    41.688,
+    -99.707
+   ],
+   "drink/profile/0.9/handF": [
+    34.548,
+    -173.965
+   ],
+   "drink/profile/0.9/handB": [
+    39.84,
+    -98.484
+   ],
+   "drink/half/0/handF": [
+    -31.887,
+    -97.748
+   ],
+   "drink/half/0/handB": [
+    38.54,
+    -97.748
+   ],
+   "drink/half/0.13/handF": [
+    2.668,
+    -194.405
+   ],
+   "drink/half/0.13/handB": [
+    39.166,
+    -98.767
+   ],
+   "drink/half/0.27/handF": [
+    14.981,
+    -286.602
+   ],
+   "drink/half/0.27/handB": [
+    39.53,
+    -99.452
+   ],
+   "drink/half/0.4/handF": [
+    14.972,
+    -288.031
+   ],
+   "drink/half/0.4/handB": [
+    39.605,
+    -99.602
+   ],
+   "drink/half/0.5/handF": [
+    14.92,
+    -289.48
+   ],
+   "drink/half/0.5/handB": [
+    39.637,
+    -99.665
+   ],
+   "drink/half/0.63/handF": [
+    14.561,
+    -290.907
+   ],
+   "drink/half/0.63/handB": [
+    39.654,
+    -99.701
+   ],
+   "drink/half/0.77/handF": [
+    22.258,
+    -280.277
+   ],
+   "drink/half/0.77/handB": [
+    39.657,
+    -99.707
+   ],
+   "drink/half/0.9/handF": [
+    -1.408,
+    -173.965
+   ],
+   "drink/half/0.9/handB": [
+    39.004,
+    -98.484
+   ],
+   "drink/front/0/handF": [
+    -36,
+    -97.748
+   ],
+   "drink/front/0/handB": [
+    36,
+    -97.748
+   ],
+   "drink/front/0.13/handF": [
+    -17.365,
+    -194.405
+   ],
+   "drink/front/0.13/handB": [
+    36,
+    -98.767
+   ],
+   "drink/front/0.27/handF": [
+    0.011,
+    -286.602
+   ],
+   "drink/front/0.27/handB": [
+    36,
+    -99.452
+   ],
+   "drink/front/0.4/handF": [
+    0.329,
+    -288.031
+   ],
+   "drink/front/0.4/handB": [
+    36,
+    -99.602
+   ],
+   "drink/front/0.5/handF": [
+    0.485,
+    -289.48
+   ],
+   "drink/front/0.5/handB": [
+    36,
+    -99.665
+   ],
+   "drink/front/0.63/handF": [
+    0.221,
+    -290.907
+   ],
+   "drink/front/0.63/handB": [
+    36,
+    -99.701
+   ],
+   "drink/front/0.77/handF": [
+    7.27,
+    -280.277
+   ],
+   "drink/front/0.77/handB": [
+    36,
+    -99.707
+   ],
+   "drink/front/0.9/handF": [
+    -19.695,
+    -173.965
+   ],
+   "drink/front/0.9/handB": [
+    36,
+    -98.484
+   ],
+   "drink/back/0/handF": [
+    36,
+    -97.748
+   ],
+   "drink/back/0/handB": [
+    -36,
+    -97.748
+   ],
+   "drink/back/0.13/handF": [
+    17.365,
+    -194.405
+   ],
+   "drink/back/0.13/handB": [
+    -36,
+    -98.767
+   ],
+   "drink/back/0.27/handF": [
+    -0.011,
+    -286.602
+   ],
+   "drink/back/0.27/handB": [
+    -36,
+    -99.452
+   ],
+   "drink/back/0.4/handF": [
+    -0.329,
+    -288.031
+   ],
+   "drink/back/0.4/handB": [
+    -36,
+    -99.602
+   ],
+   "drink/back/0.5/handF": [
+    -0.485,
+    -289.48
+   ],
+   "drink/back/0.5/handB": [
+    -36,
+    -99.665
+   ],
+   "drink/back/0.63/handF": [
+    -0.221,
+    -290.907
+   ],
+   "drink/back/0.63/handB": [
+    -36,
+    -99.701
+   ],
+   "drink/back/0.77/handF": [
+    -7.27,
+    -280.277
+   ],
+   "drink/back/0.77/handB": [
+    -36,
+    -99.707
+   ],
+   "drink/back/0.9/handF": [
+    19.695,
+    -173.965
+   ],
+   "drink/back/0.9/handB": [
+    -36,
+    -98.484
+   ]
+  }
+ },
+ "kid": {
+  "walk": "6af042d9:64",
+  "gestures": {
+   "facepalm/profile/0/handF": [
+    -20.998,
+    -126.006
+   ],
+   "facepalm/profile/0/handB": [
+    39.807,
+    -126.006
+   ],
+   "facepalm/profile/0.13/handF": [
+    46.648,
+    -221.16
+   ],
+   "facepalm/profile/0.13/handB": [
+    35.737,
+    -124.703
+   ],
+   "facepalm/profile/0.27/handF": [
+    62.246,
+    -342.357
+   ],
+   "facepalm/profile/0.27/handB": [
+    35.701,
+    -124.695
+   ],
+   "facepalm/profile/0.4/handF": [
+    51.777,
+    -350.428
+   ],
+   "facepalm/profile/0.4/handB": [
+    35.701,
+    -124.695
+   ],
+   "facepalm/profile/0.5/handF": [
+    51.996,
+    -349.463
+   ],
+   "facepalm/profile/0.5/handB": [
+    35.701,
+    -124.695
+   ],
+   "facepalm/profile/0.63/handF": [
+    51.664,
+    -346.739
+   ],
+   "facepalm/profile/0.63/handB": [
+    35.701,
+    -124.695
+   ],
+   "facepalm/profile/0.77/handF": [
+    60.701,
+    -295.006
+   ],
+   "facepalm/profile/0.77/handB": [
+    35.701,
+    -124.695
+   ],
+   "facepalm/profile/0.9/handF": [
+    35.066,
+    -197.768
+   ],
+   "facepalm/profile/0.9/handB": [
+    37.559,
+    -125.194
+   ],
+   "facepalm/half/0/handF": [
+    -33.432,
+    -126.006
+   ],
+   "facepalm/half/0/handB": [
+    40.085,
+    -126.006
+   ],
+   "facepalm/half/0.13/handF": [
+    3.349,
+    -221.16
+   ],
+   "facepalm/half/0.13/handB": [
+    38.646,
+    -124.703
+   ],
+   "facepalm/half/0.27/handF": [
+    33.741,
+    -342.357
+   ],
+   "facepalm/half/0.27/handB": [
+    38.633,
+    -124.695
+   ],
+   "facepalm/half/0.4/handF": [
+    19.091,
+    -350.428
+   ],
+   "facepalm/half/0.4/handB": [
+    38.633,
+    -124.695
+   ],
+   "facepalm/half/0.5/handF": [
+    19.651,
+    -349.463
+   ],
+   "facepalm/half/0.5/handB": [
+    38.633,
+    -124.695
+   ],
+   "facepalm/half/0.63/handF": [
+    18.29,
+    -346.739
+   ],
+   "facepalm/half/0.63/handB": [
+    38.633,
+    -124.695
+   ],
+   "facepalm/half/0.77/handF": [
+    17.825,
+    -295.006
+   ],
+   "facepalm/half/0.77/handB": [
+    38.633,
+    -124.695
+   ],
+   "facepalm/half/0.9/handF": [
+    -3.336,
+    -197.768
+   ],
+   "facepalm/half/0.9/handB": [
+    39.29,
+    -125.194
+   ],
+   "facepalm/front/0/handF": [
+    -37.58,
+    -126.006
+   ],
+   "facepalm/front/0/handB": [
+    37.58,
+    -126.006
+   ],
+   "facepalm/front/0.13/handF": [
+    -19.006,
+    -221.16
+   ],
+   "facepalm/front/0.13/handB": [
+    37.58,
+    -124.703
+   ],
+   "facepalm/front/0.27/handF": [
+    16.941,
+    -342.357
+   ],
+   "facepalm/front/0.27/handB": [
+    37.58,
+    -124.695
+   ],
+   "facepalm/front/0.4/handF": [
+    1.122,
+    -350.428
+   ],
+   "facepalm/front/0.4/handB": [
+    37.58,
+    -124.695
+   ],
+   "facepalm/front/0.5/handF": [
+    1.819,
+    -349.463
+   ],
+   "facepalm/front/0.5/handB": [
+    37.58,
+    -124.695
+   ],
+   "facepalm/front/0.63/handF": [
+    0.022,
+    -346.739
+   ],
+   "facepalm/front/0.63/handB": [
+    37.58,
+    -124.695
+   ],
+   "facepalm/front/0.77/handF": [
+    -5.269,
+    -295.006
+   ],
+   "facepalm/front/0.77/handB": [
+    37.58,
+    -124.695
+   ],
+   "facepalm/front/0.9/handF": [
+    -22.746,
+    -197.768
+   ],
+   "facepalm/front/0.9/handB": [
+    37.58,
+    -125.194
+   ],
+   "facepalm/back/0/handF": [
+    37.58,
+    -126.006
+   ],
+   "facepalm/back/0/handB": [
+    -37.58,
+    -126.006
+   ],
+   "facepalm/back/0.13/handF": [
+    19.006,
+    -221.16
+   ],
+   "facepalm/back/0.13/handB": [
+    -37.58,
+    -124.703
+   ],
+   "facepalm/back/0.27/handF": [
+    -16.941,
+    -342.357
+   ],
+   "facepalm/back/0.27/handB": [
+    -37.58,
+    -124.695
+   ],
+   "facepalm/back/0.4/handF": [
+    -1.122,
+    -350.428
+   ],
+   "facepalm/back/0.4/handB": [
+    -37.58,
+    -124.695
+   ],
+   "facepalm/back/0.5/handF": [
+    -1.819,
+    -349.463
+   ],
+   "facepalm/back/0.5/handB": [
+    -37.58,
+    -124.695
+   ],
+   "facepalm/back/0.63/handF": [
+    -0.022,
+    -346.739
+   ],
+   "facepalm/back/0.63/handB": [
+    -37.58,
+    -124.695
+   ],
+   "facepalm/back/0.77/handF": [
+    5.269,
+    -295.006
+   ],
+   "facepalm/back/0.77/handB": [
+    -37.58,
+    -124.695
+   ],
+   "facepalm/back/0.9/handF": [
+    22.746,
+    -197.768
+   ],
+   "facepalm/back/0.9/handB": [
+    -37.58,
+    -125.194
+   ],
+   "think/profile/0/handF": [
+    34.522,
+    -327.435
+   ],
+   "think/profile/0/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.13/handF": [
+    34.523,
+    -327.435
+   ],
+   "think/profile/0.13/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.27/handF": [
+    34.524,
+    -327.435
+   ],
+   "think/profile/0.27/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.4/handF": [
+    34.526,
+    -327.435
+   ],
+   "think/profile/0.4/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.5/handF": [
+    34.528,
+    -327.435
+   ],
+   "think/profile/0.5/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.63/handF": [
+    34.53,
+    -327.435
+   ],
+   "think/profile/0.63/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.77/handF": [
+    34.532,
+    -327.436
+   ],
+   "think/profile/0.77/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/profile/0.9/handF": [
+    34.533,
+    -327.436
+   ],
+   "think/profile/0.9/handB": [
+    41.155,
+    -126.604
+   ],
+   "think/half/0/handF": [
+    12.21,
+    -327.435
+   ],
+   "think/half/0/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.13/handF": [
+    12.21,
+    -327.435
+   ],
+   "think/half/0.13/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.27/handF": [
+    12.211,
+    -327.435
+   ],
+   "think/half/0.27/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.4/handF": [
+    12.212,
+    -327.435
+   ],
+   "think/half/0.4/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.5/handF": [
+    12.213,
+    -327.435
+   ],
+   "think/half/0.5/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.63/handF": [
+    12.214,
+    -327.435
+   ],
+   "think/half/0.63/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.77/handF": [
+    12.216,
+    -327.436
+   ],
+   "think/half/0.77/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/half/0.9/handF": [
+    12.216,
+    -327.436
+   ],
+   "think/half/0.9/handB": [
+    40.562,
+    -126.604
+   ],
+   "think/front/0/handF": [
+    -0.002,
+    -327.435
+   ],
+   "think/front/0/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.13/handF": [
+    -0.002,
+    -327.435
+   ],
+   "think/front/0.13/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.27/handF": [
+    -0.002,
+    -327.435
+   ],
+   "think/front/0.27/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.4/handF": [
+    -0.001,
+    -327.435
+   ],
+   "think/front/0.4/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.5/handF": [
+    0,
+    -327.435
+   ],
+   "think/front/0.5/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.63/handF": [
+    0.001,
+    -327.435
+   ],
+   "think/front/0.63/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.77/handF": [
+    0.001,
+    -327.436
+   ],
+   "think/front/0.77/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/front/0.9/handF": [
+    0.002,
+    -327.436
+   ],
+   "think/front/0.9/handB": [
+    37.58,
+    -126.604
+   ],
+   "think/back/0/handF": [
+    0.002,
+    -327.435
+   ],
+   "think/back/0/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.13/handF": [
+    0.002,
+    -327.435
+   ],
+   "think/back/0.13/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.27/handF": [
+    0.002,
+    -327.435
+   ],
+   "think/back/0.27/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.4/handF": [
+    0.001,
+    -327.435
+   ],
+   "think/back/0.4/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.5/handF": [
+    0,
+    -327.435
+   ],
+   "think/back/0.5/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.63/handF": [
+    -0.001,
+    -327.435
+   ],
+   "think/back/0.63/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.77/handF": [
+    -0.001,
+    -327.436
+   ],
+   "think/back/0.77/handB": [
+    -37.58,
+    -126.604
+   ],
+   "think/back/0.9/handF": [
+    -0.002,
+    -327.436
+   ],
+   "think/back/0.9/handB": [
+    -37.58,
+    -126.604
+   ],
+   "cry/profile/0/handF": [
+    39.257,
+    -346.857
+   ],
+   "cry/profile/0/handB": [
+    61.892,
+    -346.86
+   ],
+   "cry/profile/0.13/handF": [
+    39.144,
+    -345.3
+   ],
+   "cry/profile/0.13/handB": [
+    61.821,
+    -345.302
+   ],
+   "cry/profile/0.27/handF": [
+    38.877,
+    -343.105
+   ],
+   "cry/profile/0.27/handB": [
+    61.6,
+    -343.107
+   ],
+   "cry/profile/0.4/handF": [
+    38.677,
+    -343.264
+   ],
+   "cry/profile/0.4/handB": [
+    61.367,
+    -343.264
+   ],
+   "cry/profile/0.5/handF": [
+    38.625,
+    -343.659
+   ],
+   "cry/profile/0.5/handB": [
+    61.294,
+    -343.659
+   ],
+   "cry/profile/0.63/handF": [
+    38.71,
+    -343.11
+   ],
+   "cry/profile/0.63/handB": [
+    61.413,
+    -343.11
+   ],
+   "cry/profile/0.77/handF": [
+    38.95,
+    -343.51
+   ],
+   "cry/profile/0.77/handB": [
+    61.674,
+    -343.51
+   ],
+   "cry/profile/0.9/handF": [
+    39.179,
+    -345.858
+   ],
+   "cry/profile/0.9/handB": [
+    61.849,
+    -345.858
+   ],
+   "cry/half/0/handF": [
+    4.21,
+    -346.857
+   ],
+   "cry/half/0/handB": [
+    31.576,
+    -346.86
+   ],
+   "cry/half/0.13/handF": [
+    4.151,
+    -345.3
+   ],
+   "cry/half/0.13/handB": [
+    31.569,
+    -345.302
+   ],
+   "cry/half/0.27/handF": [
+    4.035,
+    -343.105
+   ],
+   "cry/half/0.27/handB": [
+    31.509,
+    -343.107
+   ],
+   "cry/half/0.4/handF": [
+    3.977,
+    -343.264
+   ],
+   "cry/half/0.4/handB": [
+    31.411,
+    -343.264
+   ],
+   "cry/half/0.5/handF": [
+    3.967,
+    -343.659
+   ],
+   "cry/half/0.5/handB": [
+    31.376,
+    -343.659
+   ],
+   "cry/half/0.63/handF": [
+    3.983,
+    -343.11
+   ],
+   "cry/half/0.63/handB": [
+    31.432,
+    -343.11
+   ],
+   "cry/half/0.77/handF": [
+    4.059,
+    -343.51
+   ],
+   "cry/half/0.77/handB": [
+    31.534,
+    -343.51
+   ],
+   "cry/half/0.9/handF": [
+    4.163,
+    -345.858
+   ],
+   "cry/half/0.9/handB": [
+    31.573,
+    -345.858
+   ],
+   "cry/front/0/handF": [
+    -13.983,
+    -346.857
+   ],
+   "cry/front/0/handB": [
+    13.995,
+    -346.86
+   ],
+   "cry/front/0.13/handF": [
+    -14.01,
+    -345.3
+   ],
+   "cry/front/0.13/handB": [
+    14.02,
+    -345.302
+   ],
+   "cry/front/0.27/handF": [
+    -14.041,
+    -343.105
+   ],
+   "cry/front/0.27/handB": [
+    14.046,
+    -343.107
+   ],
+   "cry/front/0.4/handF": [
+    -14.023,
+    -343.264
+   ],
+   "cry/front/0.4/handB": [
+    14.024,
+    -343.264
+   ],
+   "cry/front/0.5/handF": [
+    -14.01,
+    -343.659
+   ],
+   "cry/front/0.5/handB": [
+    14.01,
+    -343.659
+   ],
+   "cry/front/0.63/handF": [
+    -14.031,
+    -343.11
+   ],
+   "cry/front/0.63/handB": [
+    14.031,
+    -343.11
+   ],
+   "cry/front/0.77/handF": [
+    -14.044,
+    -343.51
+   ],
+   "cry/front/0.77/handB": [
+    14.044,
+    -343.51
+   ],
+   "cry/front/0.9/handF": [
+    -14.011,
+    -345.858
+   ],
+   "cry/front/0.9/handB": [
+    14.011,
+    -345.858
+   ],
+   "cry/back/0/handF": [
+    13.983,
+    -346.857
+   ],
+   "cry/back/0/handB": [
+    -13.995,
+    -346.86
+   ],
+   "cry/back/0.13/handF": [
+    14.01,
+    -345.3
+   ],
+   "cry/back/0.13/handB": [
+    -14.02,
+    -345.302
+   ],
+   "cry/back/0.27/handF": [
+    14.041,
+    -343.105
+   ],
+   "cry/back/0.27/handB": [
+    -14.046,
+    -343.107
+   ],
+   "cry/back/0.4/handF": [
+    14.023,
+    -343.264
+   ],
+   "cry/back/0.4/handB": [
+    -14.024,
+    -343.264
+   ],
+   "cry/back/0.5/handF": [
+    14.01,
+    -343.659
+   ],
+   "cry/back/0.5/handB": [
+    -14.01,
+    -343.659
+   ],
+   "cry/back/0.63/handF": [
+    14.031,
+    -343.11
+   ],
+   "cry/back/0.63/handB": [
+    -14.031,
+    -343.11
+   ],
+   "cry/back/0.77/handF": [
+    14.044,
+    -343.51
+   ],
+   "cry/back/0.77/handB": [
+    -14.044,
+    -343.51
+   ],
+   "cry/back/0.9/handF": [
+    14.011,
+    -345.858
+   ],
+   "cry/back/0.9/handB": [
+    -14.011,
+    -345.858
+   ],
+   "phone/profile/0/handF": [
+    -13.68,
+    -323.676
+   ],
+   "phone/profile/0/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.13/handF": [
+    -13.68,
+    -323.676
+   ],
+   "phone/profile/0.13/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.27/handF": [
+    -13.681,
+    -323.676
+   ],
+   "phone/profile/0.27/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.4/handF": [
+    -13.683,
+    -323.676
+   ],
+   "phone/profile/0.4/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.5/handF": [
+    -13.684,
+    -323.676
+   ],
+   "phone/profile/0.5/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.63/handF": [
+    -13.686,
+    -323.676
+   ],
+   "phone/profile/0.63/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.77/handF": [
+    -13.687,
+    -323.676
+   ],
+   "phone/profile/0.77/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/profile/0.9/handF": [
+    -13.688,
+    -323.676
+   ],
+   "phone/profile/0.9/handB": [
+    39.807,
+    -126.006
+   ],
+   "phone/half/0/handF": [
+    -30.481,
+    -323.676
+   ],
+   "phone/half/0/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.13/handF": [
+    -30.482,
+    -323.676
+   ],
+   "phone/half/0.13/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.27/handF": [
+    -30.483,
+    -323.676
+   ],
+   "phone/half/0.27/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.4/handF": [
+    -30.485,
+    -323.676
+   ],
+   "phone/half/0.4/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.5/handF": [
+    -30.486,
+    -323.676
+   ],
+   "phone/half/0.5/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.63/handF": [
+    -30.488,
+    -323.676
+   ],
+   "phone/half/0.63/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.77/handF": [
+    -30.49,
+    -323.676
+   ],
+   "phone/half/0.77/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/half/0.9/handF": [
+    -30.491,
+    -323.676
+   ],
+   "phone/half/0.9/handB": [
+    40.085,
+    -126.006
+   ],
+   "phone/front/0/handF": [
+    -37.057,
+    -323.676
+   ],
+   "phone/front/0/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.13/handF": [
+    -37.057,
+    -323.676
+   ],
+   "phone/front/0.13/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.27/handF": [
+    -37.058,
+    -323.676
+   ],
+   "phone/front/0.27/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.4/handF": [
+    -37.06,
+    -323.676
+   ],
+   "phone/front/0.4/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.5/handF": [
+    -37.062,
+    -323.676
+   ],
+   "phone/front/0.5/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.63/handF": [
+    -37.064,
+    -323.676
+   ],
+   "phone/front/0.63/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.77/handF": [
+    -37.066,
+    -323.676
+   ],
+   "phone/front/0.77/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/front/0.9/handF": [
+    -37.067,
+    -323.676
+   ],
+   "phone/front/0.9/handB": [
+    37.58,
+    -126.006
+   ],
+   "phone/back/0/handF": [
+    37.057,
+    -323.676
+   ],
+   "phone/back/0/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.13/handF": [
+    37.057,
+    -323.676
+   ],
+   "phone/back/0.13/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.27/handF": [
+    37.058,
+    -323.676
+   ],
+   "phone/back/0.27/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.4/handF": [
+    37.06,
+    -323.676
+   ],
+   "phone/back/0.4/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.5/handF": [
+    37.062,
+    -323.676
+   ],
+   "phone/back/0.5/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.63/handF": [
+    37.064,
+    -323.676
+   ],
+   "phone/back/0.63/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.77/handF": [
+    37.066,
+    -323.676
+   ],
+   "phone/back/0.77/handB": [
+    -37.58,
+    -126.006
+   ],
+   "phone/back/0.9/handF": [
+    37.067,
+    -323.676
+   ],
+   "phone/back/0.9/handB": [
+    -37.58,
+    -126.006
+   ],
+   "drink/profile/0/handF": [
+    -20.998,
+    -126.006
+   ],
+   "drink/profile/0/handB": [
+    39.807,
+    -126.006
+   ],
+   "drink/profile/0.13/handF": [
+    41.095,
+    -239.248
+   ],
+   "drink/profile/0.13/handB": [
+    42.047,
+    -127.048
+   ],
+   "drink/profile/0.27/handF": [
+    34.449,
+    -347.053
+   ],
+   "drink/profile/0.27/handB": [
+    43.355,
+    -127.768
+   ],
+   "drink/profile/0.4/handF": [
+    33.684,
+    -348.151
+   ],
+   "drink/profile/0.4/handB": [
+    43.624,
+    -127.928
+   ],
+   "drink/profile/0.5/handF": [
+    33.224,
+    -349.313
+   ],
+   "drink/profile/0.5/handB": [
+    43.737,
+    -127.995
+   ],
+   "drink/profile/0.63/handF": [
+    32.806,
+    -350.632
+   ],
+   "drink/profile/0.63/handB": [
+    43.8,
+    -128.033
+   ],
+   "drink/profile/0.77/handF": [
+    41.15,
+    -335.72
+   ],
+   "drink/profile/0.77/handB": [
+    43.811,
+    -128.04
+   ],
+   "drink/profile/0.9/handF": [
+    35.457,
+    -215.365
+   ],
+   "drink/profile/0.9/handB": [
+    41.465,
+    -126.754
+   ],
+   "drink/half/0/handF": [
+    -33.432,
+    -126.006
+   ],
+   "drink/half/0/handB": [
+    40.085,
+    -126.006
+   ],
+   "drink/half/0.13/handF": [
+    2.03,
+    -239.248
+   ],
+   "drink/half/0.13/handB": [
+    40.878,
+    -127.048
+   ],
+   "drink/half/0.27/handF": [
+    12.184,
+    -347.053
+   ],
+   "drink/half/0.27/handB": [
+    41.34,
+    -127.768
+   ],
+   "drink/half/0.4/handF": [
+    11.935,
+    -348.151
+   ],
+   "drink/half/0.4/handB": [
+    41.436,
+    -127.928
+   ],
+   "drink/half/0.5/handF": [
+    11.784,
+    -349.313
+   ],
+   "drink/half/0.5/handB": [
+    41.475,
+    -127.995
+   ],
+   "drink/half/0.63/handF": [
+    11.619,
+    -350.632
+   ],
+   "drink/half/0.63/handB": [
+    41.498,
+    -128.033
+   ],
+   "drink/half/0.77/handF": [
+    15.864,
+    -335.72
+   ],
+   "drink/half/0.77/handB": [
+    41.501,
+    -128.04
+   ],
+   "drink/half/0.9/handF": [
+    -1.09,
+    -215.365
+   ],
+   "drink/half/0.9/handB": [
+    40.672,
+    -126.754
+   ],
+   "drink/front/0/handF": [
+    -37.58,
+    -126.006
+   ],
+   "drink/front/0/handB": [
+    37.58,
+    -126.006
+   ],
+   "drink/front/0.13/handF": [
+    -18.073,
+    -239.248
+   ],
+   "drink/front/0.13/handB": [
+    37.58,
+    -127.048
+   ],
+   "drink/front/0.27/handF": [
+    -0.002,
+    -347.053
+   ],
+   "drink/front/0.27/handB": [
+    37.58,
+    -127.768
+   ],
+   "drink/front/0.4/handF": [
+    0.029,
+    -348.151
+   ],
+   "drink/front/0.4/handB": [
+    37.58,
+    -127.928
+   ],
+   "drink/front/0.5/handF": [
+    0.046,
+    -349.313
+   ],
+   "drink/front/0.5/handB": [
+    37.58,
+    -127.995
+   ],
+   "drink/front/0.63/handF": [
+    0.022,
+    -350.632
+   ],
+   "drink/front/0.63/handB": [
+    37.58,
+    -128.033
+   ],
+   "drink/front/0.77/handF": [
+    1.89,
+    -335.72
+   ],
+   "drink/front/0.77/handB": [
+    37.58,
+    -128.04
+   ],
+   "drink/front/0.9/handF": [
+    -19.699,
+    -215.365
+   ],
+   "drink/front/0.9/handB": [
+    37.58,
+    -126.754
+   ],
+   "drink/back/0/handF": [
+    37.58,
+    -126.006
+   ],
+   "drink/back/0/handB": [
+    -37.58,
+    -126.006
+   ],
+   "drink/back/0.13/handF": [
+    18.073,
+    -239.248
+   ],
+   "drink/back/0.13/handB": [
+    -37.58,
+    -127.048
+   ],
+   "drink/back/0.27/handF": [
+    0.002,
+    -347.053
+   ],
+   "drink/back/0.27/handB": [
+    -37.58,
+    -127.768
+   ],
+   "drink/back/0.4/handF": [
+    -0.029,
+    -348.151
+   ],
+   "drink/back/0.4/handB": [
+    -37.58,
+    -127.928
+   ],
+   "drink/back/0.5/handF": [
+    -0.046,
+    -349.313
+   ],
+   "drink/back/0.5/handB": [
+    -37.58,
+    -127.995
+   ],
+   "drink/back/0.63/handF": [
+    -0.022,
+    -350.632
+   ],
+   "drink/back/0.63/handB": [
+    -37.58,
+    -128.033
+   ],
+   "drink/back/0.77/handF": [
+    -1.89,
+    -335.72
+   ],
+   "drink/back/0.77/handB": [
+    -37.58,
+    -128.04
+   ],
+   "drink/back/0.9/handF": [
+    19.699,
+    -215.365
+   ],
+   "drink/back/0.9/handB": [
+    -37.58,
+    -126.754
+   ]
+  }
+ }
+}

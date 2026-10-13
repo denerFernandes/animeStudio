@@ -11,7 +11,7 @@
  */
 import { type ToonDoc, normalizeTrack, parsePath, pathPoints, pathToString, reach3d, rig3dPoint, rig3dPose, sampleTrack, withPoints } from "@animestudio/core";
 import { humanClips } from "./human";
-import { type P, cartoonHands, characterClips, emotions, fluid, limbBones, limbIk, mouthInside, mouthShapes } from "./rig";
+import { type P, cartoonHands, characterClips, emotions, fluid, gapeMouth, limbBones, limbIk, morphTowards, mouthInside, mouthShapes } from "./rig";
 import { type RigInfo, rigInfo } from "./info";
 import { type ViewSpec, withViews } from "./views";
 import { aimForward, longHex, mix, shade } from "./util";
@@ -1192,6 +1192,10 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
   const { L, R, style } = made;
   const mouth = made.shapes;
   const inside = mouthInside(L as P, R as P, open, style);
+  const gape = gapeView(m, vw, { mid: s.point(0, my), nose: s.point(0, m.y.nose)[1], mouth: mouth.base, teeth: inside.teeth.base, tongue: inside.tongue.base }, (p) => noseCells.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < gap));
+  (mouth.shapes as Record<string, string>).gape = gape.mouth;
+  inside.teeth.shapes.gape = gape.teeth;
+  inside.tongue.shapes.gape = gape.tongue;
 
   // Nostrils (the nose itself is a volume of the head).
   const ny = m.y.nose;
@@ -1275,7 +1279,177 @@ function faceView(m: Model, look: CartoonLook, vw: View) {
     }
   }
   const visible = theta < 1.6;
-  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, nose, extras, over, visible, mouthClear: clear, mouthAt: s.point(0, my, u * 0.04) };
+  return { eyeVariants, pupils: pupil(), lids, brows, mouth, teeth: inside.teeth, tongue: inside.tongue, jaw: gape.jaw, jawShade: gape.jawShade, jawLine: gape.jawLine, nose, extras, over, visible, mouthClear: clear && gape.clear, mouthAt: s.point(0, my, u * 0.04) };
+}
+
+/** Weight of the `gape` morph that draws the jaw fully unhinged (weight 1: a big cartoon gape). */
+export const GAPE_FULL = 2;
+/** Degrees the 3D `jaw` bone turns a weight of gape (its occluder follows the drawn jaw down). */
+export const JAW_TURN = 36;
+
+/**
+ * The jaw's occluder: cones from the cheeks and the middle of the face (on the head) to the chin (on
+ * the jaw bone), each thinned until it is inside the head's occluder at rest (the head's volume grown
+ * by `grow`) — they only reach out of it as the jaw drops.
+ */
+function jawCones(m: Model, to: V3, grow: number) {
+  const u = m.b.u, nt = m.y.neckTop;
+  // (Deep in the head and wide there, narrower at the chin: what counts is how much of the picture
+  // they cover once the chin has dropped.)
+  const cones = [
+    ...[-1, 0, 1].map((sx) => ({
+      a: [sx * u * 0.45, m.y.mouth - u * 0.22, sx ? -u * 0.05 : u * 0.1] as V3,
+      b: [sx * u * 0.4, -u * 0.12, sx ? -u * 0.25 : -u * 0.12] as V3,
+      r: [u * 0.45, u * 0.3] as [number, number],
+    })),
+    // (The cheeks round out to the head's width.)
+    ...[-1, 1].map((sx) => ({ a: [sx * u * 0.6, m.y.nose, -u * 0.35] as V3, b: [sx * u * 0.55, -u * 0.3, -u * 0.6] as V3, r: [u * 0.42, u * 0.3] as [number, number] })),
+  ];
+  return cones.map(({ a, b, r: r0 }) => {
+    const tip: V3 = [to[0] + b[0], to[1] + b[1], to[2] + b[2]];
+    let k = 1;
+    // (Points all round spheres along the cone: a golden-angle spiral.)
+    const inside = () => {
+      for (let h = 0; h <= 1; h += 0.125) for (let i = 0; i < 40; i++) {
+        const c: V3 = [a[0] + (tip[0] - a[0]) * h, a[1] + (tip[1] - a[1]) * h, a[2] + (tip[2] - a[2]) * h];
+        const rad = (r0[0] + (r0[1] - r0[0]) * h) * k;
+        const z = 1 - ((i + 0.5) / 40) * 2, q = Math.sqrt(1 - z * z), t = i * 2.39996;
+        if (m.head(c[0] + Math.cos(t) * q * rad, c[1] + Math.sin(t) * q * rad, c[2] + z * rad) > grow * 0.5) return false;
+      }
+      return true;
+    };
+    for (let i = 0; i < 30 && !inside(); i++) k *= 0.92;
+    return { from: { bone: "head", at: [r(a[0]), r(a[1] - nt), r(a[2])] }, to: { bone: "jaw", t: 1, at: b.map(r) }, r: [r(r0[0] * k), r(r0[1] * k)] };
+  });
+}
+
+/**
+ * The gape of a view: the mouth opened to swallow something whole, with the lower head following it.
+ * Everything is drawn for the jaw **unhinged** (weight `GAPE_FULL`) and the `gape` shapes are made
+ * half way there (`morphTowards`): the morph is linear, so weight 1 is a big gape (the mouth ≈ 2.2×
+ * viseme D tall, the chin ≈ 0.45 head radius lower) and weight 2 the unhinged jaw — the mouth as
+ * wide as the head, the chin ≈ 0.9 head radius below its rest — every weight between them (and a
+ * close from 2 to 0) a valid shape.
+ *
+ * The jaw is morph parts over the head's drawing, made from the head's outline in this view (rays
+ * from the middle of the face, between the nose and the mouth, to the outline below): `jawLine`,
+ * the lower outline (at rest exactly on the drawn chin), `jaw`, the skin between that outline and a
+ * band inside the rest chin (no area at rest), and for cel-shaded looks `jawShade`, its side away
+ * from the light. Opening, the lower head stretches down and its cheeks round out to the head's full
+ * width, the old chin covered by the skin.
+ *
+ * The mouth's top lip stays clear of the nose (`touchesNose`, the face's rule: lowered until it
+ * is); below, the mouth goes past the rest chin by design — the jaw drops with it.
+ */
+function gapeView(m: Model, vw: View, at: { mid: P2; nose: number; mouth: string; teeth: string; tongue: string }, touchesNose: (p: P2) => boolean) {
+  const u = m.b.u;
+  const g = gridFor([{ x: [-u * 1.7, u * 1.7], y: [m.y.top - u * 0.1, m.y.head + u * 1.5], z: [-u * 1.7, u * 1.7] }], vw, u / 30);
+  const hc = cast(m.head, g, vw);
+  // The head's field between grid points (negative inside its outline).
+  const field = (X: number, Y: number) => {
+    const fi = (X - g.x0) / g.step, fj = (Y - g.y0) / g.step;
+    const i = Math.floor(fi), j = Math.floor(fj);
+    if (i < 0 || j < 0 || i >= g.w - 1 || j >= g.h - 1) return 1;
+    const a = fi - i, b = fj - j, v = (ii: number, jj: number) => hc.val[jj * g.w + ii];
+    return (v(i, j) * (1 - a) + v(i + 1, j) * a) * (1 - b) + (v(i, j + 1) * (1 - a) + v(i + 1, j + 1) * a) * b;
+  };
+  // The head's widest reach on each side.
+  let xmin = Infinity, xmax = -Infinity;
+  for (let j = 0; j < g.h; j++) for (let i = 0; i < g.w; i++) if (hc.val[j * g.w + i] < 0) {
+    xmin = Math.min(xmin, g.x0 + i * g.step);
+    xmax = Math.max(xmax, g.x0 + i * g.step);
+  }
+  // The jaw hinges between the nose and the mouth; rays from there to the outline below.
+  const Yj = (at.nose + at.mid[1]) / 2;
+  const cx = Math.max(xmin + u * 0.35, Math.min(xmax - u * 0.35, at.mid[0]));
+  const ray = (phi: number): P2 => {
+    const dx = Math.cos(phi), dy = Math.sin(phi);
+    let t0 = 0, t1 = 0;
+    for (let t = 0; t < u * 3; t += u / 60) {
+      if (field(cx + dx * t, Yj + dy * t) > 0) { t1 = t; break; }
+      t0 = t;
+    }
+    for (let k = 0; k < 14; k++) {
+      const t = (t0 + t1) / 2;
+      if (field(cx + dx * t, Yj + dy * t) > 0) t1 = t;
+      else t0 = t;
+    }
+    const t = (t0 + t1) / 2;
+    return [cx + dx * t, Yj + dy * t];
+  };
+  const N = 16;
+  const phis = Array.from({ length: N + 1 }, (_, i) => (i / N) * Math.PI);
+  const B = phis.map(ray);
+  // Unhinged: the lower head stretched down by `drop`, its cheeks out to the head's widest (and a
+  // little past it: they round out), from the hinge — where it meets the head's outline — down.
+  const drop = u * 0.9;
+  const b = Math.max(...B.map((q) => q[1])) - Yj + drop;
+  const a0 = [B[0][0] - cx, cx - B[N][0]], a1 = [(xmax - cx) * 1.08, (cx - xmin) * 1.08];
+  const jawAt = (phi: number): P2 => {
+    const sn = Math.sin(phi), c = Math.cos(phi), k = c >= 0 ? 0 : 1;
+    const a = a0[k] + (a1[k] - a0[k]) * (1 - (1 - Math.min(1, sn * 1.4)) ** 3);
+    return [cx + a * c, Yj + b * sn];
+  };
+  const U = phis.map(jawAt);
+  // Catmull-Rom through points, as cubic segments.
+  const segs = (p: P2[]) => p.slice(0, -1).map((q, i) => {
+    const p0 = p[Math.max(0, i - 1)], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
+    return `C${r(q[0] + (p2[0] - p0[0]) / 6)} ${r(q[1] + (p2[1] - p0[1]) / 6)} ${r(p2[0] - (p3[0] - q[0]) / 6)} ${r(p2[1] - (p3[1] - q[1]) / 6)} ${r(p2[0])} ${r(p2[1])}`;
+  }).join(" ");
+  const line = (p: P2[]) => `M${r(p[0][0])} ${r(p[0][1])} ${segs(p)}`;
+  // The jaw's skin: from its outline up to a band inside the rest chin (covering the drawn chin's
+  // line from the smallest gape on, keeping the head's own drawing and shading above it).
+  const Bin = B.map((q): P2 => {
+    const d = Math.hypot(q[0] - cx, q[1] - Yj) || 1, k = Math.min(u * 0.3, d * 0.6) / d;
+    return [q[0] + (cx - q[0]) * k, q[1] + (Yj - q[1]) * k];
+  });
+  const jawLine = { base: line(B), shapes: { gape: morphTowards(line(B), line(U), GAPE_FULL) } };
+  const jawBase = `${line(B)} ${segs([...B].reverse())} Z`, jawOpen = `${line(U)} ${segs([...Bin].reverse())} Z`;
+  const jaw = { base: jawBase, shapes: { gape: morphTowards(jawBase, jawOpen, GAPE_FULL) } };
+  // Cel shaded looks: the side of the dropped jaw turned away from the light (lower right) in
+  // shadow, up to the rest chin (whose drawing is shaded there too) — none at rest.
+  const inner = U.map((q, i): P2 => {
+    const a = U[Math.max(0, i - 1)], c = U[Math.min(N, i + 1)];
+    const tx = c[0] - a[0], ty = c[1] - a[1], l = Math.hypot(tx, ty) || 1;
+    // (The outward normal: the curve runs right → bottom → left, the outside on its right.)
+    const nx = ty / l, ny = -tx / l;
+    const f = smoothstep(0.05, 0.45, -(nx * LIGHT[0] + ny * LIGHT[1]));
+    return [q[0] + (Bin[i][0] - q[0]) * f, q[1] + (Bin[i][1] - q[1]) * f];
+  });
+  const shadeBase = `${line(B)} ${segs([...B].reverse())} Z`, shadeOpen = `${line(U)} ${segs([...inner].reverse())} Z`;
+  const jawShade = m.shade ? { base: shadeBase, shapes: { gape: morphTowards(shadeBase, shadeOpen, GAPE_FULL) } } : undefined;
+  // The mouth unhinged: its corners on the jaw's sides a third of the way down (pulled down and out
+  // to the head's width), the top lip under the nose, the round lower edge a chin's thickness above
+  // the dropped chin.
+  const margin = u * 0.06, sc = 0.3;
+  const cr = jawAt(Math.asin(sc)), cl = jawAt(Math.PI - Math.asin(sc));
+  const l: P = [cl[0] + margin, cl[1]], rr: P = [cr[0] - margin, cr[1]];
+  const bottom = Yj + b - u * 0.16;
+  const sample = (d: string) => parsePath(d).flatMap((sp) => {
+    const out: P2[] = [];
+    let p0 = sp.start;
+    for (const [c1, c2, e] of sp.segments) {
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8, mt = 1 - t;
+        out.push([mt ** 3 * p0[0] + 3 * mt * mt * t * c1[0] + 3 * mt * t * t * c2[0] + t ** 3 * e[0], mt ** 3 * p0[1] + 3 * mt * mt * t * c1[1] + 3 * mt * t * t * c2[1] + t ** 3 * e[1]]);
+      }
+      p0 = e;
+    }
+    return out;
+  });
+  let top = at.mid[1] - u * 0.06, made = gapeMouth(l, rr, top, bottom, { out: (rr[0] - l[0]) * 0.07, teeth: u * 0.13 }), clear = false;
+  for (let i = 0; i < 30; i++) {
+    const half = morphTowards(at.mouth, made.mouth, GAPE_FULL);
+    if (![...sample(made.mouth), ...sample(half)].some(touchesNose)) { clear = true; break; }
+    top += u * 0.015;
+    made = gapeMouth(l, rr, top, bottom, { out: (rr[0] - l[0]) * 0.07, teeth: u * 0.13 });
+  }
+  return {
+    mouth: morphTowards(at.mouth, made.mouth, GAPE_FULL),
+    teeth: morphTowards(at.teeth, made.teeth, GAPE_FULL),
+    tongue: morphTowards(at.tongue, made.tongue, GAPE_FULL),
+    jaw, jawShade, jawLine, clear,
+  };
 }
 
 // ------------------------------------------------------------------ shoes, sleeves, shorts
@@ -1587,9 +1761,16 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   // volume grows by the outline and by that difference (the face's depth × the pitch left out).
   const grow = SW + u * 0.9 * Math.abs(Math.sin(pitch) - Math.sin(pitch * HEAD_PITCH)) + u * 0.02;
   const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: m.headParts.map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v + grow)) })) };
+  // The jaw a gape drops: a 3D bone from a hinge at the back of the head (at the mouth's height) to
+  // the chin, nothing drawn on it (the dropped jaw is a morph of the face: `gapeView`). Turned by the
+  // `jaw` control and the `gape` emotion (`JAW_TURN`° a weight), it takes this occluder down with
+  // the drawn jaw — the cheeks to the chin, as cones from the head to the jaw — so the upper arms
+  // stay behind a dropped chin. At rest it is inside the head's (it changes nothing).
+  const jawFrom: V3 = [0, m.y.mouth, -u * 0.5], jawTo: V3 = [0, m.y.head + u * anatomy.face.chinY - u * 0.2, u * 0.55];
+  const jawOccluder = { over: r(u * 4), shapes: jawCones(m, jawTo, grow) };
   // The legs, the hips and a skirt hide the arms too (a hand behind the skirt).
   const legOccluders = ((legsSolid(m, look, j, anatomy.limbs.calf).bodies as Record<string, unknown>[]) ?? []).filter((x) => x.fill).map(occluder);
-  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
+  const armsSolid = { id: "arms", type: "solid", step: 2, bodies: [torsoOccluder(m, look), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B"), ...armBodies("F")] };
   // A wristwatch: a band round a forearm, its own solid behind the same occluders as the arms (and
   // the arms themselves), one per wrist. The wearer keeps it on the same wrist whichever way they
   // face: the near arm facing right, the far arm facing left (the rig mirrored) — `sideSwitch`
@@ -1599,7 +1780,7 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
         id: `watch${side}`, type: "solid", step: 2,
         visibleWhen: { part: "sideSwitch", variant: side === "F" ? "r" : "l" },
         bodies: [
-          torsoOccluder(m, look), headOccluder, ...legOccluders, ...armBodies("B").map(occluder), ...armBodies("F").map(occluder),
+          torsoOccluder(m, look), headOccluder, jawOccluder, ...legOccluders, ...armBodies("B").map(occluder), ...armBodies("F").map(occluder),
           { fill: "palette(watch)", ...(m.shade ? { shade: "palette(watchShade)" } : {}), stroke: "palette(watchLine)", strokeWidth: lw(2.2), shapes: [{ from: { bone: `arm${side}2`, t: 0.8 }, to: { bone: `arm${side}2`, t: 0.88 }, r: r(b.arm[1] * 0.5 + 2.5) }] },
         ],
       }))
@@ -1620,6 +1801,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     legsSolid(m, look, j, anatomy.limbs.calf),
     { id: "earsBack", type: "rigid", bone: "head", art: "earsBack" },
     { id: "head", type: "rigid", bone: "head", art: "head" },
+    // The jaw that drops with a gape (`gapeView`): skin over the rest chin, its new lower outline.
+    ...jawParts(F, ""),
     { id: "nose", type: "rigid", bone: "head", art: "nose" },
     { id: "eyes", type: "switch", bone: "head", variants: Object.fromEntries(Object.keys(F.eyeVariants).map((k) => [k, `eye_${k}`])), default: "open" },
     { id: "pupils", type: "rigid", bone: "pupils", art: "pupils", visibleWhen: { part: "eyes", variant: ["open", "wide", "half"] } },
@@ -1659,6 +1842,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     { id: "neck", parent: "body", from: [0, r(m.y.torsoTop)], to: [0, r(m.y.neckTop)], mass: 1, limits: { rotation: [-25, 25] } },
     { id: "head", parent: "neck", from: [0, r(m.y.neckTop)], to: [0, r(m.y.top)], mass: 1.4, limits: { rotation: [-40, 40] } },
     { id: "hair", parent: "head", from: [0, r(m.y.head)], to: [0, r(m.y.top - u * 0.2)], mass: 0.6 },
+    // (The jaw: a 3D bone, nothing drawn on it — see `jawOccluder`.)
+    { id: "jaw", parent: "head", from: project(jawFrom, vh("profile")).map(r), to: project(jawTo, vh("profile")).map(r), mass: 0.2 },
     ...(tail ? [{ id: "tail", parent: "head", from: [r(tail[0][0]), r(tail[0][1])], to: [r(tail[1][0]), r(tail[1][1])], mass: 0.4 }] : []),
     // (The pupils' pivot on the drawn eye.)
     { id: "pupils", parent: "head", from: [r(eyeMid[0]), r(eyeMid[1])] },
@@ -1746,6 +1931,7 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
         body: { from: [0, r(m.y.hip), 0], to: [0, r(m.y.torsoTop), 0] },
         neck: { from: [0, r(m.y.torsoTop), 0], to: [0, r(m.y.neckTop), 0] },
         head: { from: [0, r(m.y.neckTop), 0], to: [0, r(m.y.top), 0] },
+        jaw: { from: jawFrom.map(r), to: jawTo.map(r) },
         armF1: { from: j3.shoulderF, to: j3.elbowF }, armF2: { from: j3.elbowF, to: j3.handF },
         armB1: { from: j3.shoulderB, to: j3.elbowB }, armB2: { from: j3.elbowB, to: j3.handB },
         legF1: { from: j3.hipF, to: j3.kneeF }, legF2: { from: j3.kneeF, to: j3.footF },
@@ -1792,7 +1978,12 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
         calm: { "parts.eyes.variant": "closed", "parts.brows.morph.cross": 0.3 },
         excited: { "parts.eyes.variant": "shine", "parts.mouth.morph.grin": 0.9, "parts.brows.morph.up": 0.8, "bones.head.rotation": -6 },
         annoyed: { "parts.eyes.variant": "half", "parts.mouth.morph.frown": 0.5, "parts.brows.morph.cross": 0.6, "bones.head.rotation": 3 },
+        // The cartoon gape (swallow whole, scream, a big yawn): the jaw dropped, eyes wide, brows up.
+        // Weighted past 1 (`{ gape: 2 }`) the jaw unhinges.
+        gape: { "parts.eyes.variant": "wide", "parts.mouth.morph.gape": 1, "bones.jaw.rotation": JAW_TURN, "parts.brows.morph.up": 1, "bones.head.rotation": -4 },
       }),
+      // The jaw on its own: `gape` (weighted: `{ gape: 2 }` unhinges it) or `shut`.
+      jaw: { type: "pose", poses: { shut: {}, gape: { "parts.mouth.morph.gape": 1, "bones.jaw.rotation": JAW_TURN } } },
     },
     behaviors: [
       { type: "blink", id: "blink", part: "eyes", open: "open", closed: "closed", interval: [2.2, 4.8], duration: 0.12 },
@@ -2025,6 +2216,15 @@ export function withTones(palette: Record<string, string>, o: { ink?: string } =
   return out;
 }
 
+/** The jaw's parts of a view (`gapeView`): the skin of the dropped lower head, then its outline. */
+function jawParts(F: ReturnType<typeof faceView>, s: string): Record<string, unknown>[] {
+  return [
+    { id: `jaw${s}`, type: "morph", bone: "head", fill: "palette(skin)", base: F.jaw.base, shapes: F.jaw.shapes },
+    ...(F.jawShade ? [{ id: `jawShade${s}`, type: "morph", bone: "head", fill: "palette(skinShade)", base: F.jawShade.base, shapes: F.jawShade.shapes }] : []),
+    { id: `jawLine${s}`, type: "morph", bone: "head", fill: "none", stroke: "palette(skinLine)", strokeWidth: lw(SW), attrs: { "stroke-linejoin": "round", "stroke-linecap": "round" }, base: F.jawLine.base, shapes: F.jawLine.shapes },
+  ];
+}
+
 /**
  * The other drawn angles as views (front, half, side, away, back), in turning order: arms and legs
  * move to where each angle puts them, the face parts of each angle follow the same emotions,
@@ -2045,6 +2245,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
       before("legs", { id: `torso${s}`, type: "rigid", bone: "body", art: `torso${s}` }),
       before("arms", { id: `earsBack${s}`, type: "rigid", bone: "head", art: `earsBack${s}` }),
       before("arms", { id: `head${s}`, type: "rigid", bone: "head", art: `head${s}` }),
+      ...(views[v].face.visible ? jawParts(views[v].face, s).map((p) => before("arms", p)) : []),
       before("arms", { id: `nose${s}`, type: "rigid", bone: "head", art: `nose${s}` }),
     ];
     const F = views[v].face;
@@ -2073,13 +2274,14 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     if (F.visible) list.push(before("arms", { id: `brows${s}`, type: "morph", bone: "head", fill: "palette(brow)", base: F.brows.base, shapes: F.brows.shapes }));
     return list;
   };
-  const face = ["eyes", "pupils", "lids", "mouth", "teeth", "tongue", "brows"];
+  const face = ["eyes", "pupils", "lids", "mouth", "teeth", "tongue", "jaw", "jawShade", "jawLine", "brows"].filter((id) => doc.parts.some((p: { id: string }) => p.id === id));
   // Where an angle puts the shoulders and hips (relative to the three-quarter skeleton).
   const move = (theta: number, v: ViewKey) => {
     const c = Math.cos(theta);
     const pts = Object.fromEntries((["ear", "earB", "mouth", "eye", "top"] as const).map((k) => [`${k}Pt`, [r(headPoints[v][k][0] - headPoints.profile[k][0]), r(headPoints[v][k][1] - headPoints.profile[k][1])] as P]));
     return { armF1: [r(sx * (cq - c)), 0] as P, armB1: [r(sx * (c - cq)), 0] as P, legF1: [r(hx * (cq - c)), 0] as P, legB1: [r(hx * (c - cq)), 0] as P, ...pts };
   };
+  const jaws = ["jaw", "jawShade", "jawLine"].filter((id) => doc.parts.some((p: { id: string }) => p.id === id));
   const spec: ViewSpec = {
     eyes: { center: [0, 0], parts: [] },
     mouth: { center: [0, 0], parts: [] },
@@ -2087,12 +2289,16 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
     hide: Object.fromEntries(others.map((v) => [v, face])),
     parts: Object.fromEntries(others.map((v) => [v, viewParts(v)])),
     move: Object.fromEntries(others.map((v) => [v, move(VIEWS[v], v)])),
-    mouths: ["teeth", "tongue", ...others.filter((v) => views[v].face.visible).flatMap((v) => ["mouth", "teeth", "tongue"].map((k) => `${k}${SUFFIX[v]}`))],
+    // (The jaw's parts have only the `gape` shape: the visemes leave them at rest.)
+    mouths: ["teeth", "tongue", ...jaws, ...others.filter((v) => views[v].face.visible).flatMap((v) => ["mouth", "teeth", "tongue", ...jaws].map((k) => `${k}${SUFFIX[v]}`))],
     order: Object.keys(VIEWS),
     // (Running across the frame: three-quarters side-on — fully side-on, a big round head hides the eye.)
     travel: "q64",
   };
   const out = withViews(doc as unknown as ToonDoc, spec) as unknown as Record<string, any>;
+  // The mouth control takes the gape as a shape too (`"gape"`, `{ gape: 2 }`: every view's mouth,
+  // teeth, tongue and jaw), and `"shut"` (the rest viseme).
+  out.controls.mouth.map = { shut: "X" };
   // The limbs are placed by the 3D projection (rig3d): the views' 2D limb moves and foot targets
   // would push the 3D legs and arms off.
   for (const pose of Object.values(out.controls.view.poses as Record<string, Record<string, unknown>>)) {
@@ -2115,10 +2321,11 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
   const sided = out.parts.some((p: { visibleWhen?: { part: string } }) => p.visibleWhen?.part === "sideSwitch");
   if (Object.keys(sideLeft).length > 1 || sided) out.controls.side = { type: "pose", poses: { right: {}, left: sideLeft } };
   const suffixes = others.filter((v) => views[v].face.visible).map((v) => SUFFIX[v]);
-  for (const pose of Object.values(out.controls.emotion.poses as Record<string, Record<string, unknown>>)) {
+  for (const pose of [out.controls.emotion, out.controls.jaw].flatMap((c) => Object.values(c.poses as Record<string, Record<string, unknown>>))) {
     for (const [k, v] of Object.entries({ ...pose })) {
       for (const s of ["", ...suffixes]) {
-        if (k.startsWith("parts.mouth.morph.")) for (const part of ["mouth", "teeth", "tongue"]) if (part !== "mouth" || s) pose[k.replace("parts.mouth.", `parts.${part}${s}.`)] = v;
+        // (The gape drops the jaw too.)
+        if (k.startsWith("parts.mouth.morph.")) for (const part of ["mouth", "teeth", "tongue", ...(k === "parts.mouth.morph.gape" ? jaws : [])]) if (part !== "mouth" || s) pose[k.replace("parts.mouth.", `parts.${part}${s}.`)] = v;
         if (k.startsWith("parts.brows.morph.") && s) pose[k.replace("parts.brows.", `parts.brows${s}.`)] = v;
       }
     }
@@ -2128,7 +2335,7 @@ function withTurnaround(doc: Record<string, any>, views: Record<ViewKey, { face:
 }
 
 /** Head parts (per view): the head's own drawings, chosen by `headView`. */
-const HEAD_PART = /^(hairBack|tailBack|earsBack|head|nose|eyes|eye|pupils|lids|mouth|teeth|tongue|over|hairFront|tailFront|earsFront|brows)([A-Z]?)(?:_(.+))?$/;
+const HEAD_PART = /^(hairBack|tailBack|earsBack|head|jawLine|jawShade|jaw|nose|eyes|eye|pupils|lids|mouth|teeth|tongue|over|hairFront|tailFront|earsFront|brows)([A-Z]?)(?:_(.+))?$/;
 
 /**
  * The head turns on its own (a listener looking at whoever speaks while sitting facing the TV): a
@@ -2186,14 +2393,14 @@ function withHeadTurn(out: Record<string, any>, others: ViewKey[]) {
   }
   for (const [v, pose] of Object.entries(out.controls.view.poses as Record<string, Record<string, unknown>>)) pose["parts.headView.variant"] = v;
   // Emotions, visemes and the asymmetric side drive the mirrored parts too.
-  for (const pose of Object.values(out.controls.emotion.poses as Record<string, Record<string, unknown>>)) {
+  for (const pose of [out.controls.emotion, out.controls.jaw].flatMap((c) => Object.values(c.poses as Record<string, Record<string, unknown>>))) {
     for (const [k, val] of Object.entries({ ...pose })) {
       const m = /^parts\.([^.]+)\.(morph\..+)$/.exec(k);
       if (m && morphMirrors[m[1]]) pose[`parts.${morphMirrors[m[1]]}.${m[2]}`] = val;
     }
   }
   const mouths = out.controls.mouth.part as string | string[];
-  out.controls.mouth.part = [...(Array.isArray(mouths) ? mouths : [mouths]), ...Object.entries(morphMirrors).filter(([id]) => /^(mouth|teeth|tongue)/.test(id)).map(([, id]) => id)];
+  out.controls.mouth.part = [...(Array.isArray(mouths) ? mouths : [mouths]), ...Object.entries(morphMirrors).filter(([id]) => /^(mouth|teeth|tongue|jaw)/.test(id)).map(([, id]) => id)];
   const side = out.controls.side?.poses?.left as Record<string, unknown> | undefined;
   if (side) for (const [k, val] of Object.entries({ ...side })) {
     const m = /^parts\.([^.]+)\.variant$/.exec(k);

@@ -185,6 +185,9 @@ Lessons from converting a 66-shot storyboard into an episode:
 - Hands read better with shapes than as plain circles: give the hands a switch part with
   `handShapes` (open, fist, point, grip) and build the clips with `hands: true` — a pointing
   gesture then shows a finger, a punch a fist, a wave an open hand.
+- To swallow something whole, scream or yawn big (cartoon rigs): `{ action: "pose", control: "jaw",
+  value: { gape: 1 } }` (big) or `{ gape: 2 }` (the jaw unhinged, the mouth as wide as the head),
+  `"shut"` to close (0.1 s closes cleanly); or the emotion `gape`. Keep `say` off while unhinged.
 - Personality walks: every kit character (human and cartoon) has `sneak`, `strut`, `tired`,
   `march` and `scaredRun` besides `walk` and `run` — looping locomotion clips with their own
   stride, so walking with one of them keeps the feet planted like the plain walk. Pick by mood:

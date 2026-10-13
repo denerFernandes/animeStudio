@@ -8,7 +8,7 @@
  * outline colour.
  */
 
-import { makeTrack } from "@animestudio/core";
+import { makeTrack, parsePath, pathPoints, pathToString, withPoints } from "@animestudio/core";
 
 export type P = [number, number];
 export type Tracks = Record<string, (number | string)[][]>;
@@ -831,6 +831,44 @@ export function mouthInside(L: P, R: P, scale = 1, style: MouthStyle = {}) {
     shapes: Object.fromEntries(Object.entries(table.shapes).map(([k, v]) => [k, shape(kind, ...v)])),
   });
   return { teeth: make("teeth"), tongue: make("tongue") };
+}
+
+/**
+ * A cartoon **gape** (a jaw dropped to swallow something whole, a scream, a big yawn) as the three
+ * paths of a mouth wide open, in the same commands as `mouthShapes`/`mouthInside` (two curves: they
+ * morph with them): the `mouth` from corner `l` over the top lip (its middle at height `top`) to
+ * corner `rr`, back under a round lower edge (its lowest point at `bottom`, bulging `out` past the
+ * corners); the upper `teeth`, a row along the top lip (`teeth` deep in the middle); the `tongue`
+ * low, a mound on the bottom. Draw the inside dark (the mouth's fill); the lower teeth stay hidden.
+ */
+export function gapeMouth(l: P, rr: P, top: number, bottom: number, o: { out?: number; teeth?: number } = {}) {
+  const w = rr[0] - l[0], mx = (l[0] + rr[0]) / 2, out = o.out ?? w * 0.12, h = bottom - top;
+  // A cubic whose controls sit at one height passes through `y` in its middle: c = (8y − y0 − y1) / 6.
+  const ctl = (y: number, a: P, b: P) => (8 * y - a[1] - b[1]) / 6;
+  const C = (...q: number[]) => q.map(r).join(" ");
+  const cT = ctl(top, l, rr), cB = ctl(bottom, rr, l);
+  const mouth = `M${C(...l)} C${C(l[0] + w * 0.22, cT, rr[0] - w * 0.22, cT)} ${C(...rr)} C${C(rr[0] + out, cB, l[0] - out, cB)} ${C(...l)} Z`;
+  // The teeth: the top lip again, and under it the same curve lowered (clipped by the mouth).
+  const t = (o.teeth ?? h * 0.14) / 0.75;
+  const ta: P = [l[0] + w * 0.03, l[1] + 1], tb: P = [rr[0] - w * 0.03, rr[1] + 1], tT = ctl(top + 1, ta, tb);
+  const teeth = `M${C(...ta)} C${C(ta[0] + w * 0.2, tT - 3, tb[0] - w * 0.2, tT - 3)} ${C(...tb)} C${C(tb[0] - w * 0.2, tT + t, ta[0] + w * 0.2, tT + t)} ${C(...ta)} Z`;
+  // The tongue: a mound across the bottom, two thirds of the mouth wide, down past the lower edge.
+  const ga: P = [mx - w * 0.36, bottom - h * 0.2], gb: P = [mx + w * 0.36, bottom - h * 0.2];
+  const gT = ctl(bottom - h * 0.36, ga, gb), gB = ctl(bottom + h * 0.25, gb, ga);
+  const tongue = `M${C(...ga)} C${C(ga[0] + w * 0.08, gT, gb[0] - w * 0.08, gT)} ${C(...gb)} C${C(gb[0], gB, ga[0], gB)} ${C(...ga)} Z`;
+  return { mouth, teeth, tongue };
+}
+
+/**
+ * A morph shape that reaches `target` at weight `at` (default 2) from `base` — a morph is linear
+ * (`base + w·(shape − base)`), so the shape is the point `1/at` of the way: weight 1 is a gape,
+ * weight 2 the unhinged jaw, every weight in between a shape between them. Both paths must have the
+ * same segments once made cubic (the same commands, or `Q` against `C`).
+ */
+export function morphTowards(base: string, target: string, at = 2): string {
+  const b = parsePath(base), bp = pathPoints(b), tp = pathPoints(parsePath(target));
+  if (bp.length !== tp.length) throw new Error(`morphTowards: ${bp.length} points against ${tp.length}`);
+  return pathToString(withPoints(b, bp.map((p, i): [number, number] => [r(p[0] + (tp[i][0] - p[0]) / at), r(p[1] + (tp[i][1] - p[1]) / at)])));
 }
 
 /** Open / smile / round of each `mouthShapes` shape. */

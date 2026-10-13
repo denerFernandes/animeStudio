@@ -9,6 +9,8 @@ import {
   evaluateScene,
   nodeToString,
   prefixFrame,
+  renderCharacter,
+  type RenderNode,
   viewMatrix,
   anchorPosition,
   apply,
@@ -23,6 +25,7 @@ import {
   rig3dPose,
   validateScene,
   validateSequence, layoutShots } from "@animestudio/core";
+import { svgBounds } from "@animestudio/kit";
 import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
 import type { Animation, Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
 
@@ -277,6 +280,12 @@ interface SitFront {
 
 interface Walk { actor: string; t0: number; t1: number; x0: number; x1: number }
 interface PropState { id: string; radius: number; x: Key[]; y: Key[]; scale: Key[]; rotation: Key[]; heldBy: { actor: string; t0: number; t1: number }[] }
+
+/** Camera beats that are a moment, not a shot: the conversation framing comes back `MOMENTARY_HOLD` s after them (unless timed). */
+const MOMENTARY_CAMERA = ["crash", "whip", "shake"];
+const MOMENTARY_HOLD = 2.5;
+/** The widest the conversation camera opens to fit everyone: 0.8 of the wide shot (zoom 1); beyond it, it frames the speaker. */
+const CONVERSATION_MIN_ZOOM = 0.8;
 
 class BlockScene {
   readonly actors: Record<string, unknown>[] = [];
@@ -630,18 +639,23 @@ class BlockScene {
     // at once), and runs in its travel view (`meta.views.travel`: a run across the frame reads
     // side-on), turning back to its view on arrival.
     const order = this.viewOrder(actor);
+    let turned = false;
     if (order && this.present.includes(actor) && Math.abs(x - x0) > 80 * this.scaleOf(actor)) {
       const dir = x > x0 ? "right" : "left";
       const cur = this.viewAt(actor, abs);
       const travel = (this.kit.characters[this.characterOf(actor)]?.meta as { views?: { travel?: string } } | undefined)?.views?.travel;
       const runView = o.clip === "run" && travel && order.includes(travel) && order.includes(cur) && cur !== travel ? travel : undefined;
-      if ((this.facing(actor, abs - 0.001) ? "right" : "left") !== dir) this.face(actor, dir, abs, runView);
-      else if (runView) this.view(actor, runView, abs);
+      if ((this.facing(actor, abs - 0.001) ? "right" : "left") !== dir) {
+        this.face(actor, dir, abs, runView);
+        turned = true;
+      } else if (runView) this.view(actor, runView, abs);
       if (runView) {
         if (this.views.at(-1)?.actor !== actor || this.views.at(-1)?.t !== abs) this.views.push({ actor, t: abs, view: runView });
         this.view(actor, cur, abs + d);
       }
     }
+    // A 2.5D rig the walk itself turns round (the scene flips it as it sets off) keeps its props in the same hand.
+    if (!turned && this.is3d(actor) && Math.abs(x - x0) > 1e-6 && (x > x0) !== this.facing(actor, abs - 0.001)) this.keepHands(actor, abs);
     const walk: Walk = { actor, t0: abs, t1: abs + d, x0, x1: x };
     this.walks.push(walk);
     // (The cast leans into it once the block is staged; vehicles never do.)
@@ -1825,7 +1839,12 @@ class BlockScene {
         if (one) this.press(one, b, at, until);
         break;
       case "camera":
-        this.camBeats.push([at, until ?? at + ((b.duration as number | undefined) ?? 0)]);
+        {
+          // A momentary move (a crash zoom, a whip pan, a shake) hands the picture back 2.5 s on, unless timed.
+          const momentary = MOMENTARY_CAMERA.includes(b.type as string);
+          const end = until ?? (b.duration !== undefined ? at + (b.duration as number) : momentary ? at + MOMENTARY_HOLD : at);
+          this.camBeats.push([at, end, momentary]);
+        }
         this.camera({ type: b.type as string, who: b.who as string[] | string, mark: b.mark as string | undefined, to: b.to as string | undefined, duration: until !== undefined ? until - at : (b.duration as number | undefined), amount: b.amount as number | undefined }, at);
         break;
       case "light": {
@@ -1868,8 +1887,9 @@ class BlockScene {
     this.set(f.id, f.channel ?? "parts.light.variant", value, at);
   }
   /**
-   * Presses something (a doorbell, a lift button, an intercom, a switch on a prop): walks within arm's
-   * reach of it if needed — on the side they come from, facing it — reaches the free hand to it (a
+   * Presses something (a doorbell, a lift button, an intercom, a switch on a prop): walks within the
+   * arm's real reach of it if needed (the rig's shoulder and arm length) — on the side they come from,
+   * facing the way they go, then facing it — reaches a free hand to it (a
    * fixture's or furniture's anchor named in `at` ("bell.high"), else its `press`, `button` or `top`
    * anchor; a prop's `grip` or first point), pushes in (0.12 s), holds (0.1 s, or until `until`), comes back
    * (0.2 s) and lets go. With `value`, the fixture changes at the press (a doorbell lights up).
@@ -1904,36 +1924,45 @@ class BlockScene {
       point = [this.propX(id, at) + (pt?.[0] ?? 0), this.propY(id, at) + (pt?.[1] ?? 0)];
       target = pt ? { prop: id, point: pt } : [Math.round(point[0]), Math.round(point[1])];
     }
-    // The hand: the one asked for, else the near one when it is free, else the far one.
-    const side: "F" | "B" = b.hand === "F" || b.hand === "B" ? b.hand : !this.handFree(actor, "F", at) && this.handFree(actor, "B", at) ? "B" : "F";
+    // Where they press from: the side they come from (once any walk under way has arrived), facing it.
+    const settle = Math.max(at, ...this.walks.filter((w) => w.actor === actor && w.t0 < at).map((w) => w.t1));
+    const x0 = this.xAt(actor, settle);
+    const from = x0 <= point[0] ? -1 : 1;
+    const right = from < 0;
+    // The hand: the one asked for, else a free one after they turn to it (the near one first).
+    const side: "F" | "B" = b.hand === "F" || b.hand === "B" ? b.hand : this.pressHand(actor, settle, right, spec);
     const chain = `hand${side}`;
     if (!this.hasChain(actor, chain)) return this.issue("error", `line ${b.line} "press": ${actor} has no IK chain "${chain}" to reach with`);
-    // Stand within arm's reach (a comfortable three quarters of it sideways), on the side they come from.
-    const reachLen = (rig?.armLength?.[side] ?? 80) * s * 0.92;
+    // Within the arm's real reach: the shoulder (the rig's, at their scale, over the ground) at most
+    // 0.9 arm lengths from the point — sideways up to 0.7 of it, nearer when the point is high.
+    const L = (rig?.armLength?.[side] ?? 80) * s, reachLen = 0.9 * L;
     const sh = (rig?.shoulder?.[side] ?? [0, -110]) as [number, number];
-    const shoulderY = this.groundY(actor, at) + sh[1] * s;
+    const shoulderDx = (right ? 1 : -1) * sh[0] * s;
+    const shoulderY = this.groundY(actor, settle) + sh[1] * s;
     const dy = point[1] - shoulderY;
     const over = Math.abs(dy) - reachLen;
     if (dy < 0 && over > 0) this.issue("warning", `line ${b.line} "press": "${spec}" is ${Math.round(over)} px above ${actor}'s reach: they reach up as far as they can`);
-    const across = Math.sqrt(Math.max(0, reachLen * reachLen - dy * dy));
-    const standoff = Math.abs(sh[0]) * s + Math.max(across * 0.75, reachLen * 0.2);
-    const from = this.xAt(actor, at) <= point[0] ? -1 : 1;
-    const x = point[0] + from * standoff;
+    const most = over > 0 ? 0.4 * L : Math.sqrt(reachLen * reachLen - dy * dy);
+    const d = over > 0 ? 0.25 * L : Math.min(most, 0.7 * L);
+    // (How far the point is in front of the shoulder now: already within reach, they only turn to it.)
+    const ahead = (point[0] - (x0 + shoulderDx)) * (right ? 1 : -1);
+    const x = ahead >= 0 && ahead <= most ? x0 : point[0] + from * d - shoulderDx;
     const IN = 0.35, PUSH = 0.12, OUT = 0.2;
     let arrive = -Infinity;
-    if (Math.abs(this.xAt(actor, at) - x) > 20 * s) {
-      // Walks over beforehand when the block has the time (else the press waits for the arrival).
-      const dur = Math.abs(x - this.xAt(actor, at)) / this.speedOf(actor, "walk");
+    if (Math.abs(x - x0) > 1) {
+      // Walks over beforehand when the block has the time (else the press waits for the arrival),
+      // facing the way they go; the walk turns them, and they turn to the point on arrival.
+      const dur = Math.abs(x - x0) / this.speedOf(actor, "walk");
       arrive = this.walk(actor, x, at - IN - PUSH - dur, dur);
     }
     // The press itself on the beat's moment (the hand on its way before it), or as soon as they are there.
     const pressAt = Math.max(at, arrive + IN + PUSH, this.t0 + IN + PUSH);
     const contact = pressAt - PUSH;
-    this.face(actor, from < 0 ? "right" : "left", contact - IN - 0.05);
+    this.face(actor, right ? "right" : "left", Math.max(arrive, contact - IN - 0.05));
     const hold = until !== undefined ? Math.max(0.1, until - pressAt) : 0.1;
     // The push: past the point along the reach (from the shoulder), then back on it.
-    const sx = this.xAt(actor, pressAt) + (from < 0 ? 1 : -1) * sh[0] * s;
-    const dx = point[0] - sx, dl = Math.hypot(dx, dy) || 1, depth = Math.max(4, reachLen * 0.08);
+    const sx = this.xAt(actor, pressAt) + shoulderDx;
+    const dx = point[0] - sx, dl = Math.hypot(dx, dy) || 1, depth = Math.max(4, L * 0.08);
     const pushed = [Math.round(point[0] + (dx / dl) * depth), Math.round(point[1] + (dy / dl) * depth)];
     this.reach(actor, chain, target, contact - IN, IN);
     this.reach(actor, chain, pushed, contact, PUSH);
@@ -1946,6 +1975,22 @@ class BlockScene {
       this.set(actor, `parts.${chain}.variant`, null, pressAt + hold + OUT);
     }
     if (b.value !== undefined && fixtures.includes(id)) this.fixture(id, b.value, pressAt);
+  }
+  /**
+   * The hand that presses, once turned to face the point (`right`): the near one, else the far one,
+   * when it holds nothing (a hung prop included), holds nobody's hand and no beat moves its arm; both
+   * taken, the near one (warned). A 2.5D rig turning round keeps its props in the same hand, which
+   * becomes the other side of the drawing.
+   */
+  private pressHand(actor: string, abs: number, right: boolean, spec: string): "F" | "B" {
+    const turns = this.is3d(actor) && this.facing(actor, abs) !== right;
+    const now = (sd: "F" | "B"): "F" | "B" => (turns ? (sd === "F" ? "B" : "F") : sd);
+    const free = (sd: "F" | "B") => this.handFree(actor, now(sd), abs) && !this.armBusy.some((b) => b.actor === actor && b.side === now(sd) && b.t0 < abs + 0.5 && b.t1 > abs - 0.6);
+    const anchors = (this.kit.characters[this.characterOf(actor)]?.anchors ?? {}) as Record<string, unknown>;
+    if (free("F")) return "F";
+    if (anchors.handB && this.hasChain(actor, "handB") && free("B")) return "B";
+    this.issue("warning", `${actor} presses "${spec}" with the near hand although it is busy (holding something, holding someone's hand or in a gesture) and the other one is too`);
+    return "F";
   }
   private hasPartVariant(actor: string, part: string, variant: string) {
     return !!((this.kit.characters[this.characterOf(actor)]?.parts ?? []) as { id: string; variants?: Record<string, unknown> }[]).find((p) => p.id === part)?.variants?.[variant];
@@ -3579,8 +3624,11 @@ class BlockScene {
   }
 
   // -------------------------------------------------- camera
-  /** Camera moves the staging asked for ([from, until], episode time): the automatic camera keeps out of them. */
-  private camBeats: [number, number][] = [];
+  /**
+   * Camera moves the staging asked for ([from, until, momentary], episode time): the automatic camera
+   * keeps out of them; after a momentary one it frames the conversation again at once.
+   */
+  private camBeats: [number, number, boolean?][] = [];
   /**
    * The conversation camera (`Staging.camera.style: "conversation"`): one stable framing of the people
    * in the exchange — whoever spoke in the last 8 s, plus the one addressed — never a cut per line.
@@ -3624,31 +3672,82 @@ class BlockScene {
     };
     // (The block's own opening shot, when it names one, is a camera the staging asked for.)
     if (this.block.camera) this.camBeats.push([this.t0, this.t0]);
-    let current = "", since = this.t0, box: [number, number] | undefined, afterBeat = false;
+    // (A momentary camera move ends with the framing back: a moment to look again then; its cut lands on the end.)
+    for (const [, z, momentary] of this.camBeats) if (momentary) moments.add(z + 0.2);
+    let current = "", since = this.t0, box: [number, number] | undefined, afterBeat = false, lastTalker: string | undefined;
     for (const t of [...moments].sort((a, b) => a - b)) {
       if (t < this.t0 || t >= this.t1 - 0.3) continue;
       const who = people(t);
-      const key = who.join("|");
+      let key = who.join("|");
       // An explicit camera move under way wins; after it, the framing comes back when the people
-      // change, or 12 s later.
-      if (this.camBeats.some(([a, z]) => a <= t + 0.3 && Math.max(z, a + 2) > t)) {
-        [current, since, box, afterBeat] = [key, t, undefined, true];
+      // change, or 12 s later — at once after a momentary one (a crash zoom, a whip pan, a shake).
+      const under = this.camBeats.filter(([a, z, momentary]) => a <= t + 0.3 && (momentary ? z : Math.max(z, a + 2)) > t);
+      if (under.length) {
+        [current, since, box, afterBeat] = [under.every((c) => c[2]) ? "" : key, t, undefined, true];
         continue;
       }
       if (!who.length) continue;
+      // Too far apart to fit in a readable shot: on whoever speaks (re-framed per exchange, when the speaker changes).
+      const cur = lines.filter((l) => l.s <= t + 1e-6 && l.e > t).pop();
+      const talker = cur ? this.speakerOf(cur).find((w) => who.includes(w)) : undefined;
+      if (who.length > 1 && this.conversationFit(who, t) < CONVERSATION_MIN_ZOOM) key += `@${talker ?? lastTalker ?? who[0]}`;
+      if (talker) lastTalker = talker;
       if (key === current && (t - since < EVERY - 1e-6 || !afterBeat)) {
         if (t - since >= EVERY - 1e-6) since = t;
         continue;
       }
       // Where the new framing is (sideways extent) against the one before: a small move blends.
-      const xs = who.map((w) => this.xAt(w, t)), span: [number, number] = [Math.min(...xs), Math.max(...xs)];
+      // (On the speaker alone, the framing is where they are: the other speaker's is a cut away.)
+      const xs = (key.includes("@") ? [key.slice(key.indexOf("@") + 1)] : who).map((w) => this.xAt(w, t)), span: [number, number] = [Math.min(...xs), Math.max(...xs)];
       const width = (b: [number, number]) => Math.max(400, b[1] - b[0]);
       const small = !!box && Math.abs((span[0] + span[1]) / 2 - (box[0] + box[1]) / 2) < width(box) * 0.35 && width(span) / width(box) < 1.6 && width(box) / width(span) < 1.6;
       const n = this.script.length;
-      this.camera({ type: who.length === 1 ? "medium" : who.length === 2 ? "two-shot" : "group", who }, t - 0.2);
+      if (who.length === 1) this.camera({ type: "medium", who }, t - 0.2);
+      else this.conversationShot(who, key.includes("@") ? key.slice(key.indexOf("@") + 1) : undefined, t - 0.2);
       for (const a of this.script.slice(n)) if (a.action === "camera") Object.assign(a, small ? { blend: 1.2 } : { blend: 0, lag: 0.05 });
       [current, since, box, afterBeat] = [key, t, span, false];
     }
+  }
+
+  /** Where a cast member's face is at a moment (scene px): the rig's `face` (else `head`) anchor where they stand. */
+  private faceAt(id: string, abs: number): [number, number] {
+    const anchors = (this.kit.characters[this.characterOf(id)]?.anchors ?? {}) as Record<string, { at?: [number, number] }>;
+    const s = this.scaleOf(id), at = anchors.face?.at ?? anchors.head?.at ?? [0, -(this.member(id)?.rig.height ?? 300) * 0.8];
+    return [this.xAt(id, abs) + at[0] * s * (this.facing(id, abs) ? 1 : -1), this.groundY(id, abs) + at[1] * s];
+  }
+  /**
+   * The zoom that fits everyone's head in the picture (`kit.width` × `kit.height`, the conversation
+   * shot's padding): the core's `frame` fit over the faces, each with room for the whole head.
+   */
+  private conversationFit(who: string[], abs: number) {
+    const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080, pad = who.length === 2 ? 150 : 200;
+    let box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const w of who) {
+      const [x, y] = this.faceAt(w, abs), r = (this.member(w)?.rig.height ?? 300) * this.scaleOf(w) * 0.14;
+      box = [Math.min(box[0], x - r), Math.min(box[1], y - r * 1.3), Math.max(box[2], x + r), Math.max(box[3], y + r * 1.2)];
+    }
+    return Math.min(W / (box[2] - box[0] + pad * 2), H / (box[3] - box[1] + pad * 2));
+  }
+  /**
+   * The conversation's framing of two or more: the core `frame` rig on their faces, opening (down to
+   * 0.8 of the wide shot) until every head fits, in any aspect ratio. Too far apart for that, it frames
+   * whoever speaks (`speaker`) with the listener's side of the picture open.
+   */
+  private conversationShot(who: string[], speaker: string | undefined, at: number) {
+    const W = this.kit.width ?? 1920, H = this.kit.height ?? 1080, abs = this.t(at);
+    if (!speaker) {
+      const two = who.length === 2;
+      this.push({ at: abs, action: "camera", frame: who, on: "face", padding: two ? 150 : 200, minZoom: CONVERSATION_MIN_ZOOM, maxZoom: two ? 2.4 : 1.4, blend: 1 });
+      return;
+    }
+    // The listener: the nearest of the others. At the wide shot's scale, the speaker's face 30% in from
+    // the side away from them, so the listener's side of the picture is open.
+    const sx = this.xAt(speaker, at);
+    const listener = who.filter((w) => w !== speaker).sort((a, b) => Math.abs(this.xAt(a, at) - sx) - Math.abs(this.xAt(b, at) - sx))[0];
+    const dir = listener !== undefined && this.xAt(listener, at) < sx ? -1 : 1;
+    const [fx, fy] = this.faceAt(speaker, at);
+    const offset = [Math.round(fx - sx + dir * W * 0.2), Math.round(fy - this.groundY(speaker, at) + H * 0.12)];
+    this.push({ at: abs, action: "camera", follow: speaker, offset, axes: "xy", zoom: 1, lag: 0.6, blend: 1 });
   }
 
   camera(c: { type: string; who?: string | string[]; mark?: string; to?: string; duration?: number; amount?: number }, at: number) {
@@ -3681,7 +3780,8 @@ class BlockScene {
         this.push({ at: abs, action: "camera", frame: who.slice(0, 1), ...face(who.slice(0, 1)), padding: 110, minZoom: 1.6, maxZoom: 2.8, blend: 0.8 });
         break;
       case "two-shot":
-        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), ...face(who.slice(0, 2)), padding: 150, minZoom: 1.3, maxZoom: 2.4, blend: 1 });
+        // (Opening to the wide shot's scale when they stand apart: a two-shot never cuts one of the two.)
+        this.push({ at: abs, action: "camera", frame: who.slice(0, 2), ...face(who.slice(0, 2)), padding: 150, minZoom: 1, maxZoom: 2.4, blend: 1 });
         break;
       // A crash zoom: snapped in on a face (the blend), with a jolt and focus lines; then it keeps the
       // face framed smoothly (the lag), not shaking with every bob of the head.
@@ -5153,33 +5253,41 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
     reported.add(key);
     issues.push({ severity: "error", where: `block ${block.id}`, message: `around line ${lineAt(t)}: ${message}` });
   };
-  // Boxes of the scenery in front (setup space of each rig: its parts' art, once).
-  const artBoxes = new Map<string, [number, number, number, number][]>();
-  const boxesOf = (character: string) => {
-    if (!artBoxes.has(character)) {
-      const doc = kit.characters[character] as unknown as { art?: Record<string, string>; parts?: { art?: string; variants?: Record<string, string>; space?: string }[] } | undefined;
-      // Rigid art in setup space (scenery rigs: tables, cars, signs); parts in bone space are skipped.
-      const arts = (doc?.parts ?? []).filter((p) => p.space !== "bone").flatMap((p) => [p.art, ...Object.values(p.variants ?? {})]).filter(Boolean).map((a) => (a!.trim().startsWith("<") ? a! : (doc?.art?.[a!] ?? "")));
-      artBoxes.set(character, arts.flatMap(markupBoxes));
-    }
-    return artBoxes.get(character)!;
+  // Boxes of the scenery in front, posed (scene space): the rig rendered at that moment — bones moved
+  // by its clips, the variant shown — and each drawn node measured through its transforms.
+  const nodeBoxes = new Map<string, Map<string, [number, number, number, number] | undefined>>();
+  const measure = (markup: string, m: Affine) => {
+    const byMat = nodeBoxes.get(markup) ?? nodeBoxes.set(markup, new Map()).get(markup)!;
+    const key = m.map((v) => v.toFixed(2)).join(",");
+    if (!byMat.has(key)) byMat.set(key, svgBounds(markup, m));
+    return byMat.get(key);
   };
-  // A rig with switch parts (a door open or closed, a gate sliding): only the variant shown at that moment covers.
+  const posed = new Map<string, [number, number, number, number][]>();
+  let posedAt = -1;
   const boxesAt = (other: (typeof sc.actors)[number], t: number) => {
-    const doc = kit.characters[other.def.character] as unknown as { art?: Record<string, string>; parts?: { id: string; art?: string; variants?: Record<string, string>; default?: string; space?: string }[] } | undefined;
-    const parts = (doc?.parts ?? []).filter((p) => p.space !== "bone");
-    if (!parts.some((p) => p.variants)) return boxesOf(other.def.character);
-    const pose = actorPose(sc, other, t);
-    const index = new Map(other.rig.parts.map((p, i) => [p.id, i]));
-    const shown = parts.map((p) => {
-      if (!p.variants) return p.art;
-      const i = index.get(p.id);
-      const v = (i !== undefined ? pose.state.variant[i] : undefined) ?? p.default;
-      return v !== undefined ? p.variants[v] : undefined;
-    }).filter(Boolean) as string[];
-    const key = `${other.def.character}|${shown.join("|")}`;
-    if (!artBoxes.has(key)) artBoxes.set(key, shown.map((a) => (a.trim().startsWith("<") ? a : (doc?.art?.[a] ?? ""))).flatMap(markupBoxes));
-    return artBoxes.get(key)!;
+    // (One rendering per rig and moment, shared by every face tested against it.)
+    if (posedAt !== t) {
+      posed.clear();
+      posedAt = t;
+    }
+    if (posed.has(other.id)) return posed.get(other.id)!;
+    const out: [number, number, number, number][] = [];
+    const walk = (nodes: RenderNode[], m: Affine) => {
+      for (const n of nodes) {
+        if (n.opacity !== undefined && n.opacity <= 0.01) continue;
+        if (n.kind === "group") walk(n.children, n.transform ? (multiplyMat(m, n.transform) as Affine) : m);
+        else if (n.kind === "markup") {
+          const b = measure(n.markup, n.transform ? (multiplyMat(m, n.transform) as Affine) : m);
+          if (b) out.push(b);
+        } else if (n.attrs.fill !== "none" || n.attrs.stroke) {
+          const b = measure(`<path d="${n.d}" fill="#000"/>`, m);
+          if (b) out.push(b);
+        }
+      }
+    };
+    walk(renderCharacter(other.rig, actorPose(sc, other, t)), actorPlacement(other, t) as Affine);
+    posed.set(other.id, out);
+    return out;
   };
   // Blankets (a bed's `meta.cover`) are meant to lie over whoever sleeps there, up to the chin.
   const covers = new Set(
@@ -5230,10 +5338,7 @@ function pictureIssues(sc: ReturnType<typeof compileScene>, block: Block, kit: K
       for (const other of sc.actors) {
         let covered = false;
         if (other === actor || cast.has(other.id) || covers.has(other.def.character) || (other.def.z ?? 0) <= z || opacityAt(other.id, t) <= 0.01) continue;
-        const m = actorPlacement(other, t);
-        for (const b of boxesAt(other, t)) {
-          const c = [apply(m, [b[0], b[1]]), apply(m, [b[2], b[3]])];
-          const [bx0, bx1] = [Math.min(c[0][0], c[1][0]), Math.max(c[0][0], c[1][0])], [by0, by1] = [Math.min(c[0][1], c[1][1]), Math.max(c[0][1], c[1][1])];
+        for (const [bx0, by0, bx1, by1] of boxesAt(other, t)) {
           if (fx > bx0 && fx < bx1 && fy > by0 && fy < by1) {
             const key = `${actor.id}:${other.id}`;
             const run = (coveredFor.get(key) ?? 0) + 0.25;

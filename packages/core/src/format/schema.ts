@@ -309,6 +309,10 @@ export const ClipSchema = z.strictObject({
   duration: z.number().positive(),
   loop: z.boolean().optional(),
   stride: z.number().min(0).optional().describe("Travel distance per cycle for locomotion clips"),
+  clear: z
+    .boolean()
+    .optional()
+    .describe("2.5D rigs: the engine keeps this clip's arms clear of the face in the picture (the picture-space face clearance). Off by default: a clip is authored motion, its arms are left where it puts them"),
   tracks: TracksSchema,
 });
 

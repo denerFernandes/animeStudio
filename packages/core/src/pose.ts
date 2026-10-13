@@ -374,7 +374,9 @@ export interface CharacterInput {
   ikOffset?: Record<string, Vec2>;
   /**
    * Absolute IK targets (character space) per chain, e.g. feet on a bicycle's pedals: the chain
-   * aims at `point` with at least `weight` mix, blending from its own target.
+   * aims at `point` with at least `weight` mix, blending from its own target. On a 2.5D rig a
+   * two-bone chain of 3D bones (not a leg) is solved in 3D (`applyRig3d`), its channel values
+   * blended with the pose's by the weight.
    */
   ikTarget?: Record<string, { point: Vec2; weight: number; from?: Vec2 }>;
   /** Control values set from outside the tracks (the scene sets `side` from the actor's facing). */
@@ -509,14 +511,33 @@ export function evaluatePose(
   // 6b. A 2.5D rig: its bones posed in 3D and projected for the current view.
   let frame3d: Rig3dFrame | undefined;
   if (rig.rig3d) {
-    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget, input.ikOffset);
+    // An arm moved by a playing clip (authored motion: a wave, a drink) is exempt from the
+    // picture-space face clearance by that clip's weight, fading with it — unless the clip asks to be
+    // kept clear (`clear`). Direct tracks are always kept clear.
+    let faceExempt: number[] | undefined;
+    for (const { inst, w } of active) {
+      const clip = rig.clips[inst.clip];
+      if (clip.clear) continue;
+      rig.rig3d.clear.forEach((cl, i) => {
+        const moves = clip.tracks.some((tr) => {
+          if (tr.ref.kind !== "bone") return false;
+          // The arm's bones: the upper one, the lower one and what hangs from it (the hand).
+          if (tr.ref.index === cl.upper) return true;
+          for (let b = tr.ref.index; b >= 0; b = rig.bones[b].parent) if (b === cl.lower) return true;
+          return false;
+        });
+        if (moves) (faceExempt ??= rig.rig3d!.clear.map(() => 0))[i] = Math.max(faceExempt[i], clamp(w, 0, 1));
+      });
+    }
+    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget, input.ikOffset, faceExempt);
     computeWorld(rig, s, world);
   }
 
   // 7. IK.
   rig.ik.forEach((k, i) => {
-    // A leg the 2.5D pass placed in the side plane is done (its mix stays on: springs on it give way).
-    if (frame3d?.sideIk.includes(i)) return;
+    // A leg the 2.5D pass placed in the side plane is done (its mix stays on: springs on it give way),
+    // and so is a held limb of 3D bones it reached in 3D (the drawn limb is posed on the 3D bones).
+    if (frame3d?.sideIk.includes(i) || frame3d?.ik3d.includes(i)) return;
     const held = input.ikTarget?.[k.id];
     const w = held ? clamp(held.weight, 0, 1) : 0;
     const mix = Math.max(clamp(s.ikMix[i], 0, 1), w);

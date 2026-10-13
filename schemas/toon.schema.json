@@ -1709,6 +1709,10 @@
             "type": "number",
             "minimum": 0
           },
+          "clear": {
+            "description": "2.5D rigs: the engine keeps this clip's arms clear of the face in the picture (the picture-space face clearance). Off by default: a clip is authored motion, its arms are left where it puts them",
+            "type": "boolean"
+          },
           "tracks": {
             "type": "object",
             "propertyNames": {

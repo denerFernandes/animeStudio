@@ -136,11 +136,22 @@ another under way, or taken over before it arrives, stays straight.
 `camera: { style }` (`"dynamic"` default, or `"conversation"`) says what the camera does where no
 `camera` beat says otherwise. `dynamic` is the block's `camera` and the beats only. `conversation`
 keeps a stable framing of the people in the exchange — whoever spoke in the last 8 s plus the one
-addressed (by name, else the nearest listener) — a two-shot for two, a group shot for more, a medium
-shot for one; it never cuts per line. It re-frames only when those people change (someone joins or
-drops out, comes in or leaves the picture), looking again every 12 s at most; a small move blends
-(1.2 s), a big one cuts. Explicit `camera` beats (and a block's own `camera`, and `cross`) win: the
-framing waits until the beat is over and comes back when the people change, or 12 s later.
+addressed (by name, else the nearest listener) — and never cuts per line. For one person it is a
+medium shot; for two or more it is the core `frame` rig on their faces (`on: "face"`, padding 150
+for two, 200 for more, `maxZoom` 2.4 for two, 1.4 for more), opening (`minZoom` 0.8 of the wide shot)
+until every head is inside the picture, in any aspect ratio (`kit.width` × `kit.height`: a vertical
+1080×1920 short too). When they stand too far apart for that (the fit zoom, estimated from their
+posed `face` anchors, would fall below 0.8), the camera follows whoever speaks at the wide shot's
+scale, the speaker's face 30% in from the side away from the listener so the listener's side stays
+open, cutting when the speaker changes — not on every line. It re-frames only when those people
+change (someone joins or drops out, comes in or leaves the picture), looking again every 12 s at
+most; a small move blends (1.2 s), a big one cuts. Explicit `camera` beats win (and a block's own
+`camera`, and `cross`): a momentary beat (`crash`, `whip`, a camera `shake`) hands the picture back
+to the conversation framing 2.5 s after the beat, or at its `until` / `duration` when given (the
+hand-back is a cut); every other beat (`close`, `medium`, `two-shot`, `group`, `wide`, `follow`,
+`reveal`, `push-in` / `pull-out`) holds until the people in the exchange change, its `until` /
+`duration` ends, or 12 s. A `two-shot` beat never cuts one of the two: it opens down to the wide
+shot's scale when they stand apart.
 
 ```jsonc
 { "camera": { "style": "conversation" }, "blocks": [ … ] }
@@ -191,7 +202,7 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `exit` | `who`, `to` (`left`/`right`), `run?` | Leaves the frame, at the cast's walk (or run) speed |
 | `face` | `who`, `direction` | Turns around (with `animation.life` the eyes blink on the turn). A rig drawn at in-between angles turns through them towards the camera (or away from it, seen from behind), flips while symmetric and turns back — a hand-drawn turn instead of a flip |
 | `look` | `who`, `target` (id, prop, mark, `null`) | Gaze (with `animation.life` a new target makes the eyes blink) |
-| `emotion` | `who`, `value` | Emotion pose |
+| `emotion` | `who`, `value` | Emotion pose (every `cartoonCharacter` has `gape`: jaw dropped, eyes wide, brows up — a weighted value `{ gape: 2 }` unhinges the jaw; do not stack a `say` on it) |
 | `wear` | `who`, `wear` (`{ control: pose }`), or `control` + `value` | Changes outfit/accessories instantly (takes the backpack off on arriving home…). The starting wardrobe of a block goes in its cast entry: `"wear": { "outfit": "swim" }`. Every block starts from the rig's defaults plus its own `wear` |
 | `gesture` | `who`, `clip`, `until?` | A clip (looped until `until`, else once). From the front, `facepalm`, `despair`, `think`, `cover`, `excited` and `shout` are hand positions on the posed face (IK), and the hands come back where they were (on a table…) afterwards |
 | `hands` | `who`, `on` (a fixture or furniture with a `top` anchor) | Forearms on the table: both hands on its top |
@@ -220,7 +231,7 @@ how it looks comes from the kind (`kit.props.<kind>.cord`: `length`, `coils`, `r
 | `dribble` | `who`, `prop`, `until` | Bounces the prop in sync with the hand of the `dribble` clip |
 | `vehicle` | `kind`, `lane` (`near`/`far`), `color`, `dir?` | Drives through and leaves (invisible before and after); ids are `<kind><n>`. Lanes are the set marks `nearLane` / `farLane` (their `y`), else just above the near ground, and for the far lane the far ground (`ground.far`, smaller by `depthScale`) |
 | `fixture` | `id`, `value` | Changes a fixture. When its rig has a clip named `value` (`open`, `close`, `slide`…) the clip plays once from that moment and holds its last pose until the next clip of that fixture (a short cross-fade into it) or the end of the block; any other value sets its channel (traffic light `red`/`green`) |
-| `press` | `who`, `at` (a fixture id, `"<fixture>.<anchor>"`, a furniture id or a prop id), `value?`, `hand?` (`"F"` / `"B"`), `until?` | Presses something (a doorbell, a lift button, an intercom, a switch): walks within arm's reach if needed — on the side they come from, facing it — and reaches the free hand (the near one unless it holds something or is busy; `hand` to choose) to the anchor named (`"bell.high"`), else its `press`, else `button`, else `top` anchor (else the top of its drawing) — a prop's `grip` (else first) point; 2.5D rigs reach in 3D — pushes in (0.12 s), holds (0.1 s, or until `until`), comes back (0.2 s) and lets go, the arm back to rest. The press lands on the beat's moment (the hand on its way before it; after the walk when there is no time). With `value`, the fixture beat fires at the press (a doorbell lighting up). An unknown target or anchor is an error (with the closest match); a point above the actor's reach is a warning (they reach up as far as they can) |
+| `press` | `who`, `at` (a fixture id, `"<fixture>.<anchor>"`, a furniture id or a prop id), `value?`, `hand?` (`"F"` / `"B"`), `until?` | Presses something (a doorbell, a lift button, an intercom, a switch): reaches the anchor named (`"bell.high"`), else its `press`, else `button`, else `top` anchor (else the top of its drawing); a prop's `grip` (else first) point. **The hand** is a free one once they face the point: the near one, else the far one — a hand is not free when it holds a prop (a hung one too), holds someone's hand, or a beat moves that arm within 0.6 s before to 0.5 s after the beat; a 2.5D rig that turns round to face the point keeps its props in the same hand (the other side of the drawing) and the hand is chosen after that swap; both taken: the near one presses (a warning); `hand` overrides. A hung prop in the other hand keeps hanging. **Where they stand** comes from the cast's rig: the shoulder (`rig.shoulder` at their scale, over the ground) ends a horizontal `d` from the point with `hypot(d, Δy) ≤ 0.9 × armLength`, i.e. `d = min(√((0.9·L)² − Δy²), 0.7·L)`, on the side they come from; already within that reach, they do not walk, they only turn to it; a point higher than the arm reaches even straight up: they stand close (`d = 0.25 × L`) and reach up as far as they can (a warning). The approach walk faces the way they go and turns to the point on arrival; 2.5D rigs reach in 3D (the fist stays on the forearm). The hand pushes in (0.12 s), holds (0.1 s, or until `until`), comes back (0.2 s) and lets go, the arm back to rest. The press lands on the beat's moment (the hand on its way before it; after the walk when there is no time). With `value`, the fixture beat fires at the press (a doorbell lighting up). An unknown target or anchor is an error (with the closest match) |
 | `camera` | `type` (`wide`, `group`, `medium` (from the top of the heads to just below the knees of the seated, or the thighs of the standing — use it after the `sit`), `two-shot`, `close`, `crash`, `whip`, `follow`, `reveal`), `who?`, `mark?` | Camera rig from that moment. `close` and `two-shot` frame the faces (the posed `face` anchor, else `head`: they follow someone sitting or leaning); `crash` snaps in on a face with a jolt and focus lines; `whip` swings fast to a face with speed lines (both then keep the face framed smoothly, not shaking with the head). `follow` of an object (a prop, a vehicle, a fixture) frames it with the cast (`close`, `two-shot`… on a prop frame the prop); `reveal` pans towards a mark without losing the cast. With nobody present, a shot with a `mark` stays on the mark (`medium`, `close`… tighter on it; `push-in` / `pull-out` glide there over `until`). `push-in` moves slowly in from the current framing to `to` (default `medium`, or `close`) on `who`, `pull-out` slowly out from a close-up to `to` (default `wide`), both over `until` (or `duration`, default 4 s); `shake` jolts the camera (`amount`, `duration`) |
 | `light` | `mood` (`morning`, `day`, `afternoon`, `evening`, `night`) or `channel` + `value`, `until?` | Lighting change; fixtures that show the time of day follow it |
 | `mount` / `dismount` | `who`, `vehicle` (a block vehicle) | Gets on (walks to it, sits on the seat, feet on the pedals, hands on the handlebar) / gets off and stands beside it |
@@ -445,11 +456,13 @@ replay cut), and every
 It also checks **the picture**, sampling every staged scene every quarter second: a cast member
 whose posed body goes past the edge of the set (`SetDef.bounds` — give it the extent of the drawn
 ground and background, not more), and a face covered by scenery drawn in front of it (fixtures,
-furniture, vehicles: each shape of their art — paths with absolute coordinates, polygons, rects,
-circles, ellipses, measured where they are drawn, after the `transform`s of their groups and their
-own (translate, scale, rotate, matrix, skew) — is tested against the posed `face`/`head` anchor; a rig
-with switch parts counts only the variant shown at that moment, so a gate slid open by a transform
-no longer covers anyone — a bottle on a table standing in front of someone is reported). Passing behind something is
+furniture, vehicles: each one is measured **as posed at that moment** — the rig rendered in its pose
+at that instant, so bones moved by its clips (a gate's leaf slid open by an `open` clip), its `set`
+channels and the variant shown all count where they are drawn; each drawn node is measured with the
+kit's `svgBounds` through its transforms (its groups', its own, the bones' and the actor's placement)
+— and tested against the posed `face`/`head` anchor, so a gate or door that opens no longer covers
+anyone once open and covers them again when it closes; plain prop art is measured through its
+`<g transform>`s too — a bottle on a table standing in front of someone is reported). Passing behind something is
 staging, not a mistake: a covered face is reported only when the character stays covered for
 more than half a second without moving, or speaks while covered (a bed's blanket never counts). Hiding on purpose (`hide`) is never reported:
 neither the covered face nor the overlap with what they hide behind. Two characters standing nose to

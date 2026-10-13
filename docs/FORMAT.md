@@ -260,6 +260,15 @@ ground under the foot by its height — so walks foreshorten from the front. A l
 that hangs (mostly vertical at rest, pointing down) and ends at the bottom of the 3D skeleton (its rest tip within a
 tenth of the skeleton's height of the lowest 3D point); arms hang too but end at the hips and are solved in the
 picture, as is a leg held on an absolute target (a pedal). A placed leg keeps its IK mix: springs on it give way.
+A two-bone IK chain of 3D bones held on a target (a scene `reach`, `ikTarget`) that is not a leg is
+solved in 3D too, before the projection: the target (character space) is put on the plane through the
+chain's root joint parallel to the picture (the root's view depth), and the limb reaches it bending
+towards the grip's `from` (that direction in the picture), else the way its middle joint bends in the
+pose (else down and back) — the upper bone's `rotation`/`spread` and the lower one's `rotation`/`turn`
+solved (the upper's `turn` and the lower's `spread` kept), of the two solutions the one nearest the
+pose. The four values are blended with the pose's by the reach's weight, so the limb fades in and out
+without a jump. Out of reach the limb points straight at the target. The drawn limb (a solid on the 3D
+bones) and the 2D bones (the hand drawn on them) stay together.
 Limbs (`chains`) clearly nearer than the body
 are drawn just before the `front` part (in the chains' order: legs, then arms resting on them),
 clearly farther ones just after the `back` part. `points` names points on the 3D bones
@@ -267,7 +276,35 @@ clearly farther ones just after the `back` part. `points` names points on the 3D
 the director's 3D reaches go (a hand taking something from the mouth, holding it at the chest).
 `keepOut: [{ bone, at, radii }]` are ellipsoids (posed with their bone) a reached hand never goes into
 (the torso, the head — the kit's cartoon rigs make them from the drawn volumes, the cranium with its
-hair, the face and the torso, grown by a hand's half thickness). A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
+hair, the face and the torso, grown by a hand's half thickness).
+
+**Face clearance.** After the 3D pose and the 3D reaches every arm is kept off the face, in two
+stages. An arm is a `chains` entry whose last bone and that bone's 3D parent make a two-bone limb
+that is not a leg; the keep-outs it is kept off are those on bones that are neither an ancestor of
+the limb's root (the torso's keep-out is on `body`, which the shoulder hangs from: left out) nor in
+the limb itself (in practice the head's: the cranium with its hair, the face). *In 3D (always):* the
+hand (the last bone's tip) and the forearm (its middle) are tested; with q the normalised distance
+from an ellipsoid (1 on its surface), a point with q < 0.98 is inside — one on the surface (a hand
+resting on the face) is left alone; a point inside is moved along the ellipsoid's normal to q = 0.982,
+the hand target becomes `hand + Δhand + Δforearm × |hand − shoulder| / |forearm − shoulder|` put back
+at the hand's distance from the shoulder (the arm swings out keeping its bend), and the limb is solved
+again with the elbow bending the way it bends in the pose, up to six times; a hand behind the head is
+pushed out too. *In the picture:* a cartoon has no depth, so a forearm between the camera and the face
+hides it. Each keep-out is projected to the picture (its outline ellipse); the forearm — elbow → hand,
+the hand included — must stay outside every outline by a normalised distance of 1.02. If it does not,
+the upper bone is turned by the least amount that clears it, searched in 2° steps and bisected to the
+outline (at most 30° per channel): in views facing the camera (|sin yaw| < 0.5) its `spread` outward
+first (the hand away from the body's middle — the other way if that covers more of the face at once),
+then its `rotation`; in views from the side its `rotation` only — towards overhead when the hand is
+above the middle of the head's outline, towards hanging when below; if that way cannot clear within
+30°, the other way, else as far as the first way goes. Then the 3D stage runs again (the correction
+never puts the arm into the head). The correction is a function of the pose and the view: continuous,
+except that an arm swept up across the face switches from under the chin to over the head (a jump)
+where the hand passes the head's middle. *Who is kept clear in the picture:* direct poses (`set`
+tracks, a director's FK rotations) and clips marked `clear` (2.11). Authored clips are not: the
+correction of each arm a clip moves is scaled by 1 − the largest weight of the playing clips without
+`clear` that move it — a playing wave or drink is left exactly as authored, and as it fades out over
+a direct pose the correction fades in (continuous). The 3D stage applies to everything. A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
 wrist), `margin` and `behind: "<solid part>"`: drawn behind the body when that tip is hidden by the
 solid's occluders (a hand behind the hips).
 
@@ -365,6 +402,9 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 }
 ```
 
+- `clear` (boolean, default `false`): on a 2.5D rig, the engine keeps the arms this clip moves clear of
+  the face in the picture (the picture-space face clearance, 2.6b). Off by default: a clip is authored
+  motion and its arms are left where it puts them (the 3D keep-out of the head still applies).
 - `duration` (s), `loop` (default `false`), `stride` (px of travel per cycle for locomotion
   clips; used by `walkTo` to avoid foot sliding).
 - `tracks`: `channel → keyframes`. A keyframe is `[t, value]`, `[t, value, ease]` or
@@ -415,8 +455,9 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
    parts.<id>.variant`: a blink closing the eyes over an emotion's eyes) is kept: a pose control
    does not take it back.
 5. Behaviors.
-6. Rotation limits, forward kinematics. 2.5D rigs: the 3D pose, leg IK in the side plane, the projection (2.6b).
-7. IK (the legs a 2.5D rig already placed are skipped), `aim` controls.
+6. Rotation limits, forward kinematics. 2.5D rigs: the 3D pose, leg IK in the side plane, reaches of
+   3D limbs in 3D, the face clearance, the projection (2.6b).
+7. IK (the legs and the held limbs a 2.5D rig already placed are skipped), `aim` controls.
 8. Baked physics (springs, jiggles).
 9. Parts → render tree.
 
@@ -551,7 +592,7 @@ Actions are compiled into clip instances and tracks before rendering.
 | `face` | `direction` (`left` \| `right`) | Flips the actor |
 | `lookAt` | `target` (actor id, prop id, `[x, y]` scene point, or `null`), `control` (first `aim` control) | Aims eyes/head until the next `lookAt`; target changes blend smoothly (0.35 s) and moving targets are tracked |
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
-| `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line |
+| `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line. On a 2.5D rig a chain of 3D bones (an arm) is reached in 3D (2.6b): the target on the plane through the shoulder parallel to the picture, the arm's channels blended with the pose's by the blend weight; a target inside the head is moved out of it (the face clearance) |
 | `say` | `audio?`, `lipsync?` (cues id), `cues?` (inline), `text?` + `duration?`, `control` (first `viseme` control) | Plays audio and lip syncs |
 | `grab` | `prop`, `anchor`, `fit?`, `hang?` | Attaches a prop to an actor anchor. With `fit`, the prop is fitted to the body (2.6). With `hang`, it hangs from the hand by its handle and swings (below) |
 | `release` | `prop`, `velocity?` | Releases a grabbed prop |

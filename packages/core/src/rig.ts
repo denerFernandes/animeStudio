@@ -124,6 +124,8 @@ export interface RigClip {
   duration: number;
   loop: boolean;
   stride: number;
+  /** The engine keeps the arms this clip moves clear of the face in the picture (off by default: a clip is authored motion, exempt from that clearance). */
+  clear?: boolean;
   tracks: RigTrack[];
 }
 
@@ -698,6 +700,7 @@ export function compileRig(doc: ToonDoc, options: CompileRigOptions = {}): Rig {
       duration: def.duration,
       loop: def.loop ?? false,
       stride: def.stride ?? 0,
+      ...(def.clear ? { clear: true } : {}),
       tracks: Object.entries(def.tracks).map(([channel, keys]) => {
         let ref: ChannelRef;
         try {
