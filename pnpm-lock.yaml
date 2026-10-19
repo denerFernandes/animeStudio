@@ -11,6 +11,9 @@ importers:
       '@animestudio/core':
         specifier: workspace:*
         version: link:packages/core
+      '@animestudio/kit':
+        specifier: workspace:*
+        version: link:packages/kit
       '@animestudio/lipsync':
         specifier: workspace:*
         version: link:packages/lipsync

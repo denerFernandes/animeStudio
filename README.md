@@ -1,5 +1,7 @@
 # animeStudio
 
+**▶ [Watch the 30-second feature promo](examples/promo/animestudio-promo.mp4)** — made entirely with animeStudio.
+
 A deterministic **2D cartoon animation engine** for the web. Characters are SVG art bound to
 skeletons with IK, weighted secondary physics, squash & stretch, controls (emotions, look-at,
 lip sync) and clips. Scenes add actors, props with rigid-body physics, camera moves and a
@@ -68,7 +70,7 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
 | [`apps/editor`](apps/editor) | Visual editor: rig bones, edit parts, animate clips on a keyframe timeline ([guide](docs/EDITOR.md)) |
 | [`apps/playground`](apps/playground) | Live preview: clips, emotions, say, look-at, skeleton overlay |
 | [`apps/video`](apps/video) | Remotion project rendering the examples |
-| [`examples`](examples) | "Pip" character (authored in code) and the "hello" scene |
+| [`examples`](examples) | "Pip" character (authored in code), the "hello" scene and the [feature promo](examples/promo) |
 | [`schemas`](schemas) | Generated JSON Schemas |
 | [`docs`](docs) | Format specification and guides |
 
@@ -88,6 +90,21 @@ Picture quality: `apps/video/remotion.config.ts` captures frames as PNG (JPEG ri
 hard black lines and flat colours) and encodes at CRF 14 with x264's slow preset — near lossless.
 For the sharpest upload render at `--scale 2` (3840 × 2160): the compositions' `raster` path draws at
 the device pixel ratio, and video sites give a 4K upload a far higher bitrate than a 1080p one.
+
+## Feature promo
+
+[`examples/promo`](examples/promo) is a 16:9 promo (1920 × 1080, 29 s) of the engine's main features,
+one shot each: characters built from a short description (`cartoonCharacter`) turning through their
+drawn angles, emotions and lip sync from an ElevenLabs voice's timestamps, personality walks, rigid
+bodies and cartoon FX (a punch, a K.O.), lighting with cel shading and a camera push-in, and the end
+card. Every shot is a plain scene document written in TypeScript (`shots.ts`); it renders without a
+browser (`frameToSVG` → `rsvg-convert` → ffmpeg):
+
+```bash
+pnpm promo                                          # examples/promo/animestudio-promo.mp4 (needs rsvg-convert, ffmpeg, ImageMagick)
+npx tsx examples/promo/render.ts preview 2:2.6,4:3  # contact sheet of shot:time frames
+npx tsx examples/promo/sound.ts                     # voice, effects and music (cached in audio/; ELEVENLABS_API_SECRET in .env.test)
+```
 
 ## Using it in a Remotion project
 
