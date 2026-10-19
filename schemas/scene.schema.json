@@ -1564,6 +1564,113 @@
               },
               "action": {
                 "type": "string",
+                "const": "fall"
+              },
+              "side": {
+                "description": "\"back\" (default): lands on the back, face up; \"front\": face down",
+                "type": "string",
+                "enum": [
+                  "back",
+                  "front"
+                ]
+              },
+              "duration": {
+                "description": "Seconds from the hit until the hips touch the ground (default 0.85 thrown, 0.45 tripping in place); the shoulders slap down, the bounce and the settle take about 0.6 s more",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "distance": {
+                "description": "How much farther the hips land than a plain fall's, in scene px, along the throw (default 0.5 × the standing height when thrown `from` someone — the hips land about 0.9 × the height away —, else 0: tripping in place)",
+                "type": "number",
+                "minimum": 0
+              },
+              "from": {
+                "description": "An actor the body is thrown away from (the one who hit it): sets the way it travels (default: backwards for a fall on the back, forwards face down)",
+                "type": "string"
+              },
+              "height": {
+                "description": "How high the falling body rises over its standing height before dropping, in scene px (default 0.15 × the standing height when thrown, else 0)",
+                "type": "number",
+                "minimum": 0
+              },
+              "spin": {
+                "description": "A full turn in the air before landing (a cartoon gag; default false)",
+                "type": "boolean"
+              },
+              "clip": {
+                "description": "Clip of the limbs in the air, played once at the speed that ends it as the hips touch down, its last pose held (default \"knocked\" when the rig has it and the fall is on the back); null for none",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pose": {
+                "description": "Clip of the body lying, from the moment the hips touch down until `getUp`: played once and held (a loop keeps looping); it should start where `clip` ends (default \"down\" when the rig has it and the fall is on the back); null for none",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "squash": {
+                "description": "Squash flat on landing and stretch on the bounce (default true)",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "const": "getUp"
+              },
+              "duration": {
+                "description": "Seconds from lying to standing (default 1.2): the first half sits up about the hips into a crouch, the second stands",
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "clip": {
+                "description": "Clip of the limbs getting up, played over `duration` (default \"rise\" when the rig has it); null for none: the lying pose just lets go",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "at",
+              "actor",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Start time in seconds"
+              },
+              "actor": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
                 "const": "mount"
               },
               "on": {

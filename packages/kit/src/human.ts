@@ -9,7 +9,7 @@
 import type { ToonDoc } from "@animestudio/core";
 import { frontView } from "./humanFront";
 import { withProportions } from "./proportions";
-import { type P, characterClips, emotions, handShapes, limbBones, limbIk, mouthShapes } from "./rig";
+import { type P, characterClips, emotions, handShapes, knockDownClips, limbBones, limbIk, mouthShapes } from "./rig";
 import { aimForward, shade } from "./util";
 
 const INK = "#1d1a2b";
@@ -398,7 +398,9 @@ export function humanCharacter(look: HumanLook): ToonDoc {
     clips: {
       ...characterClips({
         walk: { a: 30, lift: 18, dur: 0.66, bob: 4, lean: 2, armSwing: 26 },
-        run: { a: 52, lift: 30, dur: 0.44, bob: 8, lean: 8, armSwing: 60 },
+        // A cartoon run (`gait` flight, the leg's fractions of 188 px): a third of the cycle in the
+        // air, long steps, a deep down, the heel kicked up behind, a runner's arms.
+        run: { a: 56, lift: 26, dur: 0.6, bob: 10, lean: 12, armSwing: 44, crouch: 0.1, flight: 0.34, heel: 0.45, knee: 0.4, paw: 0.15, armStyle: "run", flat: true },
         jump: 90,
         hands: true,
         // Hip to ankle and ankle to toe of the skeleton above (personality walks crouch, tiptoe).
@@ -418,6 +420,7 @@ export function humanClips() {
     // Fighting stance: knees bent, fists up.
     stance: {
       duration: 1.6,
+      clear: true,
       loop: true,
       tracks: {
         "bones.hips.y": [[0, 14], [0.8, 18], [1.6, 14]],
@@ -431,6 +434,7 @@ export function humanClips() {
     // Charging power, eyes closed: arms down and back, fists clenched, chin down.
     power: {
       duration: 1.2,
+      clear: true,
       loop: true,
       tracks: {
         "bones.hips.y": [[0, 10], [0.6, 12], [1.2, 10]],
@@ -445,6 +449,7 @@ export function humanClips() {
     // A straight punch: wind-up, thrust (fast), hold, recover.
     punch: {
       duration: 0.9,
+      clear: true,
       tracks: {
         "bones.body.rotation": [[0, 0], [0.18, -10, "easeOut"], [0.28, 16, "easeIn"], [0.6, 14], [0.9, 0]],
         "bones.hips.y": [[0, 0], [0.18, 10], [0.28, 6], [0.9, 0]],
@@ -454,18 +459,8 @@ export function humanClips() {
         "bones.armB2.rotation": [[0, 0], [0.28, -100], [0.9, 0]],
       },
     },
-    // Thrown back by a hit: arms and legs flung forward.
-    knocked: {
-      duration: 0.6,
-      tracks: {
-        "bones.body.rotation": [[0, 0], [0.12, -24, "easeOut"], [0.6, -18]],
-        "bones.head.rotation": [[0, 0], [0.12, -20, "easeOut"], [0.6, -14]],
-        "bones.armF1.rotation": [[0, 0], [0.12, -120, "easeOut"], [0.6, -100]],
-        "bones.armB1.rotation": [[0, 0], [0.12, -140, "easeOut"], [0.6, -120]],
-        "bones.legF1.rotation": [[0, 0], [0.12, -50, "easeOut"], [0.6, -40]],
-        "bones.legB1.rotation": [[0, 0], [0.12, -20, "easeOut"], [0.6, -30]],
-      },
-    },
+    // Knocked down (the scene's `fall`): the same clips as `characterClips`, both hands free.
+    ...knockDownClips({ hands: true }),
     // Holding a character sheet up to read it (sitting or standing).
     read: {
       duration: 2.4,
@@ -491,6 +486,7 @@ export function humanClips() {
     // Throwing dice from a sitting position: hand back, then a flick forward.
     roll: {
       duration: 0.8,
+      clear: true,
       tracks: {
         "bones.body.rotation": [[0, 0], [0.25, -6], [0.4, 8, "easeIn"], [0.8, 0]],
         "bones.armF1.rotation": [[0, 0], [0.25, 30, "easeOut"], [0.4, -70, "easeIn"], [0.8, -20]],

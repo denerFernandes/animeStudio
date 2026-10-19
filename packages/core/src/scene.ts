@@ -28,7 +28,8 @@ import {
   sampleFrame,
 } from "./camera";
 import { type Surface, compileSurface, surfaceY } from "./surface";
-import { viewPoint } from "./pose3d";
+import { type FallKeys, type LyingPose, fallHeight, groundParts, hipBone, lyingPose, planFall, planGetUp } from "./fall";
+import { type FaceCarry, type FaceClear, viewPoint } from "./pose3d";
 import { type TransitionMode, type TransitionType, type WipeDirection, transitionCoverage, transitionMarkup } from "./transitions";
 import {
   type Mat,
@@ -88,14 +89,35 @@ export interface CompiledActor {
   placement: Partial<Record<PlacementProp, Track>>;
   /** Look tracks per aim control: values are target ids, scene points or null. */
   look: Record<string, Track>;
-  /** Resolved ground: y follows the surface; feet adapt to its slope. */
-  ground?: { surface: Surface; offset: number; feet: string[] };
+  /**
+   * Resolved ground: y follows the surface; feet adapt to its slope. `lift` is how far above it the
+   * actor is (a `fall`'s flight and the lying body's thickness): what the `y` channel would say.
+   */
+  ground?: { surface: Surface; offset: number; feet: string[]; lift?: Track };
   /** Riding another actor (`mount` actions), in time order. */
   mounts?: MountKey[];
   /** IK chains held on another actor's anchor or a scene point (`reach` actions), per chain. */
   reach?: Record<string, ReachKey[]>;
   /** Lazily computed. */
   bake?: PhysicsBake;
+  /**
+   * Lazily computed (`actorFaceBake`): on a 2.5D rig, how the picture-space face clearance moved each
+   * arm at each step of the scene (`rate` Hz; undefined where it moved none).
+   */
+  faceBake?: { rate: number; arms: (FaceClear[] | undefined)[] };
+}
+
+/** An actor down after a `fall` (compile time): what `getUp` needs to bring it back up. */
+interface FallState {
+  at: number;
+  land: number;
+  /** The floor it lies on (scene y; for a grounded actor, the height over its surface: 0). */
+  floor: number;
+  dir: 1 | -1;
+  pose: LyingPose;
+  scale: number | [number, number];
+  shadows: string[];
+  clips: ClipInstance[];
 }
 
 export interface MountKey {
@@ -354,6 +376,25 @@ const easeOf = (e: unknown, fallback: Ease): Ease => (e as Ease | undefined) ?? 
 /** Quadratic ease-in / ease-out as cubic-béziers (constant acceleration). */
 const ACCEL: Ease = [1 / 3, 0, 2 / 3, 1 / 3];
 const DECEL: Ease = [1 / 3, 2 / 3, 2 / 3, 1];
+/** The least a 2.5D rig's view foreshortens its steps for a `walkTo` (|sin yaw|; see the finalize step). */
+const WALK_FORESHORTEN_MIN = 0.35;
+/**
+ * The fastest a `walkTo`'s view matching plays a clip: this × its natural rate, or the rate the
+ * actor's speed alone asks for when that is already faster (the legs never whirl; see the finalize step).
+ */
+const WALK_RATE_MAX = 1.3;
+
+/**
+ * How long a 2.5D rig's view draws its steps (|sin yaw|, at least `WALK_FORESHORTEN_MIN`), given
+ * the `view` control's value: a name (`~name`: mirrored, the same length) or, while views blend,
+ * weights per name — the heaviest wins, as the projection picks it; none: `profile`.
+ */
+function drawnStride(r3: { views: Record<string, number> }, value: unknown): number {
+  const name =
+    typeof value === "string" ? value : value && typeof value === "object" && !Array.isArray(value) ? Object.entries(value as Record<string, number>).sort((x, y) => y[1] - x[1])[0]?.[0] : undefined;
+  const deg = r3.views[(name ?? "profile").replace(/^~/, "")] ?? r3.views.profile;
+  return deg === undefined ? 1 : Math.max(WALK_FORESHORTEN_MIN, Math.abs(Math.sin((deg * Math.PI) / 180)));
+}
 
 function toCues(src: LipsyncDoc | MouthCue[]): MouthCue[] {
   return Array.isArray(src) ? src : src.mouthCues;
@@ -430,8 +471,14 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       clips: ClipInstance[];
       mounts: MountKey[];
       reach: Map<string, ReachKey[]>;
+      /** Grounded actors: height over the surface (a fall's keys). */
+      lift?: KeyBuffer;
     }
   >();
+  /** Clip instances of walks (`walkTo`): a fall ends the one under way. */
+  const walkClips = new Set<ClipInstance>();
+  /** Actors down after a `fall`, until they `getUp` (actions compile in time order). */
+  const fallen = new Map<string, FallState>();
 
   const actors: CompiledActor[] = (doc.actors ?? []).map((def, i) => {
     const path = `actors[${i}] (${def.id})`;
@@ -610,6 +657,9 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
     audio.push({ id, src, start: at, volume });
   };
 
+  // walkTo clips of 2.5D rigs, their speed matched to the view at the end (`drawnStride`).
+  const walksIn3d: { actor: string; walk: ClipInstance; from: number; to: number }[] = [];
+
   for (const { a, i } of script) {
     const path = `script[${i}] (${a.action})`;
     try {
@@ -684,6 +734,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       }
       case "walkTo": {
         const { buffers, rig } = requireActor(a.actor, path);
+        notDown(a.actor, "walkTo", path);
         const clipName = a.clip ?? "walk";
         const clip = rig.clips[clipName];
         if (!clip) throw new SceneError(`walkTo needs a "${clipName}" clip on "${rig.name}"`, path);
@@ -726,7 +777,7 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
         const sc = buffers.placement.scale.valueAt(a.at);
         const actorScale = Math.abs(Array.isArray(sc) ? sc[0] : typeof sc === "number" ? sc : 1);
         const speed = clip.stride > 0 ? v / ((clip.stride * actorScale) / clip.duration) : 1;
-        buffers.clips.push({
+        const walk: ClipInstance = {
           clip: clipName,
           start: a.at,
           end: a.at + duration,
@@ -737,11 +788,16 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
           layer: 0,
           blend: "override",
           weight: 1,
-        });
+        };
+        buffers.clips.push(walk);
+        walkClips.add(walk);
+        // (A 2.5D rig's steps are matched to its view once the whole script is in: see `drawnStride`.)
+        if (rig.rig3d && clip.stride > 0) walksIn3d.push({ actor: a.actor, walk, from: a.at + ramp, to: a.at + duration - ramp });
         return;
       }
       case "face": {
         const { buffers } = requireActor(a.actor, path);
+        notDown(a.actor, "face", path);
         buffers.placement.flip.transition(a.at, a.direction === "left", 0, "step");
         return;
       }
@@ -973,7 +1029,194 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
       case "light":
         lightingBuffer(a.channel, path).transition(a.at, a.value, a.duration ?? 0, easeOf(a.ease, "sineInOut"));
         return;
+      case "fall":
+        compileFall(a, path);
+        return;
+      case "getUp":
+        compileGetUp(a, path);
+        return;
     }
+  }
+
+  /** A `face` or a walk while down after a fall would mirror or drag the lying body: `getUp` comes first. */
+  function notDown(actor: string, what: string, path: string) {
+    const f = fallen.get(actor);
+    if (f) throw new SceneError(`"${actor}" is down (fell at ${f.at}s): ${what} needs a getUp first`, path);
+  }
+
+  /** The `y` of a fall: placement `y`, or the height over the ground surface for a grounded actor. */
+  function fallY(actorId: string): KeyBuffer {
+    const b = actorBuffers.get(actorId)!;
+    if (!actors.find((x) => x.id === actorId)!.ground) return b.placement.y;
+    return (b.lift ??= new KeyBuffer(0));
+  }
+
+  /** Placement keys from `planFall` / `planGetUp`, taking over what was planned from their start. */
+  function pushFallKeys(actorId: string, at: number, keys: FallKeys) {
+    const b = actorBuffers.get(actorId)!;
+    const lists: [KeyBuffer, Key[]][] = [[b.placement.x, keys.x], [fallY(actorId), keys.y], [b.placement.rotation, keys.rotation], [b.placement.scale, keys.scale]];
+    for (const [buf, list] of lists) {
+      if (!list.length) continue;
+      buf.takeOver(at);
+      buf.push(...list);
+    }
+  }
+
+  /** The view (a pose name) an actor is drawn in at `t`: the heaviest weight of its `view` control. */
+  function viewAt(actorId: string, rig: Rig, t: number): string | undefined {
+    if (!rig.controls.view) return undefined;
+    const v = actorBuffers.get(actorId)!.channels.get("controls.view")?.valueAt(t);
+    if (typeof v === "string") return v;
+    if (v && typeof v === "object" && !Array.isArray(v)) return Object.entries(v as Record<string, number>).sort((x, y) => y[1] - x[1])[0]?.[0];
+    return undefined;
+  }
+
+  function compileFall(a: Extract<ActionDef, { action: "fall" }>, path: string) {
+    const { buffers, rig } = requireActor(a.actor, path);
+    const prior = fallen.get(a.actor);
+    if (prior) throw new SceneError(`"${a.actor}" is already down (fell at ${prior.at}s): getUp first`, path);
+    const mount = buffers.mounts.filter((m) => m.t <= a.at + 1e-9).sort((x, y) => x.t - y.t).pop();
+    if (mount?.on) throw new SceneError(`"${a.actor}" is riding "${mount.on}": get off first (mount on: null), then fall`, path);
+    for (const [k, name] of [["clip", a.clip], ["pose", a.pose]] as const) {
+      if (typeof name === "string" && !rig.clips[name]) throw new SceneError(`fall: unknown ${k === "clip" ? "flight" : "lying"} clip "${name}". Known clips: ${Object.keys(rig.clips).join(", ") || "none"}.`, path);
+    }
+    const side = a.side ?? "back";
+    const dir: 1 | -1 = buffers.placement.flip.valueAt(a.at) ? -1 : 1;
+    const sc = buffers.placement.scale.valueAt(a.at) as number | [number, number];
+    const scale: [number, number] = Array.isArray(sc) ? [Math.abs(sc[0]), Math.abs(sc[1])] : [Math.abs(sc), Math.abs(sc)];
+    const x = buffers.placement.x.valueAt(a.at) as number;
+    const y = fallY(a.actor).valueAt(a.at) as number;
+    // (Moving — a walk under way — the body carries on with the speed it had.)
+    const velocity = a.at > 0.02 ? (x - (buffers.placement.x.valueAt(a.at - 0.02) as number)) / 0.02 : 0;
+    let away: 1 | -1 = side === "back" ? (-dir as 1 | -1) : dir;
+    if (a.from !== undefined) {
+      if (a.from === a.actor) throw new SceneError("fall: an actor cannot be thrown away from itself", path);
+      const xf = requireActor(a.from, path).buffers.placement.x.valueAt(a.at) as number;
+      if (Math.abs(x - xf) > 1e-6) away = x > xf ? 1 : -1;
+    }
+    const height = fallHeight(rig) * scale[1];
+    // (Thrown, the hips land about 0.9 of the standing height away: half of it the throw, the rest the
+    // body sitting back and turning about its feet.)
+    const distance = a.distance ?? (a.from !== undefined ? 0.5 * height : 0);
+    const hop = a.height ?? (distance > 0 ? 0.15 * height : 0);
+    const thrown = distance > 0 || hop > 0;
+    const duration = a.duration ?? (thrown ? 0.85 : 0.45);
+    // The limbs: a flight clip timed to end as the hips land (default the rig's `knocked`), then the
+    // lying pose from the landing (default `down`) — both made for falling on the back.
+    const flightName = a.clip === null ? undefined : (a.clip ?? (side === "back" && rig.clips.knocked ? "knocked" : undefined));
+    const poseName = a.pose === null ? undefined : (a.pose ?? (side === "back" && rig.clips.down ? "down" : undefined));
+    const pose = lyingPose(rig, { dir, side, scale, view: viewAt(a.actor, rig, a.at) });
+    const plan = planFall({
+      at: a.at,
+      x,
+      y,
+      rotation: buffers.placement.rotation.valueAt(a.at) as number,
+      scale,
+      floor: y,
+      dir,
+      away,
+      pose,
+      duration,
+      distance,
+      hop,
+      height,
+      spin: a.spin ?? false,
+      squash: a.squash ?? true,
+      staged: !!flightName,
+      velocity,
+    });
+    pushFallKeys(a.actor, a.at, plan);
+    // Back to the actor's own scale after the squash (a number stays a number: a later `set` eases from it).
+    if (plan.scale.length) buffers.placement.scale.push({ t: plan.end + 1e-3, v: sc, ease: "step" });
+    // A walk under way ends: its clip fades out as the body leaves its feet.
+    for (const inst of buffers.clips) {
+      if (walkClips.has(inst) && inst.start <= a.at && inst.end > a.at + 0.12) {
+        inst.end = a.at + 0.12;
+        inst.fadeOut = Math.min(inst.fadeOut, 0.12);
+      }
+    }
+    // The limbs: the flight clip, timed to end as the hips touch down (its last pose held until
+    // then), and from that moment the lying clip — played once and held (a loop keeps looping) —
+    // which should start where the flight clip ends: the two only crossfade over a few frames.
+    const clips: ClipInstance[] = [];
+    const XFADE = poseName && flightName ? 0.1 : 0.3;
+    if (flightName) {
+      const clip = rig.clips[flightName];
+      clips.push({ clip: flightName, start: a.at, end: poseName ? plan.land + XFADE : Infinity, speed: clip.duration / duration, loop: false, fadeIn: 0.04, fadeOut: XFADE, layer: 0, blend: "override", weight: 1 });
+    }
+    if (poseName) clips.push({ clip: poseName, start: plan.land, end: Infinity, speed: 1, loop: rig.clips[poseName].loop, fadeIn: XFADE, fadeOut: 0.4, layer: 0, blend: "override", weight: 1 });
+    buffers.clips.push(...clips);
+    // The neck lines the head up with the spine (and lifts a big head off the floor) as the back
+    // slaps down; the shadow on the floor goes as the feet leave it (the actor's rotation would turn
+    // it with the body).
+    if (pose.neck) {
+      const t = Math.max(a.at, plan.land - 0.1);
+      channelBuffer(a.actor, `bones.${pose.neck.bone}.rotation`).transition(t, pose.neck.rotation, 0.2, "sineInOut");
+      if (pose.neck.spread) channelBuffer(a.actor, `bones.${pose.neck.bone}.spread`).transition(t, pose.neck.spread, 0.2, "sineInOut");
+    }
+    const shadows = groundParts(rig);
+    for (const id of shadows) channelBuffer(a.actor, `parts.${id}.opacity`).transition(a.at, 0, thrown ? 0.1 : duration * 0.6, "sineInOut");
+    fallen.set(a.actor, { at: a.at, land: plan.land, floor: y, dir, pose, scale: sc, shadows, clips });
+  }
+
+  function compileGetUp(a: Extract<ActionDef, { action: "getUp" }>, path: string) {
+    const { buffers, rig } = requireActor(a.actor, path);
+    const f = fallen.get(a.actor);
+    if (!f) throw new SceneError(`"${a.actor}" is not down: getUp needs a fall before it`, path);
+    if (typeof a.clip === "string" && !rig.clips[a.clip]) throw new SceneError(`getUp: unknown clip "${a.clip}". Known clips: ${Object.keys(rig.clips).join(", ") || "none"}.`, path);
+    const duration = a.duration ?? 1.2;
+    const sc = buffers.placement.scale.valueAt(a.at) as number | [number, number];
+    const scale: [number, number] = Array.isArray(sc) ? [Math.abs(sc[0]), Math.abs(sc[1])] : [Math.abs(sc), Math.abs(sc)];
+    // Sitting up about the hips (the bone the legs hang from lowered so the feet stay on the floor),
+    // then standing up over the feet.
+    const hb = hipBone(rig);
+    const up = planGetUp({
+      at: a.at,
+      duration,
+      x: buffers.placement.x.valueAt(a.at) as number,
+      y: fallY(a.actor).valueAt(a.at) as number,
+      floor: f.floor,
+      rotation: buffers.placement.rotation.valueAt(a.at) as number,
+      scale,
+      dir: f.dir,
+      pose: f.pose,
+      ...(hb ? { hipBone: hb } : {}),
+    });
+    pushFallKeys(a.actor, a.at, up);
+    if (hb && up.hipsY.length) {
+      const buf = channelBuffer(a.actor, `bones.${hb}.y`);
+      buf.takeOver(a.at);
+      buf.push(...up.hipsY);
+    }
+    // (Up before the landing's squash is over: eased back to the actor's own scale, as a pair, then
+    // the number it was.)
+    if (JSON.stringify(sc) !== JSON.stringify(f.scale)) {
+      const own = f.scale, ease = Math.min(0.15, duration);
+      buffers.placement.scale.transition(a.at, Array.isArray(own) ? own : [own, own], ease, "sineInOut");
+      if (!Array.isArray(own)) buffers.placement.scale.push({ t: a.at + ease + 1e-3, v: own, ease: "step" });
+    }
+    // The limbs: the getting-up clip (default the rig's `rise`) over the whole move, crossfading out
+    // of the lying pose and, at its end, into whatever plays under it; without one the lying pose
+    // just lets go as the body rises.
+    const riseName = a.clip === null ? undefined : (a.clip ?? (rig.clips.rise ? "rise" : undefined));
+    const fade = riseName ? Math.min(0.15, duration * 0.3) : duration * 0.55;
+    for (const inst of f.clips) {
+      if (inst.end > a.at + fade) {
+        inst.end = a.at + fade;
+        inst.fadeOut = Math.min(fade, Math.max(0.05, a.at + fade - inst.start));
+      }
+    }
+    if (riseName) {
+      const clip = rig.clips[riseName];
+      buffers.clips.push({ clip: riseName, start: a.at, end: a.at + duration + 0.2, speed: clip.duration / duration, loop: false, fadeIn: fade, fadeOut: 0.2, layer: 0, blend: "override", weight: 1 });
+    }
+    // The neck straightens; the shadow comes back once the body is nearly upright.
+    if (f.pose.neck) {
+      channelBuffer(a.actor, `bones.${f.pose.neck.bone}.rotation`).transition(a.at, 0, duration * 0.5, "sineInOut");
+      if (f.pose.neck.spread) channelBuffer(a.actor, `bones.${f.pose.neck.bone}.spread`).transition(a.at, 0, duration * 0.5, "sineInOut");
+    }
+    for (const id of f.shadows) channelBuffer(a.actor, `parts.${id}.opacity`).transition(a.at + duration * 0.7, 1, duration * 0.3, "sineInOut");
+    fallen.delete(a.actor);
   }
 
   function setPose(actorId: string, control: string, value: Value, at: number, duration: number, ease: Ease) {
@@ -985,6 +1228,24 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
   }
 
   // Finalize -----------------------------------------------------------------
+  // A 2.5D rig steps in its body's side plane, which its view draws |sin yaw| as long (the
+  // three-quarter `profile`: 0.59): a walk plays its clip that much faster, so a planted foot keeps
+  // its place in the picture while the actor crosses it. The view is read over the walk's cruise
+  // once every action is in (a turn round through the in-between views, a run's travel view: all
+  // keyed after the walk starts) — the mean of |sin yaw| there, the heaviest view while views blend,
+  // never under `WALK_FORESHORTEN_MIN` (walked across the picture facing the camera, the legs would
+  // otherwise whirl). The rate it comes to is capped at `WALK_RATE_MAX` × the clip's natural rate
+  // (or the rate the speed alone asks for, when faster): past that, a cadence reads as legs
+  // whirling, worse than the little slide the rest leaves.
+  for (const { actor, walk, from, to } of walksIn3d) {
+    const r3 = rigCache.get(actor)!.rig3d!;
+    // (Never keyed: the control's default value, as the pose evaluates it.)
+    const rig = rigCache.get(actor)!, view = actorBuffers.get(actor)!.channels.get("controls.view");
+    const unkeyed = "view" in rig.controls ? defaultChannelValue(rig, resolveChannel(rig, "controls.view")) : undefined;
+    let sum = 0;
+    for (let k = 0; k <= 8; k++) sum += drawnStride(r3, view ? view.valueAt(from + ((to - from) * k) / 8) : unkeyed);
+    walk.speed = Math.min(walk.speed / (sum / 9), Math.max(WALK_RATE_MAX, walk.speed));
+  }
   for (const actor of actors) {
     const b = actorBuffers.get(actor.id)!;
     actor.clips = b.clips;
@@ -999,6 +1260,10 @@ export function compileScene(doc: SceneDoc, assets: SceneAssets): CompiledScene 
     for (const [control, buf] of b.look) {
       const track = buf.build();
       if (track) actor.look[control] = track;
+    }
+    if (b.lift && actor.ground) {
+      const lift = b.lift.build();
+      if (lift) actor.ground.lift = lift;
     }
     if (b.mounts.length) actor.mounts = [...b.mounts].sort((x, y) => x.t - y.t);
     if (b.reach.size) actor.reach = Object.fromEntries([...b.reach].map(([c, keys]) => [c, [...keys].sort((x, y) => x.t - y.t)]));
@@ -1161,7 +1426,7 @@ function actorPlacementState(actor: CompiledActor, t: number): Placement {
   const scene = sceneOfActor.get(actor);
   const td = scene ? drawnAt(scene, actor, t) : t;
   const p = samplePlacement(actor.placement, actor.def, td);
-  if (actor.ground) p.y = surfaceY(actor.ground.surface, p.x) + actor.ground.offset;
+  if (actor.ground) p.y = surfaceY(actor.ground.surface, p.x) + actor.ground.offset + (actor.ground.lift ? (sampleTrack(actor.ground.lift, td) as number) : 0);
   const placed = actor.mounts ? mountedPlacement(actor, p, td) : p;
   const holds = scene && smoothDepth === 0 ? actor.holds : 0;
   if (!(holds > 0)) return placed;
@@ -1687,8 +1952,13 @@ function holdingVariants(scene: CompiledScene, actor: CompiledActor, t: number):
   return out;
 }
 
-function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): EvaluatedPose {
+/**
+ * `face`: the face clearance carried from the step before (`actorFaceBake` passes it while it steps
+ * through the scene; `null`: none); left out, it is taken from the actor's bake.
+ */
+function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number, carry?: FaceCarry | null): EvaluatedPose {
   const placement = actorPlacement(actor, t);
+  const face = carry === undefined ? faceCarryAt(scene, actor, t) : (carry ?? undefined);
   const toChar = invert(placement);
   // Looking at a prop held in one's own hand (or a chain of actors holding things and looking at
   // each other) depends on this very pose: inside such a cycle the pose is evaluated without aim.
@@ -1707,6 +1977,8 @@ function prePhysicsPose(scene: CompiledScene, actor: CompiledActor, t: number): 
     ...(actor.rig.controls.side ? { controls: { side: placement[0] * placement[3] - placement[1] * placement[2] < 0 ? "left" : "right" } } : {}),
     // A hand holding a prop closes around it (its `grip` variant, or the one named after the anchor).
     variants: holdingVariants(scene, actor, t),
+    // An arm moved off the face stays on the side of the head it went to, and moves smoothly.
+    ...(face ? { face } : {}),
   });
   if (!resolvingAim.has(actor)) {
     resolvingAim.add(actor);
@@ -1743,13 +2015,16 @@ export function actorBake(scene: CompiledScene, actor: CompiledActor): PhysicsBa
     // the pose and placement callbacks are not quantized to drawings (stepped placements would kick
     // the springs at every drawing). A drawing then takes its sample at its own time (`actorPose`),
     // so a frame on twos shows exactly the smooth animation's frame of that drawing, physics included.
+    // (The springs' steps are the face clearance's too: see `actorFaceBake`.)
+    const faces = actor.rig.rig3d?.clear.length ? faceStepper(scene, actor) : undefined;
     actor.bake = inSmoothTime(() =>
       bakePhysics(actor.rig, {
         duration: scene.duration,
-        poseAt: (t) => prePhysicsPose(scene, actor, t),
+        poseAt: (t) => (faces ? faces.step(t) : prePhysicsPose(scene, actor, t)),
         placementAt: (t) => actorPlacement(actor, t),
       }),
     );
+    if (faces && actor.bake.samples.length) actor.faceBake = faces.bake(actor.bake.rate);
   } finally {
     baking.delete(actor);
     resolvingAim.clear();
@@ -1758,6 +2033,79 @@ export function actorBake(scene: CompiledScene, actor: CompiledActor): PhysicsBa
     for (const a of mountOuter) resolvingMount.add(a);
   }
   return actor.bake;
+}
+
+/** The face clearance's steps through a scene: each pose carries the clearance of the step before. */
+function faceStepper(scene: CompiledScene, actor: CompiledActor) {
+  const arms: (FaceClear[] | undefined)[] = [];
+  let last: { arms: FaceClear[]; t: number } | undefined;
+  return {
+    step(t: number): EvaluatedPose {
+      const pose = prePhysicsPose(scene, actor, t, last ? { arms: last.arms, dt: t - last.t } : null);
+      const a = pose.frame3d?.face;
+      const moved = a?.some((x) => x.turn[0] || x.turn[1]) ? a : undefined;
+      last = moved && { arms: moved, t };
+      arms.push(moved);
+      return pose;
+    },
+    bake: (rate: number) => ({ rate, arms }),
+  };
+}
+
+/** Steps a second of the face clearance's own bake (an actor without springs). */
+const FACE_RATE = 60;
+/** Actors whose face clearance bake is running (a pose of theirs needed meanwhile takes the cheaper ways). */
+const faceBaking = new Set<CompiledActor>();
+
+/**
+ * The time-coherent face clearance of an actor on a 2.5D rig: the way the picture-space face
+ * clearance (`applyRig3d`) moved each arm off the head, step by step through the scene in smooth
+ * time, each step keeping the ways of the step before — an arm that went round the head one way stays
+ * on that side while it still covers it (taking the cheaper way every frame, a raised arm whose two
+ * ways cost about the same would flip from side to side as it moves; and an arm entering the head's
+ * outline goes back out the way it came). Made by the springs' bake (`actorBake`, the same steps) or,
+ * for an actor without springs, by its own at `FACE_RATE`; like it, the same whichever API first
+ * needed it.
+ */
+function actorFaceBake(scene: CompiledScene, actor: CompiledActor): CompiledActor["faceBake"] {
+  if (!actor.rig.rig3d?.clear.length) return undefined;
+  if (actor.faceBake) return actor.faceBake;
+  if (actor.rig.physics.length) {
+    actorBake(scene, actor);
+    return actor.faceBake;
+  }
+  if (faceBaking.has(actor)) return undefined;
+  const aimOuter = [...resolvingAim];
+  const mountOuter = [...resolvingMount];
+  resolvingAim.clear();
+  resolvingMount.clear();
+  faceBaking.add(actor);
+  try {
+    const faces = faceStepper(scene, actor), count = Math.ceil(scene.duration * FACE_RATE) + 1;
+    inSmoothTime(() => {
+      for (let n = 0; n < count; n++) faces.step(n / FACE_RATE);
+    });
+    actor.faceBake = faces.bake(FACE_RATE);
+  } finally {
+    faceBaking.delete(actor);
+    resolvingAim.clear();
+    resolvingMount.clear();
+    for (const a of aimOuter) resolvingAim.add(a);
+    for (const a of mountOuter) resolvingMount.add(a);
+  }
+  return actor.faceBake;
+}
+
+/**
+ * The face clearance carried to `t` from an actor's bake: the step before the one at or before `t`
+ * (whose pose the bake took from it), so at a step's own time the pose is the bake's.
+ */
+function faceCarryAt(scene: CompiledScene, actor: CompiledActor, t: number): FaceCarry | undefined {
+  const bake = actorFaceBake(scene, actor);
+  if (!bake?.arms.length) return undefined;
+  const n = clamp(Math.floor(t * bake.rate + 1e-6), 0, bake.arms.length - 1) - 1;
+  const arms = n >= 0 ? bake.arms[n] : undefined;
+  return arms && { arms, dt: t - n / bake.rate };
 }
 
 /**

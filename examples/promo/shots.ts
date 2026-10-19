@@ -184,9 +184,10 @@ function walks(): SceneDoc {
       walk(0, "kai", 1060, "sneak", S4 - 0.2),
       walk(0, "otto", 1460, "strut", S4 - 0.3),
       walk(0.1, "pip", 520, "march", S4 - 0.4),
-      walk(1.3, "maya", -300, "scaredRun", 2.2),
-      fx(1.4, "sweat", { actor: "maya" }),
-      fx(1.5, "dust", { actor: "maya", anchor: "origin" }),
+      // (Near its natural pace: a panic sprint, not a blur of legs.)
+      walk(0.6, "maya", -200, "scaredRun", 3.3),
+      fx(0.7, "sweat", { actor: "maya" }),
+      fx(0.75, "dust", { actor: "maya", anchor: "origin" }),
       fx(2.3, "dust", { actor: "maya", anchor: "origin" }),
       { at: 1.9, actor: "otto", action: "lookAt", target: "maya" },
       fx(2.0, "question", { actor: "otto" }),
@@ -218,12 +219,7 @@ function fight(): SceneDoc {
       { id: "b3", art: ball(C.sun), x: 420, y: -520, z: 5, body: { type: "dynamic", shape: { circle: 44 }, restitution: 0.7, velocity: [60, 0], angularVelocity: 2 } },
       { id: "b4", art: ball(C.violet), x: 1500, y: -700, z: 5, body: { type: "dynamic", shape: { circle: 44 }, restitution: 0.7, velocity: [-200, 0], angularVelocity: -2 } },
     ],
-    tracks: {
-      ...c.tracks,
-      // Thrown back by the punch, a hop and down.
-      "actors.otto.x": [[0, 1130], [LAND, 1130], [LAND + 0.55, 1460, "quadOut"]],
-      "actors.otto.y": [[0, FLOOR], [LAND, FLOOR], [LAND + 0.22, FLOOR - 90, "quadOut"], [LAND + 0.5, FLOOR, "quadIn"]],
-    },
+    tracks: c.tracks,
     script: [
       wipeIn(),
       play(0, "kai", "stance", { loop: true, layer: -1 }),
@@ -237,8 +233,11 @@ function fight(): SceneDoc {
       fx(LAND, "burst", { actor: "otto" }),
       { at: LAND, action: "shake", duration: 0.35, amount: 18 },
       emo(LAND, "otto", "dead", 0.05),
-      play(LAND, "otto", "knocked", { duration: S5 - LAND, fadeIn: 0.05 }),
-      fx(LAND + 0.7, "stars", { actor: "otto", duration: 2.0 }),
+      // Knocked down: thrown back away from kai on an arc, the hips landing first, the shoulders
+      // slapping down, a bounce, the K.O. pose (the engine's `fall`).
+      // (A short throw: lying, his head stays inside the ring.)
+      { at: LAND, actor: "otto", action: "fall", from: "kai", distance: 0, height: 70 },
+      fx(LAND + 0.9, "stars", { actor: "otto", duration: 1.8 }),
       emo(LAND + 0.4, "kai", "joy", 0.2),
       play(LAND + 0.5, "kai", "cheer", { duration: 1.6, fadeIn: 0.2 }),
       fx(LAND + 0.55, "caption", { text: "K.O.!", style: "ko", x: 1180, y: 330, duration: 1.6 }),

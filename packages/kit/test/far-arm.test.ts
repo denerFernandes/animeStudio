@@ -35,3 +35,22 @@ describe("far arm layer", () => {
     expect(ids.indexOf("armsB")).toBeGreaterThan(torso);
   });
 });
+
+// A hand goes behind the body only when something else covers its wrist: its own arm (an occluder
+// in the other arm's solid) always has the wrist inside it, and a hand thrust out in front of the
+// chest would pop behind the torso and back between frames.
+describe("hands in front of the chest", () => {
+  const play = (clip: string) => [{ clip, start: 0, end: Infinity, speed: 1, loop: true, fadeIn: 0, fadeOut: 0, layer: 0, blend: "override" as const, weight: 1 }];
+  for (const view of ["front", "half"]) {
+    it(`${view}: the scared run's hands, thrust out ahead, stay drawn over the torso every frame`, () => {
+      const d = rig.clips.scaredRun.duration;
+      for (let i = 0; i < 16; i++) {
+        const pose = evaluatePose(rig, { time: (i / 16) * d, clips: play("scaredRun"), controls: { view } } as never);
+        const ids = (pose.drawOrder ?? rig.drawOrder).map((p) => p.id);
+        const torso = ids.findIndex((id) => /^torso/.test(id));
+        expect(ids.indexOf("handF"), `@${i}`).toBeGreaterThan(torso);
+        expect(ids.indexOf("handB"), `@${i}`).toBeGreaterThan(torso);
+      }
+    });
+  }
+});

@@ -24,7 +24,10 @@ import {
   rig3dPoint,
   rig3dPose,
   validateScene,
-  validateSequence, layoutShots } from "@animestudio/core";
+  validateSequence, layoutShots,
+  type Rig,
+  compileRig,
+  lyingPose } from "@animestudio/core";
 import { svgBounds } from "@animestudio/kit";
 import { type Album, type AlbumSide, luminance, photoMarkup, pictureMarkup, sideMarkup } from "./album";
 import type { Animation, Beat, Block, CastEntry, CastMember, Graphic, Directed, Issue, Kit, Line, Mark, Overlay, Place, SetDef, Staging, When } from "./types";
@@ -339,7 +342,9 @@ class BlockScene {
   /** Block furniture (id → kind, scale). */
   private furnitureOf = new Map<string, { kind: string; scale: number; y: number; cover?: string }>();
   /** Sitting / lying (on furniture or the ground) and lying after a fall, until they get up. */
-  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean; hipY?: number }[] = [];
+  private rests: { actor: string; kind: "sit" | "lie" | "fallen"; on: string | null; t0: number; t1: number; y?: number; front?: boolean; tuck?: boolean; sleep?: boolean; hipY?: number; clip?: Action }[] = [];
+  /** Compiled rigs of the kit's characters (the lying geometry of `lyingPose`), by character. */
+  private rigs = new Map<string, Rig>();
   private propStates = new Map<string, PropState>();
   /** Walks of the cast, leaning into the move once the block is staged (`animation.anticipation`). */
   private leans: { walk: Walk; run: boolean }[] = [];
@@ -409,10 +414,18 @@ class BlockScene {
   scaleOf(id: string) {
     return this.member(id)?.scale ?? 1;
   }
-  /** A cast member's speed (scene px/s, at their scale): from the cast entry, else the defaults. */
+  /**
+   * A cast member's speed (scene px/s, at their scale): from the cast entry, else the defaults — for
+   * a run, the rig's own `run` clip's natural speed (its stride per cycle, at 1×: the legs at the
+   * cadence they were drawn at, a long-striding cartoon run not played in slow motion), else 380.
+   */
   speedOf(id: string, mode: "walk" | "run" | "fly" = "walk") {
-    const def = mode === "run" ? 380 : mode === "fly" ? 360 : 170;
-    return (this.member(id)?.speed?.[mode] ?? def) * this.scaleOf(id);
+    const own = this.member(id)?.speed?.[mode];
+    if (own === undefined && mode === "run") {
+      const run = this.kit.characters[this.characterOf(id)]?.clips?.run as { stride?: number; duration?: number } | undefined;
+      if (run?.stride && run.duration) return (run.stride / run.duration) * this.scaleOf(id);
+    }
+    return (own ?? (mode === "run" ? 380 : mode === "fly" ? 360 : 170)) * this.scaleOf(id);
   }
   /**
    * The set mark a place refers to — a mark name or `{ mark, dx }` (its x moved by `dx`) — with its
@@ -2554,7 +2567,9 @@ class BlockScene {
     this.set(actor, "rotation", g.rotation, at, dur, "easeIn");
     this.set(actor, "y", Math.round(y - g.offset[1]), at, dur, "easeIn");
     this.bendNeck(actor, g.neck, at, dur);
-    this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y });
+    // (The kit's knock-down clips are made for falling on the back.)
+    const clip = front ? undefined : this.knockedLimbs(actor, at, dur);
+    this.rests.push({ actor, kind: "fallen", on: null, t0: at, t1: Infinity, y, ...(clip ? { clip } : {}) });
     this.shadow(actor, at, { hide: true }, dur);
     if (this.anticipation > 0) this.squash(actor, at + dur, { ...g, dir, y });
     this.sfx("fall", at + dur);
@@ -2650,7 +2665,6 @@ class BlockScene {
     // seat, nor one fall stacked on another).
     this.dropOff(target, hitT, 0.3);
     this.standUp(target, hitT, 0.4);
-    if (this.hasClip(target, "knocked")) this.play(target, "knocked", hitT, 0.6, { fadeIn: 0.02 });
     if (this.hasControl(target, "emotion")) this.push({ at: this.t(hitT), actor: target, action: "pose", control: "emotion", value: "scared", duration: 0.05 });
     // Thrown back, spinning, onto the back — kept inside the set.
     const facing = this.facing(target, hitT) ? 1 : -1;
@@ -2660,6 +2674,8 @@ class BlockScene {
     const land = Math.max(bx0 + height * 0.8, Math.min(bx1 - height * 0.8, xv + dir * height * 0.9));
     const y = this.groundY(target, hitT);
     const fly = 0.85;
+    // The limbs fly with the body (`knocked`, held until the landing) and lie in the K.O. pose.
+    const lyingClip = this.knockedLimbs(target, hitT, fly);
     this.slide(target, land, hitT, fly);
     this.set(target, "y", Math.round(y - height * 0.6), hitT, fly * 0.4, "easeOut");
     this.set(target, "y", Math.round(y - g.offset[1]), hitT + fly * 0.4, fly * 0.6, "easeIn");
@@ -2667,7 +2683,7 @@ class BlockScene {
     this.set(target, "rotation", g.rotation, hitT + fly + 0.001, 0);
     this.bendNeck(target, g.neck, hitT + fly, 0.2);
     this.shadow(target, hitT, { hide: true }, 0.2);
-    this.rests.push({ actor: target, kind: "fallen", on: null, t0: hitT, t1: Infinity, y });
+    this.rests.push({ actor: target, kind: "fallen", on: null, t0: hitT, t1: Infinity, y, ...(lyingClip ? { clip: lyingClip } : {}) });
     if (this.anticipation > 0) this.squash(target, hitT + fly, { ...g, dir: facing, y });
     this.push({ at: this.t(hitT + fly), action: "fx", type: "dust", actor: target, anchor: "origin", scale: 2 });
     this.push({ at: this.t(hitT + fly), action: "fx", type: "stars", actor: target, scale: 1.3 });
@@ -3098,36 +3114,46 @@ class BlockScene {
    */
   private lying(actor: string, dir: number, side: "back" | "front") {
     const s = this.scaleOf(actor);
-    const hip = this.hipOf(actor);
-    const doc = this.kit.characters[this.characterOf(actor)] as unknown as { skeleton: { id: string; from?: [number, number] }[]; anchors?: Record<string, { at: [number, number] }> };
-    let head: [number, number] = doc.anchors?.head?.at ?? [0, -(this.member(actor)?.rig.height ?? 200) * 0.85];
-    const lean = (h: [number, number]) => (Math.atan2(h[0] - hip[0], -(h[1] - hip[1])) * 180) / Math.PI;
-    // The neck bends back so the head lines up with the spine (a hunched turtle's head sits far in
-    // front of its hips): the legs stay flat and the head reaches the pillow.
+    const character = this.characterOf(actor);
+    const doc = this.kit.characters[character] as unknown as { skeleton: { id: string; from?: [number, number] }[]; anchors?: Record<string, { at: [number, number] }> };
+    let rig = this.rigs.get(character);
+    if (!rig) this.rigs.set(character, (rig = compileRig(doc as never)));
+    // The shared geometry (core `lyingPose`), with the director's own measures of the body: the
+    // hip joint and the torso's depth from `RigInfo`, the head anchor, the neck bone drawn with a
+    // `from`; the spine lies flat (no lift for a big head).
     const neckBone = doc.skeleton.find((b) => b.id === "neck" && b.from) ?? doc.skeleton.find((b) => b.id === "head" && b.from);
-    let neck: { bone: string; rotation: number } | undefined;
-    if (neckBone?.from) {
-      const rot = Math.max(-60, Math.min(60, -lean(head)));
-      const a = (rot * Math.PI) / 180, [cx, cy] = neckBone.from;
-      head = [cx + (head[0] - cx) * Math.cos(a) - (head[1] - cy) * Math.sin(a), cy + (head[0] - cx) * Math.sin(a) + (head[1] - cy) * Math.cos(a)];
-      if (Math.abs(rot) > 1) neck = { bone: neckBone.id, rotation: r3(rot) };
+    const g = lyingPose(rig, {
+      dir: dir < 0 ? -1 : 1,
+      side,
+      scale: s,
+      hip: this.hipOf(actor),
+      head: doc.anchors?.head?.at ?? [0, -(this.member(actor)?.rig.height ?? 200) * 0.85],
+      depth: this.depthOf(actor, side),
+      neck: neckBone?.id ?? null,
+      skull: false,
+    });
+    return { rotation: g.rotation, contact: g.contact, normal: g.normal, offset: g.offset, head: g.head, neck: g.neck };
+  }
+  /**
+   * The limbs of a body knocked down on its back: the rig's `knocked` clip over the flight (played
+   * once, at the speed that ends it as the hips touch down, its last pose held), then its lying clip
+   * `down` from the landing until it gets up (`getUp` ends it; kept on the fall's rest).
+   */
+  private knockedLimbs(actor: string, at: number, dur: number) {
+    const clips = (this.kit.characters[this.characterOf(actor)]?.clips ?? {}) as Record<string, { duration: number; loop?: boolean }>;
+    if (clips.knocked) {
+      this.push({ at: this.t(at), actor, action: "play", clip: "knocked", duration: r3(dur + 0.1), loop: false, speed: r3(clips.knocked.duration / dur), fadeIn: 0.02, fadeOut: 0.1 });
+      this.busy.push({ actor, t0: at, t1: at + dur });
     }
-    const rest = lean(head);
-    const v = [head[0] - hip[0], head[1] - hip[1]];
-    const len = Math.hypot(v[0], v[1]) || 1;
-    const normal: [number, number] = [v[1] / len, -v[0] / len]; // out of the back
-    const back = side === "back";
-    const d = this.depthOf(actor, side);
-    const contact: [number, number] = [hip[0] + (back ? 1 : -1) * normal[0] * d, hip[1] + (back ? 1 : -1) * normal[1] * d];
-    const rotation = r3(back ? -dir * (90 + rest) : dir * (90 - rest));
-    const r = (rotation * Math.PI) / 180;
-    const px = contact[0] * dir * s, py = contact[1] * s;
-    const offset: [number, number] = [px * Math.cos(r) - py * Math.sin(r), px * Math.sin(r) + py * Math.cos(r)];
-    return { rotation, contact, normal, offset, head, neck };
+    if (!clips.down) return undefined;
+    const down: Action = { at: this.t(at + dur), actor, action: "play", clip: "down", duration: r3(Math.max(0.5, this.t1 - (at + dur) + 0.5)), loop: !!clips.down.loop, fadeIn: 0.1, fadeOut: 0.3 };
+    this.push(down);
+    return down;
   }
   /** Bends (or straightens) the neck for lying. */
-  private bendNeck(actor: string, neck: { bone: string; rotation: number } | undefined, abs: number, dur: number) {
+  private bendNeck(actor: string, neck: { bone: string; rotation: number; spread?: number } | undefined, abs: number, dur: number) {
     if (neck) this.set(actor, `bones.${neck.bone}.rotation`, neck.rotation, abs, dur, "sineInOut");
+    if (neck?.spread !== undefined) this.set(actor, `bones.${neck.bone}.spread`, neck.spread, abs, dur, "sineInOut");
   }
   private hipOf(actor: string): [number, number] {
     const rig = this.member(actor)?.rig;
@@ -3559,6 +3585,11 @@ class BlockScene {
     this.shadow(actor, at, { drop: 0, hide: false }, 0.5);
     if (l.kind !== "sit") this.bendNeck(actor, this.lying(actor, 1, "back").neck && { bone: this.lying(actor, 1, "back").neck!.bone, rotation: 0 }, at, 0.5);
     if (l.kind === "fallen") {
+      // The lying clip lets go as the body comes up.
+      if (l.clip) {
+        l.clip.duration = r3(Math.max(0.1, this.t(at) + 0.3 - (l.clip.at as number)));
+        l.clip.fadeOut = 0.3;
+      }
       this.set(actor, "rotation", 0, at, 0.6, "backOut");
       return this.set(actor, "y", Math.round(l.y ?? this.groundY(actor, at)), at, 0.6, "backOut");
     }

@@ -623,6 +623,44 @@ export const ActionSchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...At,
     ...ActorRef,
+    action: z.literal("fall"),
+    side: z.enum(["back", "front"]).optional().describe('"back" (default): lands on the back, face up; "front": face down'),
+    duration: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Seconds from the hit until the hips touch the ground (default 0.85 thrown, 0.45 tripping in place); the shoulders slap down, the bounce and the settle take about 0.6 s more"),
+    distance: z
+      .number()
+      .min(0)
+      .optional()
+      .describe("How much farther the hips land than a plain fall's, in scene px, along the throw (default 0.5 × the standing height when thrown `from` someone — the hips land about 0.9 × the height away —, else 0: tripping in place)"),
+    from: z.string().optional().describe("An actor the body is thrown away from (the one who hit it): sets the way it travels (default: backwards for a fall on the back, forwards face down)"),
+    height: z.number().min(0).optional().describe("How high the falling body rises over its standing height before dropping, in scene px (default 0.15 × the standing height when thrown, else 0)"),
+    spin: z.boolean().optional().describe("A full turn in the air before landing (a cartoon gag; default false)"),
+    clip: z
+      .union([z.string(), z.null()])
+      .optional()
+      .describe('Clip of the limbs in the air, played once at the speed that ends it as the hips touch down, its last pose held (default "knocked" when the rig has it and the fall is on the back); null for none'),
+    pose: z
+      .union([z.string(), z.null()])
+      .optional()
+      .describe('Clip of the body lying, from the moment the hips touch down until `getUp`: played once and held (a loop keeps looping); it should start where `clip` ends (default "down" when the rig has it and the fall is on the back); null for none'),
+    squash: z.boolean().optional().describe("Squash flat on landing and stretch on the bounce (default true)"),
+  }),
+  z.strictObject({
+    ...At,
+    ...ActorRef,
+    action: z.literal("getUp"),
+    duration: z.number().positive().optional().describe("Seconds from lying to standing (default 1.2): the first half sits up about the hips into a crouch, the second stands"),
+    clip: z
+      .union([z.string(), z.null()])
+      .optional()
+      .describe('Clip of the limbs getting up, played over `duration` (default "rise" when the rig has it); null for none: the lying pose just lets go'),
+  }),
+  z.strictObject({
+    ...At,
+    ...ActorRef,
     action: z.literal("mount"),
     on: z.union([z.string(), z.null()]).describe("Actor to ride (a bicycle, a horse…): this actor follows its anchor, rotation and facing; null gets off"),
     anchor: z.string().optional().describe('Anchor of the ridden actor that carries this one (default "seat")'),

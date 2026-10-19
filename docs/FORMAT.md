@@ -123,6 +123,13 @@ other way):
 | `inheritRotation` | boolean | true | |
 | `inheritScale` | boolean | true | |
 
+**Conventional bones.** A top-level bone named `ground` carries what stays on the floor under the
+character — its shadow: the body's moves leave it where it is, but the actor's own placement turns it
+with everything else, so a `fall` (3.3) fades out the parts drawn only on it while the body is off its
+feet and back in once it is up again. A bone named `neck` is the one a `fall` bends so the head lines
+up with the spine lying down (and lifts a big head off the floor); without one it bends the `head`
+anchor's bone (2.6).
+
 ### 2.5 `parts`
 
 Visual elements bound to bones. **Draw order = array order** (later parts are on top), unless
@@ -207,6 +214,9 @@ Named points attached to bones, used by the script (`lookAt` targets, `grab`, sp
 ```
 
 `at` is in setup space. If a character has a `head` anchor, other actors looking at it aim there.
+A body lying down (`fall`, 3.3) lays its spine — from the `hip` anchor (the hip joint; default the
+middle of the first joints of the leg IK chains, the chains standing on the floor) to the `head`
+anchor — flat on the floor.
 A rig with a pose control named `side` (`right` / `left`) gets it from the actor's facing every frame
 (`left` when the actor is mirrored): use it to keep asymmetric details on the same side of the body.
 A held prop is drawn just above its holder, and the parts on the holding anchor's bone (the hand)
@@ -289,6 +299,14 @@ the director's 3D reaches go (a hand taking something from the mouth, holding it
 `keepOut: [{ bone, at, radii }]` are ellipsoids (posed with their bone) a reached hand never goes into
 (the torso, the head — the kit's cartoon rigs make them from the drawn volumes, the cranium with its
 hair, the face and the torso, grown by a hand's half thickness).
+A body lying down (`fall`, 3.3) is measured with them as drawn in the actor's view: the `torso`
+ellipsoids and the arms hanging at rest (the `clear` arms, `torsoGap` round them, twice that at the
+shoulder) — their reach behind the spine (in front of it, face down) is how high the spine lies above
+the floor, and where they stick out more towards the head the head end is raised so they rest on it
+— and the head's `keepOut` (on the `head` anchor's bone) how far a big head reaches past them,
+lifted by the neck, then by raising the head end of the body more, so nothing sinks into the floor.
+Lying turns the drawn view onto its back: from the side the floor is behind the body; from three
+quarters or the front it is the near side, where the near arm lies along the body.
 
 **Torso clearance.** With `torso` (ellipsoids on bones, like `keepOut`: the torso as drawn) and
 `torsoGap` (an arm's half width, rig units), a far arm never lies along the torso's outline in the
@@ -307,31 +325,50 @@ frames. A band wider than 36° (neither way near) fades out of the rule.
 stages. An arm is a `chains` entry whose last bone and that bone's 3D parent make a two-bone limb
 that is not a leg; the keep-outs it is kept off are those on bones that are neither an ancestor of
 the limb's root (the torso's keep-out is on `body`, which the shoulder hangs from: left out) nor in
-the limb itself (in practice the head's: the cranium with its hair, the face). *In 3D (always):* the
-hand (the last bone's tip) and the forearm (its middle) are tested; with q the normalised distance
-from an ellipsoid (1 on its surface), a point with q < 0.98 is inside — one on the surface (a hand
-resting on the face) is left alone; a point inside is moved along the ellipsoid's normal to q = 0.982,
-the hand target becomes `hand + Δhand + Δforearm × |hand − shoulder| / |forearm − shoulder|` put back
-at the hand's distance from the shoulder (the arm swings out keeping its bend), and the limb is solved
-again with the elbow bending the way it bends in the pose, up to six times; a hand behind the head is
-pushed out too. *In the picture:* a cartoon has no depth, so a forearm between the camera and the face
-hides it. Each keep-out is projected to the picture (its outline ellipse); the forearm — elbow → hand,
-the hand included — must stay outside every outline by a normalised distance of 1.02. If it does not,
-the upper bone is turned by the least amount that clears it, searched in 2° steps and bisected to the
-outline (at most 30° per channel): in views facing the camera (|sin yaw| < 0.5) its `spread` outward
-first (the hand away from the body's middle — the other way if that covers more of the face at once),
-then its `rotation`; in views from the side its `rotation` only — towards overhead when the hand is
-above the middle of the head's outline, towards hanging when below; if that way cannot clear within
-30°, the other way, else as far as the first way goes. Then the 3D stage runs again (the correction
-never puts the arm into the head). The correction is a function of the pose and the view: continuous,
-except that an arm swept up across the face switches from under the chin to over the head (a jump)
-where the hand passes the head's middle. *Who is kept clear in the picture:* direct poses (`set`
+the limb itself (in practice the head's: the cranium with its hair, the face, the nose). *In 3D
+(always), the whole arm:* with q the normalised distance from an ellipsoid (1 on its surface), a point
+with q < 0.98 is inside — one on the surface (a hand resting on the face) is left alone. First the
+upper arm, sampled from `SHOULDER_UNDER` (0.5: its shoulder's end is drawn under the head whatever the
+pose) to the elbow: when a sample is inside, the whole arm turns rigidly about the shoulder (the elbow
+keeps its bend) along the great circle the samples' way out leads (their normals across the arm,
+weighted by depth and by how far out along the arm — a continuous direction, so an arm swept through a
+big head slides round it, up beside it), by the least angle (2° steps, bisected) that brings every
+sample out to q = 0.982. Then the forearm (at 0.25, 0.5, 0.75 of it) and the hand (the last bone's
+tip): a point inside is moved along the ellipsoid's normal to q = 0.982, the hand target becomes
+`hand + Δhand + Δforearm × |hand − shoulder| / |forearm point − shoulder|` (the deepest forearm sample)
+put back at the hand's distance from the shoulder (the arm swings out keeping its bend), and the limb
+is solved again with the elbow bending the way it bends in the pose, up to six times; both stages run
+again once if the hand's push swung the elbow back in. *In the picture:* a cartoon has no depth, so an
+arm between the camera and the face hides it, and a hand behind the head is lost. Each keep-out is
+projected to the picture (its outline ellipse, grown by `torsoGap`, the arm's half width); the arm must
+stay outside every outline by a normalised distance of 1.1 — the upper arm from `SHOULDER_UNDER` to
+the elbow and the forearm where they are in front of the head's middle along the line of sight (the
+diameter conjugate to it: behind it the head hides them — a far arm raised behind the head shows from
+behind it), and the forearm and the hand (0.2 of the forearm past the wrist) wherever they are (never
+lost behind the head, never seen sticking out of the face); parts that show in the pose as it came
+count wherever they are moved to (an arm drawn over the head is moved off it, never tucked behind it).
+If it does not, the upper bone is turned by the least amount that clears it (2° steps up to 135°,
+bisected to the outline) along one of four ways, each taken in body space (the way an arm goes never
+switches with the view): its `rotation` forward (round the face in front, or down under the chin) or
+back (behind the head: it costs 30° more — an arm goes round the face in front sooner than it folds
+back behind the head), its `spread` out to its own side or in. Each way's cost is how far the hand's
+direction from the shoulder turns; the cheaper way of the channel that turns the arm in the picture
+(facing the camera, |sin yaw| < 0.5, the spread; from a side the rotation) is taken, else the other
+channel's. In a scene the way and the turn are carried from frame to frame (`CharacterInput.face`,
+the actor's bake steps through the scene in smooth time — the physics bake's steps, or 60 a second for
+an actor without springs): the kept way holds while it clears and the other way of its channel is not
+cheaper by 45°, and the turn changes by at most 1080° a second, so a raised arm never flips from side
+to side as it moves and one going round to the other side crosses quickly, never jumps (evaluated on
+its own, a pose takes the cheaper way). Then the 3D stage runs again (the correction never puts the
+arm into the head). *Who is kept clear in the picture:* direct poses (`set`
 tracks, a director's FK rotations) and clips marked `clear` (2.11). Authored clips are not: the
 correction of each arm a clip moves is scaled by 1 − the largest weight of the playing clips without
 `clear` that move it — a playing wave or drink is left exactly as authored, and as it fades out over
 a direct pose the correction fades in (continuous). The 3D stage applies to everything. A chain may say `tip: true` (ranked by the last bone's tip: a hand by its
 wrist), `margin` and `behind: "<solid part>"`: drawn behind the body when that tip is hidden by the
-solid's occluders (a hand behind the hips).
+solid's occluders (a hand behind the hips) — by something other than its own limb: occluders on the
+chain's own bones (its arm as an occluder in the other arm's solid) always have the wrist inside them
+and are left out, so a hand thrust out in front of the chest stays in front, frame after frame.
 
 ### 2.7 `ik`
 
@@ -428,10 +465,14 @@ Each behavior has a `behaviors.<id>.mix` channel (default 1).
 ```
 
 - `clear` (boolean, default `false`): on a 2.5D rig, the engine keeps the arms this clip moves clear of
-  the face in the picture (the picture-space face clearance, 2.6b). Off by default: a clip is authored
-  motion and its arms are left where it puts them (the 3D keep-out of the head still applies).
-- `duration` (s), `loop` (default `false`), `stride` (px of travel per cycle for locomotion
-  clips; used by `walkTo` to avoid foot sliding).
+  the head in the picture (the picture-space face clearance, 2.6b): never over the face or the hair,
+  never lost behind the head. Mark every clip whose hands never go to the face (a cheer, a jump, a
+  wave beside the head, a punch); leave it off where the contact is the intent (a drink, a facepalm, a
+  phone at the ear). Off by default: a clip is authored motion and its arms are left where it puts them
+  (the 3D keep-out of the head still applies: the whole arm stays out of it).
+- `duration` (s), `loop` (default `false`), `stride` (px: the body's travel per cycle for
+  locomotion clips — the planted foot's speed × `duration`; with flights, a run's cycle, more than
+  the planted feet's own travel; used by `walkTo` to avoid foot sliding).
 - `tracks`: `channel → keyframes`. A keyframe is `[t, value]`, `[t, value, ease]` or
   `{ "t": …, "v": …, "ease": … }`, sorted by `t`.
 - **The `ease` of a key shapes the segment arriving at that key.**
@@ -613,8 +654,10 @@ Actions are compiled into clip instances and tracks before rendering.
 | `play` | `clip`, `duration?`, `loop?`, `speed` (1), `fadeIn` (0.2), `fadeOut` (0.2), `layer` (0), `blend` (`override` \| `additive`), `weight` (1) | Plays a character clip |
 | `set` | `channel` (character channel or `x`, `y`, `flip`, …), `value`, `duration` (0), `ease` | Animates one channel to a value, from where it is then: a change under way is taken over (what it still planned is dropped), so a new move never jumps. With `duration` 0 the value steps in at `at` (at `at: 0`, on frame 0), replacing a step already there; a ramp ending at `at` still ends there first. On a `parts.<id>.variant` channel a `set` wins over the pose controls' variant until a `set` of `null` lets go (a blink closing the eyes over an emotion's eyes, then giving them back) |
 | `pose` | `control`, `value`, `duration` (0.3), `ease` | Shortcut for `set controls.<control>`: cross-fades the pose weights from where they are, taking over a change under way |
-| `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction. It takes over a move under way (on both axes) from where the actor is, like `set` |
+| `walkTo` | `x`, `y?`, `duration` or `speed` (px/s, 220), `clip` (`"walk"`), `ease?` | Moves the actor with a smooth accelerate–cruise–decelerate profile, plays the locomotion clip stride-matched (`stride × actor scale`, no foot sliding) and faces the direction. On a 2.5D rig the match is in the picture: the steps, taken in the body's side plane, are drawn \|sin yaw\| as long in its view (the three-quarter `profile`: 0.59, `side`: 1), so the clip plays that much faster — the mean of \|sin yaw\| over the walk's cruise, read once the whole script is in (a turn round through the in-between views or a run's travel view keyed after the walk starts count; the heaviest view while views blend), never under 0.35 (walked across the picture facing the camera, the legs would otherwise whirl); an unkeyed `view` counts as the control's default (`profile`). The rate this comes to is capped at 1.3 × the clip's natural rate — or at the rate the speed alone asks for, when that is already faster — so the legs never whirl: what the cap leaves out shows as a little slide. It takes over a move under way (on both axes) from where the actor is, like `set` |
 | `face` | `direction` (`left` \| `right`) | Flips the actor |
+| `fall` | `side` (`back` \| `front`), `from?` (actor id), `distance?`, `height?`, `duration?`, `spin` (false), `clip?` (`"knocked"`), `pose?` (`"down"`), `squash` (true) | Knocks the actor down onto its back (face up) or front: thrown away from `from` — up on an arc, `distance` px farther than a plain fall — or tripping where it stands, the hips landing first, the shoulders slapping down, one bounce, a settle; lying until `getUp`. See below |
+| `getUp` | `duration` (1.2), `clip?` (`"rise"`) | Brings a fallen actor back up on its feet: sitting up about the hips into a crouch, then standing. See below |
 | `lookAt` | `target` (actor id, prop id, `[x, y]` scene point, or `null`), `control` (first `aim` control) | Aims eyes/head until the next `lookAt`; target changes blend smoothly (0.35 s) and moving targets are tracked |
 | `mount` | `on` (actor id, or `null` to get off), `anchor` (`"seat"`), `point` (this actor's point, character space, placed on the anchor; default the origin — e.g. the hip joint), `duration` (blend, 0.3), `behind?` (part ids), `facing?` (`"ridden"` / `"own"`) | Rides another actor (a bicycle, a horse, a chair): this actor's `point` follows the ridden actor's **posed** anchor every frame, with its rotation added and its facing (`facing: "own"` keeps this actor's own: seated on furniture drawn turned, facing the way the seat is turned, not the way its unflipped drawing faces); its own `x`/`y` are kept for when it gets off (blended back over `duration`). Parts in `behind` are drawn just under the ridden actor (the far leg behind a bicycle's frame) |
 | `reach` | `chain` (IK chain id), `target` (`{ actor, anchor }`, `[x, y]` scene point, or `null`), `duration` (blend, 0.3) | Holds an IK chain's tip on another actor's anchor, followed every frame (feet on turning pedals, hands on a handlebar), or on a scene point (feet on the floor while sitting); `null` lets go. The chain's mix is raised to the blend weight. A reach taking over a blend under way continues from where the hand is, no jump (from the point and weight the blend had reached). With `animation.arcs` (3.8) the blend travels along an arc away from the chain's root instead of a straight line. On a 2.5D rig a chain of 3D bones (an arm) is reached in 3D (2.6b): the target on the plane through the shoulder parallel to the picture, the arm's channels blended with the pose's by the blend weight; a target inside the head is moved out of it (the face clearance) |
@@ -630,6 +673,56 @@ Actions are compiled into clip instances and tracks before rendering.
 | `shake` | `duration` (0.5), `amount` (px, 10), `frequency` (Hz, 12) | Seeded camera shake |
 | `sound` | `audio`, `volume` (1) | Plays a sound effect |
 | `light` | `channel` (lighting channel), `value`, `duration` (0), `ease` (`sineInOut`) | Animates lighting (sunrise, lamp switching on, flash) |
+
+**Knock-downs (`fall`, `getUp`).** A fall moves the whole actor — its `x`, `y`, `rotation` (and,
+landing, `scale`) placement channels, taking over what they had planned (a walk under way: its clip
+fades out in 0.12 s and the body carries the walk's speed on, dying away) — never a bone: a 2.5D rig
+re-projects its 3D bones every frame and would cancel a turned root. The body turns about its feet
+to lying (`lyingPose`, API): the spine from the hip joint to the head anchor flat (2.6), the point of
+the back (or the belly) at the hip joint resting exactly on the floor — the floor being where the feet
+were (on a ground surface, 3.6, the height above it) — in both facings and at any scale.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `side` | `back` | `back`: lands face up, travelling backwards; `front`: face down, forwards |
+| `from` | none | An actor it is thrown away from (the hitter): sets which way it travels |
+| `distance` | 0.5 × the standing height with `from` (the hips land about 0.9 × the height away), else 0 | How much farther than a plain fall the hips land (scene px). With neither `distance` nor `height` the actor trips where it stands; lying, the head is another ~0.6 × the height beyond the hips — leave room |
+| `height` | 0.15 × the standing height when thrown, else 0 | How high the body rises over its standing height before dropping (scene px) |
+| `duration` | 0.85 thrown, 0.45 tripping | Seconds from `at` until the hips touch the ground |
+| `spin` | false | A full turn in the air (a gag), taken off the instant the hips land |
+| `clip` | `"knocked"` (on the back, when the rig has it) | The limbs in the air: played once, at the speed that ends it as the hips touch down, its last pose held. `null`: none |
+| `pose` | `"down"` (on the back, when the rig has it) | The body lying, from the moment the hips touch down until `getUp`: played once and held (a loop keeps looping). It should start where `clip` ends (they crossfade over 0.1 s). `null`: none |
+| `squash` | true | Squash flat on landing, stretch on the bounce |
+
+Timing (thrown, `duration` D): for the first two frames the body barely turns (the impact: the head
+whips back first, in the clip), then it snaps back about its feet, sliding — fastest right after the hit — and after a fifth of D
+leaves the floor: the back's resting point flies a ballistic arc (up `height`, a hang at the top,
+faster and faster down) and touches the floor at D with the body turned to 75° of the lying angle
+(the hips first); the shoulders and the head slap down over the next 0.07 s (t², gravity), the hips
+skid 0.15 s to a stop, the body bounces once (6% of the standing height, 0.26 s; 3.5% and 0.2 s
+tripping) rocking 6° (4°) up at the shoulders, a second tiny bounce, and settles 0.6 s after landing.
+Tripping, the point drops straight, faster and faster, while the body tips over slowly then quicker
+and quicker, the hips sitting down half their height behind the feet. Without a flight clip the
+whole back lands at once. The `neck` (2.4) bends as the back slaps down so the head lines up with the
+spine; a head reaching farther out of the back than the torso is lifted by the neck (chin towards the
+chest; on a 2.5D rig its `rotation` and `spread` split by the view's yaw so the head turns the same
+in the picture from any side) and what is left by raising the head end of the body (2.6b). The parts
+drawn only on the `ground` bone (the shadow) fade out as the feet leave the floor. Lying, `face` and
+`walkTo` are errors (they would mirror or drag the body), as are a second `fall` and a fall while
+riding (`mount` off first).
+
+`getUp` brings the body back up over `duration` in two halves. First it sits up: the body turns
+upright about the hip joint — the back leaving the floor, the hips then rising as the weight rolls
+forward onto the feet — while the bone the legs hang from (`hipBone`, API: the shared parent of the
+leg IK chains, `hips` on the kit's rigs) is lowered (its `y` channel) just enough that the feet
+slide in under the body without going into the floor, so it ends upright in a deep crouch (at most
+half the hip height) over its feet. Then it stands: the hips rise over the planted feet, a little
+past and back. A rig without such a bone turns back up about its feet instead (up through upright
+to a few degrees past it and back, its origin lifted so the lying back never goes into the floor).
+The neck straightens over the first half and the shadow comes back over the last 30%. Its `clip`
+(default the rig's `rise`) is played over the whole move, crossfading out of the lying clip and, at
+its end, back into whatever plays under it; `null` lets the lying pose go over the first 55% instead.
+Up again, the actor is free to `face`, walk or fall again.
 
 **Hung props.** `hang: { point?, length?, damping?, limit?, gravity? }`:
 

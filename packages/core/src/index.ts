@@ -17,6 +17,7 @@ export * from "./lighting";
 export * from "./fx";
 export * from "./camera";
 export * from "./surface";
+export { type LyingOptions, type LyingPose, groundParts, hipBone, lyingPose } from "./fall";
 export * from "./transitions";
 export * from "./sequence";
 export * from "./debug";

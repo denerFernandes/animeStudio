@@ -27,6 +27,7 @@ Prefer high-level actions over raw tracks:
 | Gesture | `play` a clip with `duration`, `fadeIn`/`fadeOut` |
 | Camera | `camera` (`x`, `y`, `zoom`) with `duration`; `shake` for impacts |
 | Physics | props with `body`, then `impulse`, `grab`, `release` |
+| Knock someone down | `fall` (`from` the hitter: thrown back on an arc; without it: tripping where they stand), later `getUp` |
 
 Rules of thumb for fluid results:
 
@@ -36,6 +37,12 @@ Rules of thumb for fluid results:
 - Use `lookAt` before and during dialogue — characters looking at each other reads as alive.
 - Keep camera moves slow (`duration ≥ 1`) and use `sineInOut` (the default).
 - Never put two `walkTo` actions for the same actor in overlapping time ranges.
+- A punch that lands: the hitter `play`s `punch`, the target `fall`s `from` the hitter at the moment
+  the fist lands (0.28 s into the kit's `punch`). Never fake a fall with `set` on `rotation` / `y`
+  or with `bones.root` / `bones.hips` rotations: `fall` turns the whole actor so the back lands on
+  the floor from any view and facing, plays the kit's `knocked` / `down` limbs, hides the shadow and
+  keeps them down (no `face` or `walkTo`) until `getUp`. Hold the K.O. at least 1.5 s before `getUp`
+  (1.2 s by default: it sits up into a crouch, then stands — leave it room before the next beat).
 
 ### Cartoon effects and camera
 
@@ -194,6 +201,17 @@ Lessons from converting a 66-shot storyboard into an episode:
   sneaking up on someone → `sneak`; showing off → `strut`; exhausted, sad, late at night →
   `tired`; parade, determined → `march`; fleeing a monster → `scaredRun`. They shape the hands
   themselves (fists for strut/march, open for the others).
+- Runs are real cartoon runs: both feet leave the ground between the steps, the body dips at
+  mid-stance and the heel kicks up behind, so the body travels much farther per cycle than a walk
+  (`stride` on the clip). Give a run room and speed: at its natural speed (`stride / duration`, the
+  director's default) a kit run crosses about two leg lengths a cycle; much slower and it plays in
+  slow motion, much faster and the legs blur. `scaredRun` is a panic sprint (a faster cadence,
+  leaning hard in, the arms flung up and out, hands open) — use it for fleeing, not for a hurry.
+  A character in a `skirt` or `longSkirt` runs in it (shorter steps, less knee and heel, a long
+  skirt a quick shuffle): don't expect a sprinter's stride from them. In a plain scene, `walkTo`
+  already plays a 2.5D rig's legs faster in a three-quarter view so the planted feet stay put (up to
+  1.3× the clip's natural rate: past that the feet slide a little rather than whirl); a run reads
+  best side-on (`q64`, `side`).
 - 2.5D rigs (`rig3d`): limbs that can point at the camera (a seated lap, feet) read
   only as volumes. Flat hoses and hulls turned towards the camera become shapeless blobs, however
   they are tuned: make them a `solid` part (cones on the 3D bones, cel shaded, composited by depth)

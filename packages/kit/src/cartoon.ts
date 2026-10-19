@@ -152,6 +152,12 @@ const VIEWS = {
   q112: deg(112), away: deg(135), q158: deg(158), back: Math.PI,
 } as const;
 type ViewKey = keyof typeof VIEWS;
+/**
+ * The drawn angles a raised arm is kept beside the head in by its gesture (`gestures3d`): those facing
+ * the camera, three-quarters and turned away. (From nearer a side the near arm points at the camera —
+ * over a big head whatever its angle — and the engine's picture-space face clearance opens it out.)
+ */
+const BESIDE_VIEWS = [VIEWS.front, VIEWS.half, VIEWS.q24, VIEWS.profile, VIEWS.q50, VIEWS.away, VIEWS.q158, VIEWS.back];
 const SUFFIX: Record<ViewKey, string> = { front: "F", half: "H", q24: "T", profile: "", q50: "U", q64: "V", q77: "W", side: "S", q112: "X", away: "A", q158: "Y", back: "K" };
 
 const r = (n: number) => Math.round(n * 100) / 100;
@@ -273,6 +279,8 @@ interface Model {
   head: Sdf;
   /** The ellipsoids the head (cranium and face) is blended from: [centre, radii] — its occluder. */
   headParts: [V3, V3][];
+  /** The nose's ellipsoids (on the face; part of `head`). */
+  noseParts: [V3, V3][];
   ears: Sdf;
   hair: Sdf;
   /** The hair as styled, before a hat, a veil or something behind an ear: its bulk round the head. */
@@ -377,7 +385,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     nose: hy + u * F.noseY, mouth: hy + u * F.mouthY, ear: hy + u * F.earY, top: hy - u * 1.14,
   };
 
-  // Head: a cranium and a face (jaw), blended (its ellipsoids kept: the head's occluder).
+  // Head: a cranium and a face (jaw), blended, and a nose (its ellipsoids kept: the head's occluder).
   const headParts: [V3, V3][] = [];
   const hell = (c: V3, rad: V3) => (headParts.push([c, rad]), ellipsoid(c, rad));
   const cranium = hell([0, hy - u * 0.12, -u * 0.08], [u, u * 1.02, u]);
@@ -393,8 +401,12 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
   const noseKind = look.nose ?? "button";
   // (A long nose has a bridge up from its tip.)
   const ns: V3 = [u * F.nose[0], u * F.nose[1], u * F.nose[2]];
-  const tip = ellipsoid([0, y.nose, zn + u * F.noseOut], ns);
-  const nose = noseKind === "long" ? blend(u * 0.06, ellipsoid([0, y.nose - u * 0.16, zn], [ns[0] * 0.78, u * 0.26, ns[2]]), tip) : tip;
+  // (Its ellipsoids kept too, `noseParts`: the head's occluder and keep-outs reach the tip of the nose —
+  // an arm ahead of the face in profile clears the nose, and one behind the head stays behind it.)
+  const noseParts: [V3, V3][] = [];
+  const nell = (c: V3, rad: V3) => (noseParts.push([c, rad]), ellipsoid(c, rad));
+  const tip = nell([0, y.nose, zn + u * F.noseOut], ns);
+  const nose = noseKind === "long" ? blend(u * 0.06, nell([0, y.nose - u * 0.16, zn], [ns[0] * 0.78, u * 0.26, ns[2]]), tip) : tip;
   const head = blend(u * 0.05, skullFace, nose);
   const ears = union(ellipsoid([-u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]), ellipsoid([u * 0.98, y.ear, -u * 0.06], [u * 0.17, u * 0.3, u * 0.23]));
 
@@ -739,7 +751,7 @@ function model(look: CartoonLook, mirror = false, a: CartoonAnatomy = cartoonAna
     if (look.stubble && z > -u * 0.1 && nose(x, yy, z) > u * 0.02 && (yy > y.mouth + u * 0.1 || (yy > y.nose + u * 0.16 && yy < y.mouth - u * 0.06 && Math.abs(x) < u * 0.34))) return "stubble";
     return "skin";
   };
-  return { shade, sh, style, b, y, head, headParts, headColor, ears, nose, hair, bulk, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
+  return { shade, sh, style, b, y, head, headParts, noseParts, headColor, ears, nose, hair, bulk, hairColor, tail, torsoItem: item, bouncy: ["perm", "afro", "puffs", "long", "braids"].includes(look.hair), veil: !!look.veil, neck, neckR, torso: union(torsoCut, ...(item ? [item] : []), ...(sweater ? [sweater] : [])), torsoColor, skirt, skirtColor, eye, mouthW: Math.min(u * F.mouthW, frontHalf(head, y.mouth, u) * 0.82), mouthMargin: F.mouthMargin, pupil: F.pupil, chinRoom: chinBottom(head, y.mouth, u) - y.mouth - u * 0.1 };
 }
 
 /**
@@ -763,8 +775,9 @@ function torsoKeepOut(m: Model, margin: number): [V3, V3] {
  * The head as a hand keeps out of it (body space, at rest): the cranium with the hair's bulk round it
  * — one ellipsoid fitted to both (the hair above the jaw: a fall down the back does not count), a
  * little bigger where the box's corners leave hair out (at most 5 %) — then the face's own
- * ellipsoids (jaw, chin), each grown by `margin` (a hand's half thickness). Built from the model, so
- * it is the head as drawn for any anatomy (a big head, a perm, a bun).
+ * ellipsoids (jaw, chin), each grown by `margin` (a hand's half thickness), and the nose's as they are
+ * (it stands out of the face in profile). Built from the model, so it is the head as drawn for any
+ * anatomy (a big head, a perm, a bun, a long nose).
  */
 function headKeepOut(m: Model, margin: number): [V3, V3][] {
   const u = m.b.u;
@@ -786,7 +799,9 @@ function headKeepOut(m: Model, margin: number): [V3, V3][] {
   for (const p of hair) k = Math.max(k, Math.hypot((p[0] - c[0]) / rad[0], (p[1] - c[1]) / rad[1], (p[2] - c[2]) / rad[2]));
   k = Math.min(k, 1.05);
   const grown = (r3: V3, s = 1): V3 => [r3[0] * s + margin, r3[1] * s + margin, r3[2] * s + margin];
-  return [[c, grown(rad, k)], ...face.map(([fc, fr]): [V3, V3] => [fc, grown(fr)])];
+  // (The nose as drawn: a hand resting on the face — over the eyes, at the mouth — sits in front of it,
+  // not a hand's thickness off it.)
+  return [[c, grown(rad, k)], ...face.map(([fc, fr]): [V3, V3] => [fc, grown(fr)]), ...m.noseParts];
 }
 
 // ------------------------------------------------------------------ drawing a view
@@ -1677,6 +1692,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     hipB: joint("hipB", hx, m.y.hip), kneeB: joint("kneeB", hx, m.y.hip / 2, 6), footB: joint("footB", hx, -ankle),
   };
   const eyeMid = project([0, m.y.eye, u * 0.9], vh("profile"));
+  // Hip to ankle (the gaits' crouch, knee lift and heel kick are fractions of it).
+  const legLen = r(Math.abs(j.footF[1] - j.hipF[1]));
 
   const views = Object.fromEntries((Object.keys(VIEWS) as ViewKey[]).map((v) => [v, { head: headView(m, vh(v)), body: bodyView(m, look, vw(v)), face: faceView(m, look, vh(v)) }])) as Record<ViewKey, { head: HeadView; body: ReturnType<typeof bodyView>; face: ReturnType<typeof faceView> }>;
 
@@ -1778,7 +1795,7 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
   // the neck (`headAngle`), its chin a little lower than the volume's at the room's pitch — so the
   // volume grows by the outline and by that difference (the face's depth × the pitch left out).
   const grow = SW + u * 0.9 * Math.abs(Math.sin(pitch) - Math.sin(pitch * HEAD_PITCH)) + u * 0.02;
-  const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: m.headParts.map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v + grow)) })) };
+  const headOccluder = { blend: r(u * 0.2), over: r(u * 4), shapes: [...m.headParts, ...m.noseParts].map(([c, rad]) => ({ from: { bone: "head", at: [r(c[0]), r(c[1] - m.y.neckTop), r(c[2])] }, ellipsoid: rad.map((v) => r(v + grow)) })) };
   // The jaw a gape drops: a 3D bone from a hinge at the back of the head (at the mouth's height) to
   // the chin, nothing drawn on it (the dropped jaw is a morph of the face: `gapeView`). Turned by the
   // `jaw` control and the `gape` emotion (`JAW_TURN`° a weight), it takes this occluder down with
@@ -2024,17 +2041,22 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
     clips: fluid({
       ...characterClips({
         walk: { a: r(26 * (b.L / 200)), lift: r(16 * (b.L / 200)), dur: 0.62, bob: 4, lean: 2, armSwing: 24 },
-        run: { a: r(46 * (b.L / 200)), lift: r(28 * (b.L / 200)), dur: 0.42, bob: 8, lean: 8, armSwing: 56 },
+        // A cartoon run (`gait` flight): a third of the cycle in the air, long steps (0.3 of the leg
+        // each way while planted: about two legs of travel a cycle), a deep down, the heel kicked up
+        // behind, a runner's arms; 18 frames a cycle at 30 fps.
+        run: { a: r(0.3 * legLen), lift: r(0.14 * legLen), dur: 0.6, bob: r(0.055 * legLen), lean: 12, armSwing: 44, crouch: 0.1, flight: 0.34, heel: 0.45, knee: 0.4, paw: 0.15, armStyle: "run" },
         jump: 80,
         hands: true,
-        leg: r(Math.abs(j.footF[1] - j.hipF[1])),
+        leg: legLen,
         foot: r(30 * b.shoe),
+        // (A skirt's runs are cut to it: `skirtRun`.)
+        ...(look.bottom === "skirt" ? { skirt: "short" as const } : look.bottom === "longSkirt" ? { skirt: "long" as const } : {}),
       }),
       ...humanClips(),
     }),
   };
   (doc as { palette: Record<string, string> }).palette = withTones(doc.palette, style.ink ? { ink: style.ink } : {});
-  gestures3d(doc as never, { u, top: m.y.top, head: m.y.head, sh: j3.shoulderF[1], sx: -j3.shoulderF[0], T: b.T, W: b.W, hip: m.y.hip, D: b.D, arm: armLen });
+  gestures3d(doc as never, { u, sh: j3.shoulderF[1], sx: -j3.shoulderF[0], T: b.T, W: b.W, hip: m.y.hip, D: b.D, arm: armLen });
   return withTurnaround(doc, views, sx, hx, !!tail, headPoints);
 }
 
@@ -2053,8 +2075,8 @@ function buildCartoon(look: CartoonLook, opts: CartoonOptions, style: Required<C
  * would still cross the head (a hand out of reach above a big head, a forearm across the face) the
  * nearest place where the hand, the elbow and the middle of the forearm are all clear of it is used.
  */
-function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head: number; sh: number; sx: number; T: number; W: number; hip: number; D: number; arm: number }) {
-  const { u, top, head, sh, sx, T, W, hip, D, arm } = o;
+function gestures3d(doc: Record<string, any>, o: { u: number; sh: number; sx: number; T: number; W: number; hip: number; D: number; arm: number }) {
+  const { u, sh, sx, T, W, hip, D, arm } = o;
   const P = (n: string): V3 => rig3dPoint(doc as never, {}, n) ?? [0, 0, 0];
   const add = (p: V3, d: V3): V3 => [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
   const sub = (p: V3, d: V3): V3 => [p[0] - d[0], p[1] - d[1], p[2] - d[2]];
@@ -2065,46 +2087,6 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
   const hold = (p: V3): Key[] => [[0, p], [1, p]];
   const visit = (p: V3, a = 0.3, b = 0.7): Key[] => [[0, null], [a, p], [b, p], [1, null]];
   const earHold = add(lerp3(ear, mouth, 0.45), [0, u * 0.3, 0]);
-  // Beside the head, a little above its middle and forward (pushed out of the head as drawn).
-  const up: V3 = [-(sx + u * 0.35), head - u * 0.2, u * 0.35];
-  // `head`: the targets are on the head (they move with its nod); `touch`: the hand rests on it.
-  // `nod`: the head bent forward (degrees) all through the clip — looking down at a phone in the hands;
-  // `down`: the eyes lowered too (the pupils down, the lids half closed: reading a screen from any view).
-  const G: Record<string, { F?: Key[]; B?: Key[]; pole?: (side: number) => V3; body?: [number, number][]; hips?: [number, number][]; duration?: number; head?: boolean; touch?: boolean; nod?: number; down?: boolean }> = {
-    // Using a phone (ergonomics studies: held in front of the lower chest, near the middle, about a
-    // forearm's length from the eyes, the elbow down by the side, the head bent towards it). One hand,
-    // its thumb scrolling (the commonest grip); `textingTwo`: both thumbs typing.
-    texting: { duration: 2.4, nod: 24, down: true, F: [[0, [-sx * 0.05, sh + T * 0.48, T * 0.6]], [0.5, [-sx * 0.05, sh + T * 0.48 - 2, T * 0.61]], [1, [-sx * 0.05, sh + T * 0.48, T * 0.6]]], pole: (sd) => [sd * 0.5, 1, -0.5] },
-    // Carrying a box in both hands in front of the belly, the hands on its sides, the elbows bent.
-    carry: { duration: 1.6, F: hold([-sx * 0.75, sh + T * 0.78, T * 0.55]), B: hold([sx * 0.75, sh + T * 0.78, T * 0.55]), pole: (sd) => [sd, 1, -0.3] },
-    textingTwo: { duration: 1.2, nod: 24, down: true, F: [[0, [-sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [-sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [-sx * 0.2, sh + T * 0.48, T * 0.55]]], B: [[0, [sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [sx * 0.2, sh + T * 0.48, T * 0.55]]], pole: (sd) => [sd * 0.6, 1, -0.4] },
-    // Holding a game controller in both hands, thumbs busy (in front of the belly, elbows in).
-    gamepad: { duration: 1, F: [[0, [-sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [-sx * 0.12, sh + T * 0.55 - 3, T * 0.52]], [1, [-sx * 0.12, sh + T * 0.55, T * 0.5]]], B: [[0, [sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [sx * 0.12, sh + T * 0.56, T * 0.48]], [1, [sx * 0.12, sh + T * 0.55, T * 0.5]]], pole: (sd) => [sd * 0.7, 1, -0.3] },
-    // Leaning over a pool table: the near hand far forward (the bridge), the far one back by the hip
-    // pushing the cue (strokes).
-    cue: { duration: 1.6, body: [[0, 28], [1, 28]], F: hold([-sx * 0.25, sh + T * 0.75, arm * 0.95]), B: [[0, [sx * 0.55, sh + T * 0.9, -T * 0.05]], [0.45, [sx * 0.45, sh + T * 0.85, T * 0.3]], [0.6, [sx * 0.45, sh + T * 0.85, T * 0.3]], [1, [sx * 0.55, sh + T * 0.9, -T * 0.05]]], pole: (sd) => [sd * 0.6, 0.6, -0.6] },
-    // Dancing: hips swaying with a bounce, the hands up in front swinging in turn.
-    groove: { duration: 0.9, body: [[0, -6], [0.5, 6], [1, -6]], hips: [[0, 0], [0.25, 6], [0.5, 0], [0.75, 6], [1, 0]], F: [[0, [-sx * 0.9, sh + T * 0.35, T * 0.45]], [0.5, [-sx * 0.7, sh + T * 0.05, T * 0.5]], [1, [-sx * 0.9, sh + T * 0.35, T * 0.45]]], B: [[0, [sx * 0.7, sh + T * 0.05, T * 0.5]], [0.5, [sx * 0.9, sh + T * 0.35, T * 0.45]], [1, [sx * 0.7, sh + T * 0.05, T * 0.5]]], pole: (sd) => [sd, 0.8, -0.3] },
-    phone: { head: true, F: hold(earHold), pole: (sd) => [sd * 0.5, 1, 0.2] },
-    smoke: { head: true, F: [[0, null], [0.3, add(mouth, [0, u * 0.1, u * 0.35])], [0.55, add(mouth, [0, u * 0.1, u * 0.35])], [0.85, [-sx * 1.1, sh + T * 0.45, T * 0.35]], [1, null]], pole: (sd) => [sd * 0.5, 1, 0.2] },
-    drink: { head: true, F: visit(add(mouth, [0, u * 0.3, u * 0.4]), 0.25, 0.75), pole: (sd) => [sd * 0.5, 1, 0.2] },
-    think: { head: true, touch: true, F: hold(add(mouth, [0, u * 0.35, u * 0.2])), pole: (sd) => [sd * 0.4, 1, 0.3] },
-    facepalm: { head: true, touch: true, F: visit(add(eye, [0, 0, u * 0.25])), pole: (sd) => [sd * 0.5, 1, 0.2] },
-    cry: { head: true, touch: true, F: [[0, add(eye, [-u * 0.25, 0, u * 0.3])], [0.5, add(eye, [-u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [-u * 0.25, 0, u * 0.3])]], B: [[0, add(eye, [u * 0.25, 0, u * 0.3])], [0.5, add(eye, [u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [u * 0.25, 0, u * 0.3])]], pole: (sd) => [sd * 0.6, 1, 0.2] },
-    wave: { head: true, F: [[0, up], [0.5, add(up, [-u * 0.3, 0, 0])], [1, up]], pole: (sd) => [sd, 0.4, -0.2] },
-    scared: { head: true, F: hold(add(mouth, [-u * 0.6, u * 0.5, u * 0.5])), B: hold(add(mouth, [u * 0.6, u * 0.5, u * 0.5])), pole: (sd) => [sd * 0.6, 1, 0.1] },
-    clap: { F: [[0, add(chest, [-sx * 0.2, 0, T * 0.15])], [0.5, add(chest, [sx * 0.25 - 4, 0, T * 0.2])], [1, add(chest, [-sx * 0.2, 0, T * 0.15])]], B: [[0, [sx * 0.45, chest[1], chest[2] + T * 0.15]], [0.5, [sx * 0.25 + 4, chest[1], chest[2] + T * 0.2]], [1, [sx * 0.45, chest[1], chest[2] + T * 0.15]]], pole: (sd) => [sd * 0.6, 1, -0.2] },
-    cheer: { head: true, F: [[0, [-sx * 1.1, top - u * 0.3, u * 0.2]], [0.5, [-sx * 1.15, top - u * 0.1, u * 0.2]], [1, [-sx * 1.1, top - u * 0.3, u * 0.2]]], B: [[0, [sx * 1.1, top - u * 0.3, u * 0.2]], [0.5, [sx * 1.15, top - u * 0.1, u * 0.2]], [1, [sx * 1.1, top - u * 0.3, u * 0.2]]], pole: (sd) => [sd, 0.3, -0.2] },
-    pointUp: { head: true, F: hold([-sx * 0.7, top - u * 0.6, u * 0.25]), pole: (sd) => [sd, 0.3, -0.2] },
-    shrug: { F: visit([-(sx + u * 0.6), sh + T * 0.55, T * 0.45], 0.35, 0.7), B: visit([sx + u * 0.6, sh + T * 0.55, T * 0.45], 0.35, 0.7), pole: (sd) => [sd * 0.4, 1, -0.4] },
-    point: { F: hold([-sx, sh + T * 0.1, arm * 0.9]), pole: (sd) => [sd * 0.3, 1, -0.2] },
-    present: { F: hold([-(sx + arm * 0.5), sh + T * 0.3, arm * 0.6]), pole: (sd) => [sd * 0.3, 1, -0.3] },
-    talk: { F: [[0, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])], [0.5, add(chest, [-sx * 0.6, T * 0.05, T * 0.18])], [1, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])]], pole: (sd) => [sd * 0.5, 1, -0.4] },
-    sing: { F: [[0, [-sx * 0.9, sh + T * 0.25, T * 0.5]], [0.5, [-sx * 1.2, sh + T * 0.1, T * 0.6]], [1, [-sx * 0.9, sh + T * 0.25, T * 0.5]]], pole: (sd) => [sd * 0.5, 1, -0.4] },
-    read: { F: hold([-sx * 0.35, sh + T * 0.4, T * 0.55]), B: hold([sx * 0.35, sh + T * 0.4, T * 0.55]), pole: (sd) => [sd * 0.5, 1, -0.3] },
-    laugh: { F: hold([-W * 0.5, hip - T * 0.3, D + T * 0.1]), B: hold([W * 0.5, hip - T * 0.3, D + T * 0.1]), pole: (sd) => [sd * 0.6, 1, -0.4] },
-  };
-
   // The head's keep-outs as posed, and how far out of them a point is (1: on the surface).
   type Posed = ReturnType<typeof rig3dPose>;
   const mv = (m: number[], v: V3): V3 => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
@@ -2130,10 +2112,180 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
   const rest = rig3dPose(doc as never, {});
   /** A point on the head at rest, where the head is in a pose. */
   const onHead = (pose: Posed, p: V3): V3 => (pose.head && rest.head ? add(pose.head.from, mv(pose.head.rot, sub(p, rest.head.from))) : p);
+  /** A point on the torso at rest, where the torso is in a pose (a lean). */
+  const onBody = (pose: Posed, p: V3): V3 => (pose.body && rest.body ? add(pose.body.from, mv(pose.body.rot, sub(p, rest.body.from))) : p);
+  const unit = (p: V3): V3 => {
+    const l = len(p) || 1;
+    return [p[0] / l, p[1] / l, p[2] / l];
+  };
+  const shoulder = (sd: number): V3 => rest[sd < 0 ? "armF1" : "armB1"].from;
+  const l1 = len(sub(rest.armF1.to, rest.armF1.from)), l2 = len(sub(rest.armF2.to, rest.armF2.from)), reach = l1 + l2;
+  /** The hand `k` of the arm's reach from the shoulder along `dir` (body space, unnormalised). */
+  const along = (sd: number, dir: V3, k = 0.95): V3 => add(shoulder(sd), unit(dir).map((v) => v * k * reach) as V3);
+  // The head as drawn at rest (its keep-outs: the head's rotation is none) and how far a point is out
+  // of its outline in the picture at a view (`yaw`): from the front whatever its depth (an arm level
+  // with the head shows beside it or crosses it), else only where it is in front of the head's middle
+  // there (behind it, the head hides it).
+  const heads = keepOut.map((k) => ({ c: add(rest[k.bone].from, k.at), r: k.radii }));
+  const outline = (p: V3, yaw: number, frontOnly: boolean) => {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    let q = Infinity;
+    for (const h of heads) {
+      const A = (h.r[0] * cy) ** 2 + (h.r[2] * sy) ** 2, C = h.r[1] ** 2;
+      const x = p[0] - h.c[0], z = p[2] - h.c[2], dx = x * cy + z * sy, dy = p[1] - h.c[1];
+      // (The middle of the head along the line of sight there: the diameter conjugate to it.)
+      if (frontOnly && -x * sy + z * cy <= (sy * cy * (h.r[2] ** 2 - h.r[0] ** 2) * dx) / A) continue;
+      q = Math.min(q, Math.hypot(dx / Math.sqrt(A), dy / Math.sqrt(C)));
+    }
+    return q;
+  };
+  // An arm raised beside the head — fists up in a cheer, a wave, arms thrown up in a jump — as a
+  // cartoonist draws it for this anatomy: up and out, opened out from the vertical by the least angle
+  // (`min`° at least) at which the whole arm (the visible upper arm, the elbow, the forearm, the hand)
+  // is clear of the head as drawn — in 3D by a margin, and in the picture from the angles that face
+  // the camera or turn away from it (`BESIDE_VIEWS`): from the front and the back whatever its depth
+  // (level with the head, it shows beside it or crosses it), from a three-quarter view where it is in
+  // front of the head. A small head on long arms raises them nearly straight up, a big head (big hair)
+  // on short arms out wide by its sides — opened out, never folded back over the skull. (Seen from
+  // nearer a side the near arm points at the camera, over a big head whatever its angle: there the
+  // engine's picture-space face clearance opens it out further — the clips are `clear`.) The hand is
+  // `k` of the arm's reach from the shoulder, leaning `fwd` forward (back when negative), the elbow
+  // bent towards `pole`; the far arm mirrors the near one (a symmetric V). `a` is the angle found.
+  const besides = new Map<string, { at: V3; a: number }>();
+  // (The places it makes: the arm travels to and from them round its own side — see the in-betweens.)
+  const raised = new WeakSet<V3>();
+  const beside = (sd: number, o: { k: number; fwd?: number; min?: number; pole: (sd: number, at?: V3) => V3 }): { at: V3; a: number } => {
+    const key = JSON.stringify([o.k, o.fwd ?? 0, o.min ?? 0, o.pole(-1)]);
+    let F = besides.get(key);
+    if (!F) {
+      const S = shoulder(-1), f = o.fwd ?? 0;
+      const target = (a: number) => along(-1, [-Math.sin(deg(a)), -Math.cos(deg(a)), f], o.k);
+      // How clear the arm is (≥ 1: clear by every margin).
+      const clearAt = (a: number) => {
+        // The elbow where a two-bone reach puts it (bent towards the pole).
+        const T = target(a), d = sub(T, S), dl = len(d), dh = unit(d), pl = o.pole(-1, T), pd = pl[0] * dh[0] + pl[1] * dh[1] + pl[2] * dh[2];
+        const ph = unit([pl[0] - dh[0] * pd, pl[1] - dh[1] * pd, pl[2] - dh[2] * pd]);
+        const c = Math.min(1, Math.max(-1, (l1 * l1 + dl * dl - l2 * l2) / (2 * l1 * dl))), sn = Math.sqrt(1 - c * c);
+        const E = add(S, [l1 * (c * dh[0] + sn * ph[0]), l1 * (c * dh[1] + sn * ph[1]), l1 * (c * dh[2] + sn * ph[2])]);
+        let q = Infinity;
+        for (const p of [...[0.5, 0.625, 0.75, 0.875, 1].map((x) => lerp3(S, E, x)), ...[0.25, 0.5, 0.75, 1].map((x) => lerp3(E, T, x))]) {
+          q = Math.min(q, clearance(rest, p) / 1.12);
+          for (const y of BESIDE_VIEWS) {
+            const level = Math.abs(Math.sin(y)) < 1e-6;
+            q = Math.min(q, outline(p, y, !level) / (level ? 1.08 : 1.05));
+          }
+        }
+        return q;
+      };
+      // (Out to level at most: the clearest angle there should none clear the head.)
+      let best = { a: o.min ?? 0, q: -Infinity };
+      for (let a = o.min ?? 0; a <= 95; a += 1) {
+        const q = clearAt(a);
+        if (q > best.q) best = { a, q };
+        if (q >= 1) break;
+      }
+      F = { at: target(best.a), a: best.a };
+      besides.set(key, F);
+    }
+    const at: V3 = sd < 0 ? [...F.at] : [-F.at[0], F.at[1], F.at[2]];
+    raised.add(at);
+    return { at, a: F.a };
+  };
+  // The raising gestures' places. (A raised arm's elbow bends out and down a little, a lowered one's
+  // down and back by the side — in between, as high as the hand is; a waving one's sticks out to the
+  // side, under the hand.)
+  const raisedPole = (sd: number, at?: V3): V3 => {
+    const h = at ? Math.min(1, Math.max(0, (sh - at[1]) / (reach * 0.4))) : 1;
+    return [sd * (0.3 + 0.7 * h), 1 - 0.4 * h, -0.5 + 0.1 * h];
+  };
+  const wavePole = (sd: number): V3 => [sd, 0.9, 0];
+  const cheerLo = (sd: number) => beside(sd, { k: 0.88, fwd: -0.12, pole: raisedPole }).at;
+  // (The pump: the same arm, straighter — as wide, or wider should the straight arm need it.)
+  const cheerHi = (sd: number) => beside(sd, { k: 0.98, fwd: -0.12, min: beside(-1, { k: 0.88, fwd: -0.12, pole: raisedPole }).a, pole: raisedPole }).at;
+  const waveIn = (sd: number) => beside(sd, { k: 0.7, fwd: 0.3, min: 10, pole: wavePole }).at;
+  const waveOut = (sd: number) => beside(sd, { k: 0.7, fwd: 0.3, min: beside(-1, { k: 0.7, fwd: 0.3, min: 10, pole: wavePole }).a + 16, pole: wavePole }).at;
+  const thrownUp = (sd: number) => beside(sd, { k: 0.95, fwd: -0.1, pole: raisedPole }).at;
+  const flail = (sd: number) => beside(sd, { k: 0.95, fwd: -0.05, pole: raisedPole }).at;
+  const danceUp = (sd: number) => beside(sd, { k: 0.88, fwd: -0.05, pole: raisedPole }).at;
+  /** The hands swung back behind the hips (a jump's wind-up). */
+  const swungBack = (sd: number) => along(sd, [sd * 0.25, 0.85, -0.5]);
+  /** Both hands together in front (holding something), `lift` of the way from hanging to level (0: down, 1: straight ahead), the elbows bent (`k` of the reach). */
+  const together = (sd: number, lift: number, k = 0.78) => along(sd, [-sd * 0.12, Math.cos(lift * Math.PI / 2), Math.sin(lift * Math.PI / 2)], k);
+  /** The arm out to the side, low and a little forward (for balance: a landing, a windmill's low point). */
+  const outLow = (sd: number) => along(sd, [sd * 0.75, 0.55, 0.35], 0.92);
+  /** The arms flung up from together in front (a toss's release): apart, up beside the head and a little forward. */
+  const flungUp = (sd: number) => beside(sd, { k: 0.97, fwd: 0.1, pole: raisedPole }).at;
+  /** Wings: the arms out to the sides, down and up. */
+  const wingDown = (sd: number) => along(sd, [sd * 0.65, 0.72, 0.15], 0.93);
+  const wingUp = (sd: number) => along(sd, [sd * 0.92, -0.38, 0.1], 0.93);
+  // `head`: the targets are on the head (they move with its nod); `touch`: the hand rests on it.
+  // `torso`: the targets are on the torso (they lean with it: a body leaning over an edge).
+  // `nod`: the head bent forward (degrees) all through the clip — looking down at a phone in the hands;
+  // `down`: the eyes lowered too (the pupils down, the lids half closed: reading a screen from any view).
+  // Raised arms go up beside the head (`beside`), never across it. `clear`: a new clip whose hands
+  // never go to the face is marked `clear` (the engine keeps its arms off the face in the picture, for
+  // any anatomy and from any angle; the shared clips are marked where they are made, `characterClips`).
+  const G: Record<string, { F?: Key[]; B?: Key[]; pole?: (side: number, at?: V3) => V3; body?: [number, number][]; hips?: [number, number][]; duration?: number; head?: boolean; torso?: boolean; touch?: boolean; nod?: number; down?: boolean; clear?: boolean }> = {
+    // Using a phone (ergonomics studies: held in front of the lower chest, near the middle, about a
+    // forearm's length from the eyes, the elbow down by the side, the head bent towards it). One hand,
+    // its thumb scrolling (the commonest grip); `textingTwo`: both thumbs typing.
+    texting: { duration: 2.4, nod: 24, down: true, F: [[0, [-sx * 0.05, sh + T * 0.48, T * 0.6]], [0.5, [-sx * 0.05, sh + T * 0.48 - 2, T * 0.61]], [1, [-sx * 0.05, sh + T * 0.48, T * 0.6]]], pole: (sd) => [sd * 0.5, 1, -0.5] },
+    // Carrying a box in both hands in front of the belly, the hands on its sides, the elbows bent.
+    carry: { duration: 1.6, clear: true, F: hold([-sx * 0.75, sh + T * 0.78, T * 0.55]), B: hold([sx * 0.75, sh + T * 0.78, T * 0.55]), pole: (sd) => [sd, 1, -0.3] },
+    textingTwo: { duration: 1.2, nod: 24, down: true, F: [[0, [-sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [-sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [-sx * 0.2, sh + T * 0.48, T * 0.55]]], B: [[0, [sx * 0.2, sh + T * 0.48, T * 0.55]], [0.5, [sx * 0.2, sh + T * 0.48 - 2, T * 0.56]], [1, [sx * 0.2, sh + T * 0.48, T * 0.55]]], pole: (sd) => [sd * 0.6, 1, -0.4] },
+    // Holding a game controller in both hands, thumbs busy (in front of the belly, elbows in).
+    gamepad: { duration: 1, clear: true, F: [[0, [-sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [-sx * 0.12, sh + T * 0.55 - 3, T * 0.52]], [1, [-sx * 0.12, sh + T * 0.55, T * 0.5]]], B: [[0, [sx * 0.12, sh + T * 0.55, T * 0.5]], [0.5, [sx * 0.12, sh + T * 0.56, T * 0.48]], [1, [sx * 0.12, sh + T * 0.55, T * 0.5]]], pole: (sd) => [sd * 0.7, 1, -0.3] },
+    // Leaning over a pool table: the near hand far forward (the bridge), the far one back by the hip
+    // pushing the cue (strokes).
+    cue: { duration: 1.6, clear: true, body: [[0, 28], [1, 28]], F: hold([-sx * 0.25, sh + T * 0.75, arm * 0.95]), B: [[0, [sx * 0.55, sh + T * 0.9, -T * 0.05]], [0.45, [sx * 0.45, sh + T * 0.85, T * 0.3]], [0.6, [sx * 0.45, sh + T * 0.85, T * 0.3]], [1, [sx * 0.55, sh + T * 0.9, -T * 0.05]]], pole: (sd) => [sd * 0.6, 0.6, -0.6] },
+    // Dancing: hips swaying with a bounce, the hands up in front swinging in turn.
+    groove: { duration: 0.9, clear: true, body: [[0, -6], [0.5, 6], [1, -6]], hips: [[0, 0], [0.25, 6], [0.5, 0], [0.75, 6], [1, 0]], F: [[0, [-sx * 0.9, sh + T * 0.35, T * 0.45]], [0.5, [-sx * 0.7, sh + T * 0.05, T * 0.5]], [1, [-sx * 0.9, sh + T * 0.35, T * 0.45]]], B: [[0, [sx * 0.7, sh + T * 0.05, T * 0.5]], [0.5, [sx * 0.9, sh + T * 0.35, T * 0.45]], [1, [sx * 0.7, sh + T * 0.05, T * 0.5]]], pole: (sd) => [sd, 0.8, -0.3] },
+    phone: { head: true, F: hold(earHold), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    smoke: { head: true, F: [[0, null], [0.3, add(mouth, [0, u * 0.1, u * 0.35])], [0.55, add(mouth, [0, u * 0.1, u * 0.35])], [0.85, [-sx * 1.1, sh + T * 0.45, T * 0.35]], [1, null]], pole: (sd) => [sd * 0.5, 1, 0.2] },
+    drink: { head: true, F: visit(add(mouth, [0, u * 0.3, u * 0.4]), 0.25, 0.75), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    think: { head: true, touch: true, F: hold(add(mouth, [0, u * 0.35, u * 0.2])), pole: (sd) => [sd * 0.4, 1, 0.3] },
+    facepalm: { head: true, touch: true, F: visit(add(eye, [0, 0, u * 0.25])), pole: (sd) => [sd * 0.5, 1, 0.2] },
+    cry: { head: true, touch: true, F: [[0, add(eye, [-u * 0.25, 0, u * 0.3])], [0.5, add(eye, [-u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [-u * 0.25, 0, u * 0.3])]], B: [[0, add(eye, [u * 0.25, 0, u * 0.3])], [0.5, add(eye, [u * 0.25, u * 0.06, u * 0.3])], [1, add(eye, [u * 0.25, 0, u * 0.3])]], pole: (sd) => [sd * 0.6, 1, 0.2] },
+    // Waving hello: the elbow out to the side, the forearm up, the hand beside the head (never in front
+    // of the face) swinging out and back.
+    wave: { F: [[0, waveIn(-1)], [0.5, waveOut(-1)], [1, waveIn(-1)]], pole: wavePole },
+    // Scared: both hands up in front of the chest, palms out, below the chin.
+    scared: { F: hold([-(sx + u * 0.35), sh + T * 0.12, T * 0.55]), B: hold([sx + u * 0.35, sh + T * 0.12, T * 0.55]), pole: (sd) => [sd * 0.8, 1, -0.2] },
+    clap: { F: [[0, add(chest, [-sx * 0.2, 0, T * 0.15])], [0.5, add(chest, [sx * 0.25 - 4, 0, T * 0.2])], [1, add(chest, [-sx * 0.2, 0, T * 0.15])]], B: [[0, [sx * 0.45, chest[1], chest[2] + T * 0.15]], [0.5, [sx * 0.25 + 4, chest[1], chest[2] + T * 0.2]], [1, [sx * 0.45, chest[1], chest[2] + T * 0.15]]], pole: (sd) => [sd * 0.6, 1, -0.2] },
+    // Cheering: both fists up in a V beside the head, pumped (the elbows straighten on the beat).
+    cheer: { F: [[0, cheerLo(-1)], [0.5, cheerHi(-1)], [1, cheerLo(-1)]], B: [[0, cheerLo(1)], [0.5, cheerHi(1)], [1, cheerLo(1)]], pole: raisedPole },
+    // Pointing up and ahead (at a traffic light across the road): the near arm straight, 30° above level
+    // and a little out (ahead of the face from a side, beside it from the front).
+    pointUp: { F: hold(along(-1, [-0.3, -0.5, 0.8], 0.97)), pole: raisedPole },
+    // Jumping: the arms swing back as the knees bend, are thrown up beside the head on take-off (out
+    // and up round the sides), come down out to the sides for the landing (balance).
+    jump: { F: [[0, null], [0.15, swungBack(-1)], [0.425, thrownUp(-1)], [0.825, outLow(-1)], [1, null]], B: [[0, null], [0.15, swungBack(1)], [0.425, thrownUp(1)], [0.825, outLow(1)], [1, null]], pole: raisedPole },
+    // Throwing something up with both hands: together low in front, a dip, flung up — the hands parting
+    // round the sides to up beside the head (never up across the face) — and back down together.
+    toss: { F: [[0, together(-1, 0.55)], [0.22, together(-1, 0.4)], [0.44, flungUp(-1)], [1, together(-1, 0.5)]], B: [[0, together(1, 0.55)], [0.22, together(1, 0.4)], [0.44, flungUp(1)], [1, together(1, 0.5)]], pole: raisedPole },
+    // Teetering at an edge, leaning out over it: the arms windmill round the sides — up beside the
+    // head, out and down, up again.
+    teeter: { torso: true, F: [[0, null], [0.14, flail(-1)], [0.32, outLow(-1)], [0.5, flail(-1)], [0.68, outLow(-1)], [1, null]], B: [[0, null], [0.14, flail(1)], [0.32, outLow(1)], [0.5, flail(1)], [0.68, outLow(1)], [1, null]], pole: raisedPole },
+    // Flapping like wings: the arms out to the sides, down and up (never above the head).
+    flap: { F: [[0, wingDown(-1)], [0.5, wingUp(-1)], [1, wingDown(-1)]], B: [[0, wingDown(1)], [0.5, wingUp(1)], [1, wingDown(1)]], pole: (sd) => [sd * 0.3, 1, -0.5] },
+    // Dancing: one arm up beside the head while the other is down and out to its side, in turn.
+    dance: { torso: true, F: [[0, danceUp(-1)], [0.5, outLow(-1)], [1, danceUp(-1)]], B: [[0, outLow(1)], [0.5, danceUp(1)], [1, outLow(1)]], pole: raisedPole },
+    // A fighting stance: the lead fist out in front at shoulder height, the rear one by the chest —
+    // both under the chin (the face shows; a guard covering it reads as hiding).
+    stance: { torso: true, F: hold([-sx * 0.55, sh + T * 0.1, arm * 0.62]), B: hold([sx * 0.2, sh + T * 0.22, T * 0.62]), pole: (sd) => [sd * 0.6, 1, -0.2] },
+    shrug: { F: visit([-(sx + u * 0.6), sh + T * 0.55, T * 0.45], 0.35, 0.7), B: visit([sx + u * 0.6, sh + T * 0.55, T * 0.45], 0.35, 0.7), pole: (sd) => [sd * 0.4, 1, -0.4] },
+    point: { F: hold([-sx, sh + T * 0.1, arm * 0.9]), pole: (sd) => [sd * 0.3, 1, -0.2] },
+    present: { F: hold([-(sx + arm * 0.5), sh + T * 0.3, arm * 0.6]), pole: (sd) => [sd * 0.3, 1, -0.3] },
+    talk: { F: [[0, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])], [0.5, add(chest, [-sx * 0.6, T * 0.05, T * 0.18])], [1, add(chest, [-sx * 0.3, T * 0.15, T * 0.1])]], pole: (sd) => [sd * 0.5, 1, -0.4] },
+    sing: { F: [[0, [-sx * 0.9, sh + T * 0.25, T * 0.5]], [0.5, [-sx * 1.2, sh + T * 0.1, T * 0.6]], [1, [-sx * 0.9, sh + T * 0.25, T * 0.5]]], pole: (sd) => [sd * 0.5, 1, -0.4] },
+    read: { F: hold([-sx * 0.35, sh + T * 0.4, T * 0.55]), B: hold([sx * 0.35, sh + T * 0.4, T * 0.55]), pole: (sd) => [sd * 0.5, 1, -0.3] },
+    laugh: { F: hold([-W * 0.5, hip - T * 0.3, D + T * 0.1]), B: hold([W * 0.5, hip - T * 0.3, D + T * 0.1]), pole: (sd) => [sd * 0.6, 1, -0.4] },
+  };
+
 
   for (const [name, g] of Object.entries(G)) {
     // (New gestures are made here; the others take their arm tracks from here.)
-    const clip = doc.clips?.[name] ?? (g.duration ? (doc.clips[name] = { duration: g.duration, loop: true, tracks: {} }) : undefined);
+    const clip = doc.clips?.[name] ?? (g.duration ? (doc.clips[name] = { duration: g.duration, loop: true, ...(g.clear ? { clear: true } : {}), tracks: {} }) : undefined);
     if (!clip) continue;
     if (g.body) clip.tracks["bones.body.rotation"] = g.body.map(([f, v]) => [r(f * clip.duration), v, "sineInOut"]);
     if (g.hips) clip.tracks["bones.hips.y"] = g.hips.map(([f, v]) => [r(f * clip.duration), v, "sineInOut"]);
@@ -2163,7 +2315,8 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
       const keys = g[side];
       if (!keys) continue;
       const sd = side === "F" ? -1 : 1;
-      const pole = g.pole?.(sd) ?? [sd * 0.5, 1, -0.3];
+      // The elbow's way for a hand place (a gesture's own, which may change with how high the hand is).
+      const poleAt = (p: V3): V3 => g.pole?.(sd, p) ?? [sd * 0.5, 1, -0.3];
       const upper = `arm${side}1`, lower = `arm${side}2`;
       const reach = len(sub(doc.rig3d.bones[upper].to, doc.rig3d.bones[upper].from)) + len(sub(doc.rig3d.bones[lower].to, doc.rig3d.bones[lower].from));
       const restHand = (doc.rig3d.bones[lower].to as V3);
@@ -2179,15 +2332,15 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
         }
       };
       let guess: Record<string, Record<string, number>> | undefined;
-      const solveIn = (p: V3, values: Record<string, Record<string, number>>, pl: V3 = pole) => reach3d(doc as never, upper, lower, p, values, pl, guess) as Record<string, Record<string, number>>;
+      const solveIn = (p: V3, values: Record<string, Record<string, number>>, pl: V3) => reach3d(doc as never, upper, lower, p, values, pl, guess) as Record<string, Record<string, number>>;
       // The elbow's other ways (out to the side: up by a big head, the forearm stands beside it).
-      const poles: V3[] = [pole, [sd, 0.5, 0], [sd, 0.15, -0.1], [sd * 0.7, 1, 0.4]];
+      const others: V3[] = [[sd, 0.5, 0], [sd, 0.15, -0.1], [sd * 0.7, 1, 0.4]];
       // Where the hand goes for a target in a pose, and the elbow's way: out of the head, the whole
       // arm clear of it — the target itself, else the nearest clear place (the reach turned out to
       // the arm's side, up or down, shorter).
       const place = (p: V3, values: Record<string, Record<string, number>>): { at: V3; pole: V3 } => {
         const pose = rig3dPose(doc as never, values);
-        const t0 = pushOut(pose, p, min);
+        const t0 = pushOut(pose, p, min), pole = poleAt(t0), poles = [pole, ...others];
         if (!keepOut.length) return { at: t0, pole };
         const clear = (t: V3, pl: V3) => {
           const arm3 = rig3dPose(doc as never, { ...values, ...solveIn(t, values, pl) })[lower];
@@ -2212,18 +2365,28 @@ function gestures3d(doc: Record<string, any>, o: { u: number; top: number; head:
       const placed = keys.map(([f, p]) => {
         if (!p) return null;
         const values = poseAt(f);
-        return place(g.head ? onHead(rig3dPose(doc as never, values), p) : p, values);
+        const pose = rig3dPose(doc as never, values);
+        return place(g.head ? onHead(pose, p) : g.torso ? onBody(pose, p) : p, values);
       });
       // The hand travels between the keys along an arc in front of the body (the arm swings round
-      // the front, never through the chest or the head), every in-between placed and solved again.
-      keys.forEach(([f], i) => {
+      // the front, never through the chest or the head) — to or from a hand raised beside the head,
+      // round the arm's own side (up and down beside the head: from a side the arm comes up past the
+      // shoulder, under the head, never sweeping up across the face) — every in-between placed and
+      // solved again.
+      keys.forEach(([f, p], i) => {
         if (i > 0) {
-          const [f0] = keys[i - 1];
+          const [f0, p0] = keys[i - 1];
           const a = placed[i - 1]?.at ?? restHand, b = placed[i]?.at ?? restHand;
           const dist = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+          const round = (!!p0 && raised.has(p0)) || (!!p && raised.has(p));
           if (dist > 8) for (const k of [0.25, 0.5, 0.75]) {
             const bulge = Math.sin(k * Math.PI) * dist * 0.25, fk = f0 + (f - f0) * k, values = poseAt(fk);
-            const q = place([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k + bulge], values);
+            // (Round the side, the arm swings about the shoulder as far out as the keys hold it — its
+            // direction turning out past the side, its reach between theirs — not bent in on a chord.)
+            const S = shoulder(sd), da = sub(a, S), db = sub(b, S), w = Math.sin(k * Math.PI) * 0.6;
+            const d = unit(add(lerp3(unit(da), unit(db), k), [sd * w, 0, w * 0.15]));
+            const at: V3 = round ? add(S, d.map((v) => v * (len(da) + (len(db) - len(da)) * k)) as V3) : [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k + bulge];
+            const q = place(at, values);
             put(fk, (guess = solveIn(q.at, values, q.pole)));
           }
         }

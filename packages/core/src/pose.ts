@@ -21,7 +21,7 @@ import {
   hashString,
 } from "./math";
 import { type ChannelRef, type Rig, type RigPart, type RigTrack, boneLocalMatrix, composeWorld, visemeVariant } from "./rig";
-import { type Rig3dFrame, applyRig3d, rig3dDrawOrder } from "./pose3d";
+import { type FaceCarry, type Rig3dFrame, applyRig3d, rig3dDrawOrder } from "./pose3d";
 
 /** Mutable per-frame state of all character channels. */
 export interface PoseState {
@@ -386,6 +386,13 @@ export interface CharacterInput {
    * holding hand's `grip` while it holds a prop): part id → variant.
    */
   variants?: Record<string, string>;
+  /**
+   * A 2.5D rig's arms: how the picture-space face clearance moved each one off the head a moment
+   * before (`FaceCarry`: the frame's `face`, per `CompiledRig3d.clear` entry, and the time since) — the
+   * way is kept and the turn changes at a bounded speed (a scene passes it from its bake; without it
+   * every frame takes the cheaper way on its own).
+   */
+  face?: FaceCarry;
 }
 
 export interface EvaluatedPose {
@@ -529,7 +536,7 @@ export function evaluatePose(
         if (moves) (faceExempt ??= rig.rig3d!.clear.map(() => 0))[i] = Math.max(faceExempt[i], clamp(w, 0, 1));
       });
     }
-    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget, input.ikOffset, faceExempt);
+    frame3d = applyRig3d(rig, rig.rig3d, s, world, input.ikTarget, input.ikOffset, faceExempt, input.face);
     computeWorld(rig, s, world);
   }
 

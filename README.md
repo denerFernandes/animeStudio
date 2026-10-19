@@ -1,6 +1,12 @@
 # animeStudio
 
-**▶ [Watch the 30-second feature promo](examples/promo/animestudio-promo.mp4)** — made entirely with animeStudio.
+<p align="center">
+  <a href="examples/promo/animestudio-promo.mp4">
+    <img src="examples/promo/poster.jpg" alt="animeStudio feature promo — click to play (29 s)" width="720">
+  </a>
+  <br>
+  <sub>▶ The 30-second feature promo, made entirely with animeStudio (<a href="examples/promo">source</a>).</sub>
+</p>
 
 A deterministic **2D cartoon animation engine** for the web. Characters are SVG art bound to
 skeletons with IK, weighted secondary physics, squash & stretch, controls (emotions, look-at,
@@ -28,7 +34,20 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
   arcs on IK moves (`animation.arcs`) and takes / double takes (`take`).
 - **Personality walks**: sneak, strut, tired, march and scared run for every kit character — built
   from one gait with knee lift, crouch, tiptoe, hip sway, overlapping head lag, arm styles, slump,
-  dragged feet and a double bounce, each with a stride measured from its planted feet (no sliding).
+  dragged feet and a double bounce (the sneak a classic cartoon creep: crouched and leaning in, big
+  slow steps set down toe first and rolled flat, the knee held high at the top, hands up in front
+  of the chest), each with a stride measured from its planted feet (no sliding).
+- **Knock-downs**: a `fall` action that throws a character back on a ballistic arc (or trips it
+  where it stands) — the hips landing first, the shoulders and head slapping down, one bounce, a
+  settle — with the back resting exactly on the floor from any view and facing, a big head lifted
+  off it by the neck, the kit's flung limbs (`knocked`) and K.O. pose (`down`), and `getUp` back
+  on its feet — sitting up about the hips into a crouch, then standing (`rise`).
+- **Cartoon runs**: flight between the steps, the hips lowest at mid-stance, the heel kicked up
+  behind and the knee driven through, feet landing flat and rolling onto the ball to push off, and
+  runner's arms designed in 3D (pumping from hip to chest, the elbow bent, each hand on its own
+  side in every view the kit draws); the scared run is its own panic sprint, the arms flung up and
+  out with open hands; in a skirt the runs are cut to the cloth. `walkTo` matches the steps to a
+  2.5D rig's view (up to 1.3× the clip's rate), so planted feet stay put in three-quarter views too.
 - **Skeleton**: forward kinematics, two-bone and FABRIK IK, rotation limits, local
   (non-inherited) squash & stretch.
 - **Physics**: baked spring chains and jiggles with per-bone mass (ears, tails, hair), props hung
@@ -49,7 +68,9 @@ pose = f(document, time)   // every frame is a pure function → parallel, out-o
 - **Characters from volumes**: heads, hair and clothes modelled as simple 3D volumes and drawn
   flat at any angle — turnarounds that always match, cel shading from the volume and coloured
   lines. A TV-cartoon human builder (`cartoonCharacter`) turns through in-between drawings, with
-  follow-through and hand-drawn timing (anticipation, overshoot).
+  follow-through and hand-drawn timing (anticipation, overshoot); its arms are posed in 3D and kept
+  out of the head, and off it in the picture from every angle — raised arms go up beside the head
+  for any proportions, big hair included.
 - **Lip sync**: Preston Blair visemes from Rhubarb (any language via its phonetic recognizer),
   TTS timestamps, text + audio alignment, text only, or audio amplitude.
 - **Visual editor**: rig bones over your art, animate by dragging bones and IK handles,
@@ -192,6 +213,7 @@ uses a system Chrome when present, or the browser in `REMOTION_BROWSER`.
 
 ## Contributing
 
-Documentation is part of every change: new functions go in [docs/API.md](docs/API.md), new
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, principles, tests and pull requests. In short,
+documentation is part of every change: new functions go in [docs/API.md](docs/API.md), new
 format fields, channels and actions in [docs/FORMAT.md](docs/FORMAT.md). A test
 (`packages/core/test/docs.test.ts`) fails when a public export is missing from the API reference.

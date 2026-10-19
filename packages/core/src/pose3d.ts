@@ -181,6 +181,36 @@ export interface Rig3dFrame {
   sideIk: number[];
   /** The IK chains held on a target (`ikTarget`) that were solved in 3D this frame: the 2D IK pass skips them too. */
   ik3d: number[];
+  /** How the picture-space face clearance moved each arm this frame (per `CompiledRig3d.clear` entry). */
+  face: FaceClear[];
+}
+
+/**
+ * A way the picture-space face clearance moves an arm off the head: `1` its rotation forward, `-1`
+ * back; `2` its spread out to its own side, `-2` in; `0` none.
+ */
+export type FaceWay = -2 | -1 | 0 | 1 | 2;
+
+/**
+ * How the picture-space face clearance moved one arm: the way (`FaceWay`) and how far — the turn
+ * added to its upper bone's rotation and spread (degrees, before an authored clip's exemption scales
+ * it). A scene carries it from frame to frame (`FaceCarry`).
+ */
+export interface FaceClear {
+  way: FaceWay;
+  turn: [number, number];
+}
+
+/**
+ * The face clearance carried from the frame before (a scene's bake): each arm's `FaceClear` then and
+ * the time since (seconds). The way is kept while the arm still covers the head, and the turn changes
+ * by at most `FACE_SPEED` a second — an arm stays on the side of the head it went to, and where it
+ * must go round to the other side (an arm swept right across the head) it crosses quickly instead of
+ * jumping.
+ */
+export interface FaceCarry {
+  arms: FaceClear[];
+  dt: number;
 }
 
 /** An absolute IK target (character space), as `evaluatePose` gets it (`CharacterInput.ikTarget`). */
@@ -211,16 +241,18 @@ const FACE_SHELL = 0.982;
  * in the frame's `ik3d` for the 2D pass to skip: the target (character space) is put on the plane
  * through the chain's root parallel to the picture, the limb reaches it (`solveLimb3d`) bending
  * towards the grip's `from` (else the way the elbow bends in the pose, else down and back), and the
- * four channel values are blended with the pose's by the hold's weight. Then the face clearance:
- * each arm (`r3.clear`) whose hand (the last bone's tip) or forearm (its middle) is inside a
- * keep-out (normalised distance below `FACE_CLEARANCE`) has its hand target moved out along the
- * ellipsoid's normal and the limb solved again, the elbow kept the way it bends. And in the
- * picture (`clearPicture`): an arm whose forearm or hand covers the head's outline is moved off it,
- * scaled by 1 − `faceExempt[i]` (per `r3.clear` entry: the weight of a playing clip that moves that
- * arm and is not marked `clear` — authored motion is left as authored), then kept out of the head
- * in 3D again.
+ * four channel values are blended with the pose's by the hold's weight. Then the face clearance,
+ * of the whole arm (`r3.clear`): in 3D, an upper arm or elbow inside a keep-out (normalised distance
+ * below `FACE_CLEARANCE`) turns the whole arm rigidly about the shoulder by the least that takes it
+ * out (`clearUpperArm`), and a hand (the last bone's tip) or forearm (its middle) inside one has its
+ * hand target moved out along the ellipsoid's normal and the limb solved again, the elbow kept the
+ * way it bends. And in the picture (`clearPicture`): an arm that covers the head's outline is moved
+ * off it, scaled by 1 − `faceExempt[i]` (per `r3.clear` entry: the weight of a playing clip that
+ * moves that arm and is not marked `clear` — authored motion is left as authored), the way and the
+ * turn carried from the frame before (`faceFrom`, a scene's bake: the frame's `face`), then kept out
+ * of the head in 3D again.
  */
-export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat[], ikTargets: Record<string, IkHold> | undefined, ikOffset?: Record<string, Vec2>, faceExempt?: number[]): Rig3dFrame {
+export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat[], ikTargets: Record<string, IkHold> | undefined, ikOffset?: Record<string, Vec2>, faceExempt?: number[], faceFrom?: FaceCarry): Rig3dFrame {
   // The view control holds a name or (while blending) weights per name: the heaviest wins.
   const vc = s.controls.view as unknown;
   const view = typeof vc === "string" ? vc : vc && typeof vc === "object" && !Array.isArray(vc) ? Object.entries(vc as Record<string, number>).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "profile" : "profile";
@@ -321,8 +353,8 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     moved = true;
   });
   if (moved) fk();
-  // The face clearance, in 3D: an arm's hand and forearm out of the head (the keep-outs it is kept
-  // out of).
+  // The face clearance, in 3D: the whole arm out of the head (the keep-outs it is kept out of) — first
+  // the upper arm (the whole arm turned about the shoulder), then the forearm and the hand.
   const clear3d = (cl: CompiledRig3d["clear"][number]) => {
     const ia = r3.byIndex.get(cl.upper)!, ib = r3.byIndex.get(cl.lower)!;
     // (The keep-outs are on bones the arm does not move.)
@@ -330,18 +362,45 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       const k = r3.keepOut[i], j = r3.byIndex.get(k.bone)!;
       return { c: add3(pos[j], mv(rot[j], k.at)), r: rot[j], radii: k.radii };
     });
+    // The upper arm: an elbow or an upper arm in the head (arms thrown up, a straight arm swung up
+    // across the face) turns the whole arm rigidly about the shoulder — the elbow keeps its bend —
+    // the least that takes every sample of it out (`clearUpperArm`). Then the forearm and the hand,
+    // which that turn may have brought in; and both again once if pulling the hand out swung the
+    // elbow back in.
+    for (let round = 0; round < 2; round++) {
+      let changed = false;
+      const turn = clearUpperArm(r3, rot, pos, ia, ib, ks);
+      if (turn) {
+        const v = solveLimb3d(rig, r3, s, rot, pos, ia, ib, turn.target, turn.pole);
+        if (v) {
+          set(ia, ib, v);
+          fk();
+          changed = true;
+        }
+      }
+      if (clearForearm(ia, ib, ks)) changed = true;
+      if (!changed) break;
+    }
+  };
+  // The forearm (`FOREARM` samples) and the hand out of the head: true if the arm was moved.
+  const clearForearm = (ia: number, ib: number, ks: { c: V3; r: M3; radii: V3 }[]): boolean => {
+    let changed = false;
     for (let pass = 0; pass < 6; pass++) {
-      const hand = tipOf(ib), mid = lerp3(pos[ib], hand, 0.5);
-      const dh = pushOut(hand, ks), dm = pushOut(mid, ks);
+      const S = pos[ia], hand = tipOf(ib), reach = Math.hypot(...sub3(hand, S));
+      const dh = pushOut(hand, ks);
+      // The hand moves out by its own push and by the forearm's — its deepest sample's, scaled as a
+      // turn of the whole arm about the shoulder would carry it (the hand is farther out than the
+      // forearm) — and stays as far from the shoulder as it was: the arm swings out of the head keeping
+      // its bend (pushed straight out, it would straighten against the head). The elbow keeps the way
+      // it bends — its pole leaning towards down and back only as much as the push, so a small push is
+      // a small change.
+      let dm: V3 = [0, 0, 0], k = 0;
+      for (const f of FOREARM) {
+        const p = lerp3(pos[ib], hand, f), d = pushOut(p, ks), kf = reach / (Math.hypot(...sub3(p, S)) || 1);
+        if (Math.hypot(...d) * kf > Math.hypot(...dm) * k) [dm, k] = [d, kf];
+      }
       const amount = Math.hypot(...dh) + Math.hypot(...dm);
       if (amount < 1e-9) break;
-      // The hand moves out by its own push and by the forearm's, scaled as a turn of the whole arm
-      // about the shoulder would carry it (the hand is farther out than the forearm's middle), and
-      // stays as far from the shoulder as it was: the arm swings out of the head keeping its bend
-      // (pushed straight out, it would straighten against the head). The elbow keeps the way it
-      // bends — its pole leaning towards down and back only as much as the push, so a small push is
-      // a small change.
-      const S = pos[ia], reach = Math.hypot(...sub3(hand, S)), k = reach / (Math.hypot(...sub3(mid, S)) || 1);
       const out = sub3(add3(hand, add3(dh, [k * dm[0], k * dm[1], k * dm[2]])), S), ol = Math.hypot(...out) || 1;
       const target = add3(S, [(out[0] * reach) / ol, (out[1] * reach) / ol, (out[2] * reach) / ol]);
       const l1 = Math.hypot(...sub3(r3.bones[ib].from, r3.bones[ia].from));
@@ -349,16 +408,22 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
       if (!v) break;
       set(ia, ib, v);
       fk();
+      changed = true;
     }
+    return changed;
   };
-  // Then in the picture: a forearm or a hand between the camera and the face hides it (the drawing
-  // has no depth), so the arm is moved off the face's outline — unless a clip not marked `clear`
-  // moves it (`faceExempt`: the correction is scaled by 1 − that clip's weight) — and checked in 3D
-  // again.
+  // Then in the picture: an arm between the camera and the face hides it, and a hand behind the head
+  // is lost (the drawing has no depth), so the arm is moved off the head's outline — unless a clip
+  // not marked `clear` moves it (`faceExempt`: the correction is scaled by 1 − that clip's weight) —
+  // and checked in 3D again.
+  const face: FaceClear[] = r3.clear.map(() => ({ way: 0, turn: [0, 0] }));
   r3.clear.forEach((cl, ci) => {
     clear3d(cl);
     const strength = 1 - clamp(faceExempt?.[ci] ?? 0, 0, 1);
-    if (strength > 0 && clearPicture(rig, r3, s, rot, pos, cl, yaw, pitch, strength)) {
+    if (strength <= 0) return;
+    const from = faceFrom?.arms[ci];
+    face[ci] = clearPicture(rig, r3, s, rot, pos, cl, yaw, pitch, strength, from && { from, max: FACE_SPEED * Math.max(0, faceFrom!.dt) });
+    if (face[ci].turn[0] || face[ci].turn[1]) {
       fk();
       clear3d(cl);
     }
@@ -427,7 +492,7 @@ export function applyRig3d(rig: Rig, r3: CompiledRig3d, s: PoseState, world: Mat
     basis.set(B.index, bm);
     full.set(B.index, sq === 1 ? bm : multiply(bm, [sq, 0, 0, 1 / sq, 0, 0]));
   }
-  return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off, sideIk, ik3d };
+  return { depth, tipDepth, tipView, pos, rot, yaw, pitch, off, sideIk, ik3d, face };
 }
 
 /** Body space of a view-space point (`viewPoint` inverted): screen x, y (without the offset) and depth. */
@@ -486,25 +551,132 @@ function pushOut(p: V3, ks: { c: V3; r: M3; radii: V3 }[]): V3 {
   return sub3(q, p);
 }
 
-/** Normalised distance (1: the outline) under which a forearm or a hand covers the head in the picture. */
-const FACE_SCREEN = 1.02;
-/** How far the picture-space clearance turns an arm, at most, per channel (degrees), and its search step. */
-const FACE_TURN = 30;
-const FACE_STEP = 2;
+/**
+ * How much of an upper arm (a fraction of it from the shoulder) is where it joins the body: by the
+ * head whatever the pose — under it, as a cartoon draws a head over its shoulders — so neither face
+ * clearance tests it (it is turned out with the rest of the arm).
+ */
+const SHOULDER_UNDER = 0.5;
+/** Where a forearm is kept out of the head in 3D besides the hand (fractions of it from the elbow). */
+const FOREARM = [0.25, 0.5, 0.75];
+/** Where an upper arm is kept out of the head in 3D (fractions of it from the shoulder): from `SHOULDER_UNDER` to the elbow. */
+const UPPER_ARM = [SHOULDER_UNDER, 0.625, 0.75, 0.875, 1];
+/** How far `clearUpperArm` turns an arm at most (degrees: down to hanging from overhead), and its search step. */
+const UPPER_TURN = 180;
+const UPPER_STEP = 2;
 
 /**
- * The picture-space face clearance of one arm (`r3.clear` entry `cl`): the head's keep-outs are
- * projected to the picture (each ellipsoid's outline: the ellipse whose shape matrix is the sum of
- * its projected axes' outer products), and the forearm (elbow → hand segment, the hand included)
- * must stay outside them by `FACE_SCREEN`. If it does not, the upper bone is turned by the smallest
- * amount that clears it: in views facing the camera (|sin yaw| < 0.7) its `spread` outward (the
- * hand away from the body's middle) first, up to `FACE_TURN`, then its `rotation`; in views from
- * the side its `rotation` only — up towards overhead when the hand is above the middle of the
- * head's outline, down towards hanging when below. The amount is searched in `FACE_STEP` steps and
- * refined by bisection to the outline (a continuous function of the pose and the view; where the
- * hand crosses the middle of the head the side switches, a jump). The change is scaled by
- * `strength` and written into the pose. Returns whether the arm was moved.
+ * The upper arm's face clearance (3D bones `ia` → `ib`, keep-outs `ks` as posed): when a sample of the
+ * upper arm (`UPPER_ARM`) is inside a keep-out (`FACE_CLEARANCE`), the turn of the whole arm about the
+ * shoulder — rigid: the elbow keeps its bend, the forearm its place along the arm — that brings every
+ * sample out to `FACE_SHELL`, as the hand target and elbow pole for `solveLimb3d`. The arm turns
+ * along the great circle the samples' way out leads: each inside sample's normal (the gradient of its
+ * normalised distance) without its part along the arm, weighted by how deep it is and how far out
+ * along the arm (a turn moves it that much) — a continuous direction, so an arm swept through the
+ * head slides round its surface (an arm raised by a big head goes up beside it) without a jump; the
+ * angle is the least clearing them, found in `UPPER_STEP`s and bisected to the shell. (Straight at
+ * the middle, with no way out to lean towards: out to the arm's own side.) Undefined when the upper
+ * arm is clear.
  */
+function clearUpperArm(r3: CompiledRig3d, rot: M3[], pos: V3[], ia: number, ib: number, ks: { c: V3; r: M3; radii: V3 }[]): { target: V3; pole: V3 } | undefined {
+  if (!ks.length) return undefined;
+  const S = pos[ia], E = pos[ib], L = r3.bones[ib];
+  const H = add3(E, mv(rot[ib], sub3(L.to, L.from)));
+  const e = sub3(E, S), l1 = Math.hypot(...e);
+  if (l1 < 1e-6) return undefined;
+  const u: V3 = [e[0] / l1, e[1] / l1, e[2] / l1];
+  // The least normalised distance of the samples along a direction of the upper arm.
+  const least = (d: V3) => {
+    let q = Infinity;
+    for (const f of UPPER_ARM) {
+      const p: V3 = [S[0] + d[0] * l1 * f, S[1] + d[1] * l1 * f, S[2] + d[2] * l1 * f];
+      for (const k of ks) {
+        const l = mv(T3(k.r), sub3(p, k.c));
+        q = Math.min(q, Math.hypot(l[0] / k.radii[0], l[1] / k.radii[1], l[2] / k.radii[2]));
+      }
+    }
+    return q;
+  };
+  if (least(u) >= FACE_CLEARANCE) return undefined;
+  // The way out: the inside samples' normals across the arm, by depth and lever.
+  let g: V3 = [0, 0, 0];
+  for (const f of UPPER_ARM) {
+    const p: V3 = [S[0] + u[0] * l1 * f, S[1] + u[1] * l1 * f, S[2] + u[2] * l1 * f];
+    for (const k of ks) {
+      const l = mv(T3(k.r), sub3(p, k.c));
+      const D: V3 = [l[0] / k.radii[0], l[1] / k.radii[1], l[2] / k.radii[2]];
+      const q = Math.hypot(...D);
+      if (q >= FACE_CLEARANCE || q < 1e-9) continue;
+      const n = norm3(mv(k.r, [D[0] / k.radii[0], D[1] / k.radii[1], D[2] / k.radii[2]]));
+      const w = (FACE_CLEARANCE - q) * f, a = dot3(n, u);
+      g = add3(g, [(n[0] - u[0] * a) * w, (n[1] - u[1] * a) * w, (n[2] - u[2] * a) * w]);
+    }
+  }
+  if (Math.hypot(...g) < 1e-9) {
+    // Out to the arm's side of the body (its parent's sideways axis).
+    const U = r3.bones[ia], P = U.parent >= 0 ? rot[r3.byIndex.get(U.parent)!] : I3;
+    const side = mv(P, [Math.sign(U.from[0] - r3.bones[0].from[0]) || -1, 0, 0]), a = dot3(side, u);
+    g = [side[0] - u[0] * a, side[1] - u[1] * a, side[2] - u[2] * a];
+    if (Math.hypot(...g) < 1e-9) g = Math.abs(u[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  }
+  const t = norm3(g);
+  const along = (th: number): V3 => [u[0] * Math.cos(th) + t[0] * Math.sin(th), u[1] * Math.cos(th) + t[1] * Math.sin(th), u[2] * Math.cos(th) + t[2] * Math.sin(th)];
+  const ok = (th: number) => least(along(th)) >= FACE_SHELL;
+  let lo = 0, found: number | undefined, best = 0, bestQ = -Infinity;
+  for (let d = UPPER_STEP; d <= UPPER_TURN + 1e-9; d += UPPER_STEP) {
+    const th = d * DEG;
+    if (!ok(th)) {
+      const q = least(along(th));
+      if (q > bestQ) [best, bestQ] = [th, q];
+      lo = th;
+      continue;
+    }
+    let hi = th;
+    for (let i = 0; i < 16; i++) {
+      const m = (lo + hi) / 2;
+      if (ok(m)) hi = m;
+      else lo = m;
+    }
+    found = hi;
+    break;
+  }
+  const th = found ?? best;
+  // The turn (Rodrigues, about u × t) applied to the hand and to the elbow's offset from the line
+  // shoulder → hand (the bend's plane).
+  const ax = norm3([u[1] * t[2] - u[2] * t[1], u[2] * t[0] - u[0] * t[2], u[0] * t[1] - u[1] * t[0]]);
+  const c = Math.cos(th), sn = Math.sin(th);
+  const turn = (v: V3): V3 => {
+    const x = [ax[1] * v[2] - ax[2] * v[1], ax[2] * v[0] - ax[0] * v[2], ax[0] * v[1] - ax[1] * v[0]], k = dot3(ax, v) * (1 - c);
+    return [v[0] * c + x[0] * sn + ax[0] * k, v[1] * c + x[1] * sn + ax[1] * k, v[2] * c + x[2] * sn + ax[2] * k];
+  };
+  const dh = sub3(H, S), dl = Math.hypot(...dh) || 1, hu: V3 = [dh[0] / dl, dh[1] / dl, dh[2] / dl], k = dot3(e, hu);
+  const perp: V3 = [e[0] - hu[0] * k, e[1] - hu[1] * k, e[2] - hu[2] * k];
+  // (A straight arm has no bend to keep: it bends the way it would, down and back, a hair.)
+  const pole = Math.hypot(...perp) > 1e-3 * l1 ? perp : elbowPole(r3, rot, pos, ia, ib, 0.1);
+  return { target: add3(S, turn(dh)), pole: turn(pole) };
+}
+
+/** Normalised distance (1: the outline) under which an arm covers the head in the picture. */
+const FACE_SCREEN = 1.1;
+/** How far a hand is drawn past the wrist (a fraction of the forearm): the picture-space clearance keeps it off the head too. */
+const HAND_PAST = 0.2;
+/**
+ * How far the picture-space clearance turns an arm at most (degrees of its `rotation` and `spread`
+ * together), and its search step.
+ */
+const FACE_TURN = 135;
+const FACE_STEP = 2;
+/**
+ * What the picture-space clearance's way back (the rotation turning a raised arm back over the head,
+ * behind it) costs more than its turn (degrees): an arm goes round the face in front sooner than it
+ * folds back behind the head.
+ */
+const FACE_BACK = 30;
+/** How much cheaper (degrees) the other way must be for the picture-space clearance to leave the way it kept. */
+const FACE_KEEP = 45;
+/** How fast the picture-space clearance's turn of an arm may change when carried from frame to frame (degrees a second). */
+const FACE_SPEED = 1080;
+
 /** The most an arm swings out or in to clear the torso's outline (degrees of `spread`), and the step. */
 const TORSO_TURN = 36;
 const TORSO_STEP = 0.5;
@@ -605,29 +777,53 @@ function clearTorso(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V
   return true;
 }
 
-function clearPicture(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V3[], cl: CompiledRig3d["clear"][number], yaw: number, pitch: number, strength: number): boolean {
+/**
+ * The picture-space face clearance of one arm (`r3.clear` entry `cl`): the head's keep-outs are
+ * projected to the picture (each ellipsoid's outline: the ellipse whose shape matrix is the sum of
+ * its projected axes' outer products, grown by the arm's half width), and the arm as it shows over
+ * the head must stay outside them by `FACE_SCREEN`: the upper arm from `SHOULDER_UNDER` (its
+ * shoulder's end is drawn under the head) to the elbow and the forearm wherever they are in front of
+ * the head's middle (behind it the head hides them), the forearm and the hand (`HAND_PAST` past the
+ * wrist) wherever they are — a hand is neither lost behind the head nor seen sticking out of the face.
+ * If it does not, the upper bone is turned by the least that clears it (found in `FACE_STEP`s up to
+ * `FACE_TURN`, bisected to the outline) along one of four ways (`FaceWay`), each taken in body space,
+ * never from the picture: its `rotation` forward (round the face in front, or down under the chin) or
+ * back (behind the head: dearer by `FACE_BACK`), its `spread` out to its own side or in. The way kept
+ * from the frame before (`carry`) holds while it clears and the other way of its channel is not
+ * cheaper by `FACE_KEEP`; else the cheaper way (by how far the hand's direction from the shoulder
+ * turns) of the channel that turns the arm in the picture — facing the camera (|sin yaw| < 0.5) the
+ * spread, from a side the rotation — then of the other. Carried, the turn changes by at most
+ * `carry.max` from the frame before's: an arm going round to the other side crosses quickly, never
+ * jumps. The change is scaled by `strength` and written into the pose; returns the way and the turn.
+ */
+function clearPicture(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos: V3[], cl: CompiledRig3d["clear"][number], yaw: number, pitch: number, strength: number, carry?: { from: FaceClear; max: number }): FaceClear {
   const ia = r3.byIndex.get(cl.upper)!, ib = r3.byIndex.get(cl.lower)!;
   const Ub = r3.bones[ia], Lb = r3.bones[ib];
-  const vp = (p: V3): Vec2 => {
-    const v = viewPoint(p, yaw, pitch);
-    return [v[0], v[1]];
-  };
-  // The head's outlines: centre and the whitening W (|W·(x − c)| = normalised distance).
+  const vp = (p: V3): V3 => viewPoint(p, yaw, pitch);
+  // The head's outlines, grown by the arm's half width (`torsoGap`: the arm's edge, not its middle,
+  // stays off the head): centre (with its depth), the whitening W (|W·(x − c)| = normalised
+  // distance) and the depth of the middle of the head along the line of sight through a place of the
+  // picture (the middle of the chord there: c's depth + g·(x − c), the diameter conjugate to the line
+  // of sight) — what is nearer than it, and outside the head, is drawn over it.
+  const gap = r3.torsoGap ?? 0;
   const ells = cl.keepOut.map((i) => {
     const k = r3.keepOut[i], j = r3.byIndex.get(k.bone)!, R = rot[j];
     const c = vp(add3(pos[j], mv(R, k.at)));
-    let A = 0, B = 0, C = 0;
+    const rad: V3 = [k.radii[0] + gap, k.radii[1] + gap, k.radii[2] + gap];
+    let A = 0, B = 0, C = 0, X = 0, Y = 0;
     for (let m = 0; m < 3; m++) {
-      const a = vp([R[m] * k.radii[m], R[3 + m] * k.radii[m], R[6 + m] * k.radii[m]]);
+      const a = vp([R[m] * rad[m], R[3 + m] * rad[m], R[6 + m] * rad[m]]);
       A += a[0] * a[0];
       B += a[0] * a[1];
       C += a[1] * a[1];
+      X += a[0] * a[2];
+      Y += a[1] * a[2];
     }
     const det = A * C - B * B || 1e-9;
     const n11 = C / det, n12 = -B / det, n22 = A / det, w11 = Math.sqrt(n11), w12 = n12 / w11, w22 = Math.sqrt(Math.max(1e-12, n22 - n12 * w12));
-    return { c, w11, w12, w22, top: c[1] - Math.sqrt(C), bottom: c[1] + Math.sqrt(C) };
+    return { c, w11, w12, w22, gx: n11 * X + n12 * Y, gy: n12 * X + n22 * Y };
   });
-  if (!ells.length) return false;
+  if (!ells.length) return { way: 0, turn: [0, 0] };
   // The arm for upper-bone values (degrees): elbow and hand in the picture, hand in body space.
   const P = Ub.parent < 0 ? I3 : rig.bones[Ub.index].inheritRotation ? rot[r3.byIndex.get(Ub.parent)!] : rot[0];
   const t0 = s.bturn[Ub.index] * DEG;
@@ -639,69 +835,122 @@ function clearPicture(rig: Rig, r3: CompiledRig3d, s: PoseState, rot: M3[], pos:
     const H = add3(E, mv(mul(rig.bones[Lb.index].inheritRotation ? R1 : rot[0], local2), e2));
     return { E, H };
   };
-  // The least normalised distance of the forearm segment from the outlines.
-  const clearance = (r: number, sp: number) => {
-    const { E, H } = arm(r, sp);
-    const e = vp(E), h = vp(H);
-    let q = Infinity;
-    for (const o of ells) {
-      const ax = e[0] - o.c[0], ay = e[1] - o.c[1], bx = h[0] - o.c[0], by = h[1] - o.c[1];
-      const p: Vec2 = [o.w11 * ax + o.w12 * ay, o.w22 * ay], d: Vec2 = [o.w11 * (bx - ax) + o.w12 * (by - ay), o.w22 * (by - ay)];
-      const dd = d[0] * d[0] + d[1] * d[1];
-      const u = dd > 1e-12 ? clamp(-(p[0] * d[0] + p[1] * d[1]) / dd, 0, 1) : 0;
-      q = Math.min(q, Math.hypot(p[0] + d[0] * u, p[1] + d[1] * u));
-    }
+  // The least normalised distance from the outlines of the arm as it shows over the head: the upper
+  // arm from `SHOULDER_UNDER` to the elbow and the forearm to the wrist, each only where it is in front
+  // of the head's middle there (behind it, it is hidden by the head: a far arm raised behind the head
+  // shows from behind it), and the hand (the wrist to `HAND_PAST` past it) wherever it is — a hand is
+  // never lost behind the head, nor seen sticking out of the face. `seen`: the parts that show in the
+  // pose as it came, which count wherever they are moved to (an arm drawn over the head is moved off
+  // it, never tucked behind it).
+  const parts = ({ E, H }: { E: V3; H: V3 }) => {
+    const m = vp(lerp3(pos[ia], E, SHOULDER_UNDER)), e = vp(E), w = vp(H), h = vp(lerp3(E, H, 1 + HAND_PAST));
+    return [[m, e], [e, w], [w, h]];
+  };
+  // In front of the middle there: f(u) = fa + (fb − fa)·u > 0 along a segment.
+  const front = (o: (typeof ells)[number], v: V3) => v[2] - o.c[2] - o.gx * (v[0] - o.c[0]) - o.gy * (v[1] - o.c[1]);
+  const shows = (a: { E: V3; H: V3 }) => {
+    const ps = parts(a);
+    return ells.flatMap((o) => ps.map(([x, y], i) => i > 0 || front(o, x) > 0 || front(o, y) > 0));
+  };
+  const cover = (arm: { E: V3; H: V3 }, seen?: boolean[]) => {
+    const ps = parts(arm);
+    let q = Infinity, n = 0;
+    for (const o of ells)
+      for (const [i, [a, b]] of ps.entries()) {
+        const fa = front(o, a), fb = front(o, b), shown = i > 0 || seen?.[n];
+        n++;
+        if (shown === false || (shown === undefined && fa <= 0 && fb <= 0)) continue;
+        const cut = shown || (fa > 0 && fb > 0) ? undefined : fa / (fa - fb);
+        const [u0, u1] = cut === undefined ? [0, 1] : fa > 0 ? [0, cut] : [cut, 1];
+        const ax = a[0] - o.c[0], ay = a[1] - o.c[1], bx = b[0] - o.c[0], by = b[1] - o.c[1];
+        const p: Vec2 = [o.w11 * ax + o.w12 * ay, o.w22 * ay], d: Vec2 = [o.w11 * (bx - ax) + o.w12 * (by - ay), o.w22 * (by - ay)];
+        const dd = d[0] * d[0] + d[1] * d[1];
+        const u = dd > 1e-12 ? clamp(-(p[0] * d[0] + p[1] * d[1]) / dd, u0, u1) : u0;
+        q = Math.min(q, Math.hypot(p[0] + d[0] * u, p[1] + d[1] * u));
+      }
     return q;
   };
   const r0 = s.brot[Ub.index], sp0 = s.bspread[Ub.index];
-  if (clearance(r0, sp0) >= FACE_SCREEN) return false;
-  // The policy: which way the arm turns.
-  const hand = arm(r0, sp0).H;
-  const middle = (Math.min(...ells.map((o) => o.top)) + Math.max(...ells.map((o) => o.bottom))) / 2;
-  const above = vp(hand)[1] < middle;
-  const rw = wrapAngle(r0);
-  const rotDir = above === (rw <= 0) ? -1 : 1;
-  // (The spread goes outward — the hand away from the body's middle — unless that covers more of
-  // the face in this view at once; the rotation up or down by where the hand is.)
-  const side = Math.sign(Ub.from[0] - r3.bones[0].from[0]) || -1;
-  const q0 = clearance(r0, sp0);
-  let spreadDir = (arm(r0, sp0 + 1).H[0] - arm(r0, sp0 - 1).H[0]) * side >= 0 ? 1 : -1;
-  if (clearance(r0, sp0 + spreadDir) < q0 && clearance(r0, sp0 - spreadDir) > q0) spreadDir = -spreadDir;
-  const spreadFirst = Math.abs(Math.sin(yaw)) < 0.5;
-  const tmax = spreadFirst ? 2 * FACE_TURN : FACE_TURN;
-  const path = (dir: number) => (t: number): [number, number] =>
-    !spreadFirst ? [r0 + dir * t, sp0] : t <= FACE_TURN ? [r0, sp0 + spreadDir * t] : [r0 + dir * (t - FACE_TURN), sp0 + spreadDir * FACE_TURN];
-  // The smallest amount along a path that clears the outline: in steps, then bisected to it.
-  const search = (at: (t: number) => [number, number]): number | undefined => {
-    const ok = (t: number) => clearance(...at(t)) >= FACE_SCREEN;
+  // The turn found (`want`, none when the arm is clear) is applied as it is, or, carried from the frame
+  // before, changed by at most `carry.max` degrees.
+  const apply = (way: FaceWay, want: [number, number]): FaceClear => {
+    let turn = want;
+    if (carry) {
+      const [a, b] = carry.from.turn, d = Math.hypot(want[0] - a, want[1] - b);
+      if (d > carry.max) turn = [a + ((want[0] - a) * carry.max) / d, b + ((want[1] - b) * carry.max) / d];
+    }
+    s.brot[Ub.index] = r0 + turn[0] * strength;
+    s.bspread[Ub.index] = sp0 + turn[1] * strength;
+    return { way: turn[0] || turn[1] ? (way || carry?.from.way || 0) : 0, turn };
+  };
+  if (cover(arm(r0, sp0)) >= FACE_SCREEN) return apply(0, [0, 0]);
+  const keep = carry?.from.way || undefined;
+  // The least amount along a way (`dr`, `ds`: the rotation's and the spread's share) that clears the
+  // outline (the parts that show in the pose as it came counting wherever they go): in steps, then
+  // bisected to the outline.
+  const seen = shows(arm(r0, sp0));
+  const least = (dr: number, ds: number): number | undefined => {
     let lo = 0;
-    for (let t = FACE_STEP; t <= tmax + 1e-9; t += FACE_STEP) {
-      if (!ok(t)) {
+    for (let t = FACE_STEP; t <= FACE_TURN + 1e-9; t += FACE_STEP) {
+      if (cover(arm(r0 + dr * t, sp0 + ds * t), seen) < FACE_SCREEN) {
         lo = t;
         continue;
       }
       let hi = t;
-      for (let k = 0; k < 16; k++) {
+      for (let k = 0; k < 14; k++) {
         const m = (lo + hi) / 2;
-        if (ok(m)) hi = m;
+        if (cover(arm(r0 + dr * m, sp0 + ds * m), seen) >= FACE_SCREEN) hi = m;
         else lo = m;
       }
       return hi;
     }
     return undefined;
   };
-  // The way the hand's place says, else the other way (a hand a little above the middle of a big
-  // head is lowered under the chin while raising it 30° would not clear the head), else as far as
-  // the first way goes.
-  let at = path(rotDir), found = search(at);
-  if (found === undefined) {
-    const other = path(-rotDir), t = search(other);
-    if (t !== undefined) [at, found] = [other, t];
+  // Which way a channel turns the hand (body space, the arm's parent's frame): the rotation, forward
+  // (its angle in the side plane from straight up growing: on forward, or down from ahead), the
+  // spread, out (its angle in the front plane from straight up growing: out to the arm's own side).
+  const S = pos[ia], side = Math.sign(Ub.from[0] - r3.bones[0].from[0]) || -1;
+  const local = (p: V3) => mv(T3(P), sub3(p, S));
+  const sidePlane = (v: V3) => Math.atan2(v[2], -v[1]), frontPlane = (v: V3) => Math.atan2(side * v[0], -v[1]);
+  const sign = (dr: number, ds: number) => {
+    const ang = dr ? sidePlane : frontPlane;
+    return wrapAngle((ang(local(arm(r0 + dr, sp0 + ds).H)) - ang(local(arm(r0 - dr, sp0 - ds).H))) / DEG) >= 0 ? 1 : -1;
+  };
+  // A way (`FaceWay`: ±1 the rotation forward or back, ±2 the spread out or in): the least amount
+  // along it that clears the outline, and what it costs — how far the hand's direction from the
+  // shoulder turns (degrees).
+  const h0 = norm3(sub3(arm(r0, sp0).H, S));
+  const found = new Map<number, { r: number; sp: number; cost: number } | undefined>();
+  const way = (code: number) => {
+    if (!found.has(code)) {
+      const [dr, ds] = Math.abs(code) === 1 ? [1, 0] : [0, 1], k = sign(dr, ds) * Math.sign(code);
+      const t = least(dr * k, ds * k);
+      const r = r0 + dr * k * (t ?? 0), sp = sp0 + ds * k * (t ?? 0);
+      found.set(code, t === undefined ? undefined : { r, sp, cost: Math.acos(clamp(dot3(norm3(sub3(arm(r, sp).H, S)), h0), -1, 1)) / DEG + (code === -1 ? FACE_BACK : 0) });
+    }
+    return found.get(code);
+  };
+  // The way kept from the frame before (`keep`), while it clears the arm within `FACE_TURN` and the
+  // other way of its channel is not cheaper by `FACE_KEEP`; else the cheaper way of the channel that
+  // turns the arm in the picture — facing the camera its spread, from a side its rotation — then of
+  // the other channel (out and forward on a tie).
+  let pick: FaceWay | undefined;
+  if (keep) {
+    const k = way(keep), o = way(-keep);
+    if (k && !(o && o.cost + FACE_KEEP < k.cost)) pick = keep;
   }
-  const [r, sp] = at(found ?? tmax);
-  s.brot[Ub.index] = r0 + (r - r0) * strength;
-  s.bspread[Ub.index] = sp0 + (sp - sp0) * strength;
-  return true;
+  const facing = Math.abs(Math.sin(yaw)) < 0.5;
+  if (pick === undefined)
+    for (const c of facing ? ([2, 1] as const) : ([1, 2] as const)) {
+      const a = way(c), b = way(-c);
+      if (a || b) {
+        pick = a && (!b || a.cost <= b.cost) ? c : (-c as FaceWay);
+        break;
+      }
+    }
+  if (pick === undefined) return apply(0, [0, 0]);
+  const best = way(pick)!;
+  return apply(pick, [best.r - r0, best.sp - sp0]);
 }
 
 /** `a` plus the whole turns bringing it nearest `ref` (radians). */
@@ -796,10 +1045,14 @@ export function rig3dDrawOrder(rig: Rig, r3: CompiledRig3d, frame: Rig3dFrame): 
     if (!ds.length) continue;
     const d = Math.max(...ds) - bd;
     const margin = ch.margin ?? 25;
-    // (A hand hidden by the body — its wrist behind the solid's occluders there — goes behind it.)
+    // (A hand hidden by the body — its wrist behind the solid's occluders there — goes behind it.
+    // Only something else hides it: an occluder on the chain's own bones — its own arm, an occluder
+    // in the other arm's solid — always has the wrist inside it, a hand thrust out in front of the
+    // chest would go behind the torso and pop back between frames.)
     const cover = ch.behind !== undefined ? rig.parts[ch.behind] : undefined;
     const last = ch.bones[ch.bones.length - 1], tv = frame.tipView.get(last);
-    if (cover?.type === "solid" && tv && occluderDepthAt(cover.bodies, r3, frame, tv[0], tv[1]) > tv[2] + 2) {
+    const others = cover?.type === "solid" ? cover.bodies.filter((b) => b.fill || !b.shapes.some((sh) => (sh.kind === "cone" ? [sh.from.bone, sh.to.bone] : [sh.at.bone]).some((x) => ch.bones.includes(x)))) : [];
+    if (cover?.type === "solid" && tv && occluderDepthAt(others, r3, frame, tv[0], tv[1]) > tv[2] + 2) {
       if (backKey !== undefined) moves.push({ parts: ch.parts, slot: backKey, depth: -1e6 });
       continue;
     }
