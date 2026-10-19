@@ -1,11 +1,11 @@
 # animeStudio
 
 <p align="center">
-  <a href="examples/promo/animestudio-promo.mp4">
-    <img src="examples/promo/poster.jpg" alt="animeStudio feature promo — click to play (29 s)" width="720">
+  <a href="https://www.youtube.com/watch?v=Drc0mmkj6pA">
+    <img src="examples/promo/poster.jpg" alt="animeStudio feature promo on YouTube — click to play (29 s)" width="720">
   </a>
   <br>
-  <sub>▶ The 30-second feature promo, made entirely with animeStudio (<a href="examples/promo">source</a>).</sub>
+  <sub>▶ <a href="https://www.youtube.com/watch?v=Drc0mmkj6pA">Watch the 30-second feature promo on YouTube</a> — made entirely with animeStudio (<a href="examples/promo">source</a>, <a href="examples/promo/animestudio-promo.mp4">mp4</a>).</sub>
 </p>
 
 A deterministic **2D cartoon animation engine** for the web. Characters are SVG art bound to
